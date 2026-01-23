@@ -24,6 +24,7 @@ import type {
   RestoreProgress,
   ObjectMetadata,
   ObjectType,
+  ObjectDefinition,
   ColumnInfo,
   IndexInfo,
   ForeignKeyInfo,
@@ -127,6 +128,13 @@ interface ForgeAPI {
       databaseName: string,
       path: string
     ) => Promise<ObjectMetadata[]>;
+    getDefinition: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      name: string,
+      objectType: string
+    ) => Promise<ObjectDefinition>;
     getTableColumns: (
       connectionId: string,
       databaseName: string,
@@ -169,6 +177,18 @@ interface ForgeAPI {
       schema: string,
       tableName: string
     ) => Promise<ExtendedProperty[]>;
+    scriptTableAsCreate: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<string>;
+    scriptTableAsInsert: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<string>;
   };
   query: {
     execute: (request: QueryRequest) => Promise<QueryResult>;

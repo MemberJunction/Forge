@@ -637,8 +637,23 @@ export class SidebarComponent {
         id: 'script-create',
         label: 'Script Table as CREATE',
         icon: 'code',
-        action: () => {
-          this.notification.info('Script as CREATE feature coming soon');
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const sql = await window.forge.explorer.scriptTableAsCreate(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name
+              );
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+              this.router.navigate(['/query']);
+            } catch (err) {
+              this.notification.error('Failed to generate CREATE script');
+            }
+          }
         },
       },
       {
@@ -659,8 +674,23 @@ export class SidebarComponent {
         id: 'script-insert',
         label: 'Script Table as INSERT',
         icon: 'code',
-        action: () => {
-          this.notification.info('Script as INSERT feature coming soon');
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const sql = await window.forge.explorer.scriptTableAsInsert(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name
+              );
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+              this.router.navigate(['/query']);
+            } catch (err) {
+              this.notification.error('Failed to generate INSERT script');
+            }
+          }
         },
       },
       { id: 'div2', label: '', divider: true },
@@ -711,8 +741,25 @@ export class SidebarComponent {
         id: 'script-create',
         label: 'Script View as CREATE',
         icon: 'code',
-        action: () => {
-          this.notification.info('Script as CREATE feature coming soon');
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const result = await window.forge.explorer.getDefinition(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name,
+                'view'
+              );
+              const sql = result.definition || '-- View definition not available';
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+              this.router.navigate(['/query']);
+            } catch (err) {
+              this.notification.error('Failed to get view definition');
+            }
+          }
         },
       },
       { id: 'div2', label: '', divider: true },
@@ -756,16 +803,52 @@ export class SidebarComponent {
         id: 'script-create',
         label: 'Script Procedure as CREATE',
         icon: 'code',
-        action: () => {
-          this.notification.info('Script as CREATE feature coming soon');
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const result = await window.forge.explorer.getDefinition(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name,
+                'procedure'
+              );
+              const sql = result.definition || '-- Procedure definition not available';
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+              this.router.navigate(['/query']);
+            } catch (err) {
+              this.notification.error('Failed to get procedure definition');
+            }
+          }
         },
       },
       {
         id: 'script-alter',
         label: 'Script Procedure as ALTER',
         icon: 'code',
-        action: () => {
-          this.notification.info('Script as ALTER feature coming soon');
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const result = await window.forge.explorer.getDefinition(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name,
+                'procedure'
+              );
+              // Replace CREATE with ALTER in the definition
+              let sql = result.definition || '-- Procedure definition not available';
+              sql = sql.replace(/CREATE\s+(PROCEDURE|PROC)\s+/i, 'ALTER $1 ');
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+              this.router.navigate(['/query']);
+            } catch (err) {
+              this.notification.error('Failed to get procedure definition');
+            }
+          }
         },
       },
       { id: 'div2', label: '', divider: true },

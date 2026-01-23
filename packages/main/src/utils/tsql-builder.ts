@@ -550,11 +550,11 @@ SELECT
   ISNULL(SUM(a.total_pages - a.used_pages) * 8, 0) as unusedSpaceKb,
   ISNULL(SUM(a.total_pages) * 8, 0) as totalSpaceKb,
 
-  -- Identity info
-  CASE WHEN ic.object_id IS NOT NULL THEN 1 ELSE 0 END as hasIdentity,
-  ic.name as identityColumn,
-  IDENT_SEED('${this.escapeString(schema)}.${this.escapeString(table)}') as identitySeed,
-  IDENT_INCR('${this.escapeString(schema)}.${this.escapeString(table)}') as identityIncrement,
+  -- Identity info (using sys.identity_columns for reliability)
+  CASE WHEN idc.object_id IS NOT NULL THEN 1 ELSE 0 END as hasIdentity,
+  idc.name as identityColumn,
+  idc.seed_value as identitySeed,
+  idc.increment_value as identityIncrement,
 
   -- Replication & text image
   t.is_replicated as isReplicated,
@@ -571,15 +571,12 @@ LEFT JOIN sys.allocation_units a ON p.partition_id = a.container_id
 LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.type IN (0, 1)
 LEFT JOIN sys.filegroups fg ON i.data_space_id = fg.data_space_id
 LEFT JOIN sys.data_spaces tids ON t.lob_data_space_id = tids.data_space_id
-LEFT JOIN (
-  SELECT c.object_id, c.name
-  FROM sys.columns c
-  WHERE c.is_identity = 1
-) ic ON t.object_id = ic.object_id
+LEFT JOIN sys.identity_columns idc ON t.object_id = idc.object_id
 WHERE s.name = '${this.escapeString(schema)}'
   AND t.name = '${this.escapeString(table)}'
 GROUP BY s.name, t.name, t.object_id, t.create_date, t.modify_date,
-         ic.object_id, ic.name, t.is_replicated, t.lob_data_space_id, tids.name, fg.name;`;
+         idc.object_id, idc.name, idc.seed_value, idc.increment_value,
+         t.is_replicated, t.lob_data_space_id, tids.name, fg.name;`;
   }
 
   /**
@@ -678,5 +675,228 @@ EXEC sp_dropextendedproperty
   @name = N'${escapedName}',
   @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
   @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}';`;
+  }
+
+  /**
+   * Generate query to get comprehensive CREATE TABLE script data
+   * This returns all the information needed to build a CREATE TABLE statement
+   */
+  static getTableScriptData(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+
+-- Get columns with full type info
+SELECT
+  c.column_id as ordinalPosition,
+  c.name as columnName,
+  tp.name as dataType,
+  c.max_length as maxLength,
+  c.precision,
+  c.scale,
+  c.is_nullable as isNullable,
+  c.is_identity as isIdentity,
+  idc.seed_value as identitySeed,
+  idc.increment_value as identityIncrement,
+  dc.definition as defaultValue,
+  dc.name as defaultConstraintName,
+  cc.definition as computedDefinition,
+  cc.is_persisted as computedIsPersisted
+FROM sys.columns c
+INNER JOIN sys.types tp ON c.user_type_id = tp.user_type_id
+INNER JOIN sys.objects o ON c.object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
+LEFT JOIN sys.identity_columns idc ON c.object_id = idc.object_id AND c.column_id = idc.column_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}'
+ORDER BY c.column_id;`;
+  }
+
+  /**
+   * Generate query to get primary key info for scripting
+   */
+  static getPrimaryKeyScript(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+SELECT
+  kc.name as constraintName,
+  i.type_desc as indexType,
+  STUFF((
+    SELECT ', ' + QUOTENAME(c.name) + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE '' END
+    FROM sys.index_columns ic
+    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
+    ORDER BY ic.key_ordinal
+    FOR XML PATH('')
+  ), 1, 2, '') as columns
+FROM sys.key_constraints kc
+INNER JOIN sys.indexes i ON kc.parent_object_id = i.object_id AND kc.unique_index_id = i.index_id
+INNER JOIN sys.objects o ON kc.parent_object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}'
+  AND kc.type = 'PK';`;
+  }
+
+  /**
+   * Generate query to get foreign keys for scripting
+   */
+  static getForeignKeyScript(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+SELECT
+  fk.name as constraintName,
+  STUFF((
+    SELECT ', ' + QUOTENAME(c.name)
+    FROM sys.foreign_key_columns fkc
+    INNER JOIN sys.columns c ON fkc.parent_object_id = c.object_id AND fkc.parent_column_id = c.column_id
+    WHERE fkc.constraint_object_id = fk.object_id
+    ORDER BY fkc.constraint_column_id
+    FOR XML PATH('')
+  ), 1, 2, '') as columns,
+  SCHEMA_NAME(ro.schema_id) as referencedSchema,
+  ro.name as referencedTable,
+  STUFF((
+    SELECT ', ' + QUOTENAME(c.name)
+    FROM sys.foreign_key_columns fkc
+    INNER JOIN sys.columns c ON fkc.referenced_object_id = c.object_id AND fkc.referenced_column_id = c.column_id
+    WHERE fkc.constraint_object_id = fk.object_id
+    ORDER BY fkc.constraint_column_id
+    FOR XML PATH('')
+  ), 1, 2, '') as referencedColumns,
+  fk.delete_referential_action_desc as onDelete,
+  fk.update_referential_action_desc as onUpdate
+FROM sys.foreign_keys fk
+INNER JOIN sys.objects o ON fk.parent_object_id = o.object_id
+INNER JOIN sys.objects ro ON fk.referenced_object_id = ro.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}';`;
+  }
+
+  /**
+   * Generate query to get unique constraints and check constraints for scripting
+   */
+  static getConstraintsScript(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+-- Unique constraints
+SELECT
+  'UNIQUE' as constraintType,
+  kc.name as constraintName,
+  i.type_desc as indexType,
+  STUFF((
+    SELECT ', ' + QUOTENAME(c.name)
+    FROM sys.index_columns ic
+    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
+    ORDER BY ic.key_ordinal
+    FOR XML PATH('')
+  ), 1, 2, '') as columns,
+  NULL as definition
+FROM sys.key_constraints kc
+INNER JOIN sys.indexes i ON kc.parent_object_id = i.object_id AND kc.unique_index_id = i.index_id
+INNER JOIN sys.objects o ON kc.parent_object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}'
+  AND kc.type = 'UQ'
+
+UNION ALL
+
+-- Check constraints
+SELECT
+  'CHECK' as constraintType,
+  cc.name as constraintName,
+  NULL as indexType,
+  NULL as columns,
+  cc.definition
+FROM sys.check_constraints cc
+INNER JOIN sys.objects o ON cc.parent_object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}';`;
+  }
+
+  /**
+   * Generate query to get non-clustered indexes for scripting
+   */
+  static getIndexesScript(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+SELECT
+  i.name as indexName,
+  i.type_desc as indexType,
+  i.is_unique as isUnique,
+  STUFF((
+    SELECT ', ' + QUOTENAME(c.name) + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE '' END
+    FROM sys.index_columns ic
+    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
+    ORDER BY ic.key_ordinal
+    FOR XML PATH('')
+  ), 1, 2, '') as keyColumns,
+  STUFF((
+    SELECT ', ' + QUOTENAME(c.name)
+    FROM sys.index_columns ic
+    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1
+    ORDER BY ic.key_ordinal
+    FOR XML PATH('')
+  ), 1, 2, '') as includedColumns,
+  i.filter_definition as filterDefinition
+FROM sys.indexes i
+INNER JOIN sys.objects o ON i.object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}'
+  AND i.is_primary_key = 0
+  AND i.type > 0
+  AND i.is_unique_constraint = 0
+ORDER BY i.name;`;
+  }
+
+  /**
+   * Generate INSERT statement template for a table
+   */
+  static generateInsertTemplate(
+    schema: string,
+    table: string,
+    columns: Array<{ name: string; dataType: string; isIdentity: boolean }>
+  ): string {
+    // Filter out identity columns
+    const insertColumns = columns.filter(c => !c.isIdentity);
+    const columnNames = insertColumns.map(c => `[${c.name}]`).join(',\n    ');
+    const valuePlaceholders = insertColumns
+      .map(c => {
+        // Provide type hints in comments
+        const hint = this.getValuePlaceholder(c.dataType);
+        return `${hint} /* ${c.name} */`;
+      })
+      .join(',\n    ');
+
+    return `INSERT INTO [${schema}].[${table}] (
+    ${columnNames}
+)
+VALUES (
+    ${valuePlaceholders}
+);`;
+  }
+
+  /**
+   * Get a placeholder value based on data type
+   */
+  private static getValuePlaceholder(dataType: string): string {
+    const type = dataType.toLowerCase();
+    if (type.includes('char') || type.includes('text')) return "N''";
+    if (type.includes('date') || type.includes('time')) return 'GETDATE()';
+    if (type.includes('bit')) return '0';
+    if (type.includes('int') || type.includes('decimal') || type.includes('numeric')) return '0';
+    if (type.includes('float') || type.includes('real') || type.includes('money')) return '0.0';
+    if (type.includes('uniqueidentifier')) return 'NEWID()';
+    if (type.includes('binary') || type.includes('image')) return '0x';
+    if (type.includes('xml')) return "N'<root/>'";
+    return 'NULL';
   }
 }

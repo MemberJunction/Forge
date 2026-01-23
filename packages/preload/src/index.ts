@@ -131,6 +131,18 @@ export interface ForgeAPI {
       schema: string,
       tableName: string
     ) => Promise<ExtendedProperty[]>;
+    scriptTableAsCreate: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<string>;
+    scriptTableAsInsert: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<string>;
   };
 
   query: {
@@ -375,6 +387,22 @@ const forgeAPI: ForgeAPI = {
     getExtendedProperties: (connectionId, databaseName, schema, tableName) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.EXPLORER.GET_EXTENDED_PROPERTIES,
+        connectionId,
+        databaseName,
+        schema,
+        tableName
+      ),
+    scriptTableAsCreate: (connectionId, databaseName, schema, tableName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_CREATE,
+        connectionId,
+        databaseName,
+        schema,
+        tableName
+      ),
+    scriptTableAsInsert: (connectionId, databaseName, schema, tableName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_INSERT,
         connectionId,
         databaseName,
         schema,

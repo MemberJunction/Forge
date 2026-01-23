@@ -44,6 +44,9 @@ export const IPC_CHANNELS = {
     GET_TABLE_METADATA: 'explorer:get-table-metadata',
     GET_TABLE_PROPERTIES: 'explorer:get-table-properties',
     GET_EXTENDED_PROPERTIES: 'explorer:get-extended-properties',
+    // Scripting
+    SCRIPT_TABLE_CREATE: 'explorer:script-table-create',
+    SCRIPT_TABLE_INSERT: 'explorer:script-table-insert',
     // Legacy
     GET_TABLES: 'explorer:get-tables',
     GET_VIEWS: 'explorer:get-views',

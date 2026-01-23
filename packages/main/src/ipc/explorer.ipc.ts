@@ -253,4 +253,34 @@ export function registerExplorerHandlers(): void {
       return metadataService.listExtendedProperties(connectionId, database, schema, table);
     }
   );
+
+  // Script table as CREATE
+  ipcMain.handle(
+    IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_CREATE,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      schema: string,
+      table: string
+    ): Promise<string> => {
+      console.log(`[Explorer] Scripting ${database}.${schema}.${table} as CREATE`);
+      return metadataService.scriptTableAsCreate(connectionId, database, schema, table);
+    }
+  );
+
+  // Script table as INSERT
+  ipcMain.handle(
+    IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_INSERT,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      schema: string,
+      table: string
+    ): Promise<string> => {
+      console.log(`[Explorer] Scripting ${database}.${schema}.${table} as INSERT`);
+      return metadataService.scriptTableAsInsert(connectionId, database, schema, table);
+    }
+  );
 }
