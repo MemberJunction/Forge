@@ -254,6 +254,15 @@ export function registerExplorerHandlers(): void {
     }
   );
 
+  // Get enriched column metadata (with PK/FK info)
+  ipcMain.handle(
+    IPC_CHANNELS.EXPLORER.GET_ENRICHED_COLUMNS,
+    async (_event, connectionId: string, database: string, schema: string, table: string) => {
+      console.log(`[Explorer] Getting enriched column metadata for ${database}.${schema}.${table}`);
+      return metadataService.getEnrichedColumnMetadata(connectionId, database, schema, table);
+    }
+  );
+
   // Script table as CREATE
   ipcMain.handle(
     IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_CREATE,

@@ -542,7 +542,7 @@ SELECT
   t.modify_date as modifiedAt,
 
   -- Row count
-  ISNULL(SUM(p.rows), 0) as rowCount,
+  ISNULL(SUM(p.rows), 0) as [rowCount],
 
   -- Space info
   ISNULL(SUM(CASE WHEN a.type = 1 THEN a.total_pages END) * 8, 0) as dataSpaceKb,

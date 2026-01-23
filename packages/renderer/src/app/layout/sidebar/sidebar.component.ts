@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
@@ -12,6 +12,9 @@ import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TablePropertiesService } from '../../core/services/table-properties.service';
+import { IpcService } from '../../core/services/ipc.service';
+import { ConfirmDialogComponent } from '../../shared/components/dialog/confirm-dialog.component';
+import { InputDialogComponent } from '../../shared/components/dialog/input-dialog.component';
 
 @Component({
   selector: 'app-sidebar',
@@ -23,6 +26,8 @@ import { TablePropertiesService } from '../../core/services/table-properties.ser
     MatTooltipModule,
     MatMenuModule,
     MatDividerModule,
+    ConfirmDialogComponent,
+    InputDialogComponent,
   ],
   template: `
     <div class="sidebar-container">
@@ -195,6 +200,10 @@ import { TablePropertiesService } from '../../core/services/table-properties.ser
           </button>
         </div>
       </div>
+
+      <!-- Dialogs -->
+      <app-confirm-dialog #deleteDialog (confirmed)="onDeleteConfirmed()" />
+      <app-input-dialog #renameDialog (confirmed)="onRenameConfirmed($event)" />
     </div>
   `,
   styles: [
@@ -378,6 +387,9 @@ import { TablePropertiesService } from '../../core/services/table-properties.ser
   ],
 })
 export class SidebarComponent {
+  @ViewChild('deleteDialog') deleteDialog!: ConfirmDialogComponent;
+  @ViewChild('renameDialog') renameDialog!: InputDialogComponent;
+
   readonly connectionState = inject(ConnectionStateService);
   readonly explorerState = inject(ExplorerStateService);
   private readonly tabState = inject(TabStateService);
@@ -385,6 +397,11 @@ export class SidebarComponent {
   private readonly contextMenu = inject(ContextMenuService);
   private readonly notification = inject(NotificationService);
   private readonly tableProperties = inject(TablePropertiesService);
+  private readonly ipc = inject(IpcService);
+
+  // State for pending database operations
+  private pendingDeleteDatabase: string | null = null;
+  private pendingRenameDatabase: string | null = null;
 
   openConnectionDialog(): void {
     this.router.navigate(['/connections']);
@@ -577,7 +594,9 @@ export class SidebarComponent {
           node.databaseName === 'model' ||
           node.databaseName === 'tempdb',
         action: () => {
-          this.notification.info('Rename database feature coming soon');
+          if (node.databaseName) {
+            this.openRenameDialog(node.databaseName);
+          }
         },
       },
       {
@@ -590,7 +609,9 @@ export class SidebarComponent {
           node.databaseName === 'model' ||
           node.databaseName === 'tempdb',
         action: () => {
-          this.notification.info('Delete database feature coming soon');
+          if (node.databaseName) {
+            this.openDeleteDialog(node.databaseName);
+          }
         },
       },
     ];
@@ -869,5 +890,119 @@ export class SidebarComponent {
         },
       },
     ];
+  }
+
+  // Database rename/delete dialog methods
+  private openRenameDialog(databaseName: string): void {
+    this.pendingRenameDatabase = databaseName;
+    this.renameDialog.open({
+      title: 'Rename Database',
+      message: `Enter a new name for the database "${databaseName}".`,
+      inputLabel: 'New Database Name',
+      inputValue: databaseName,
+      inputPlaceholder: 'Enter new database name',
+      confirmText: 'Rename',
+      validate: (value: string) => {
+        if (!value.trim()) return 'Database name is required';
+        if (value === databaseName) return 'New name must be different';
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
+          return 'Invalid database name. Use letters, numbers, and underscores only.';
+        }
+        if (value.length > 128) return 'Database name is too long (max 128 characters)';
+        return null;
+      },
+    });
+  }
+
+  private openDeleteDialog(databaseName: string): void {
+    this.pendingDeleteDatabase = databaseName;
+    this.deleteDialog.open({
+      title: 'Delete Database',
+      message: `Are you sure you want to delete the database "${databaseName}"? This action cannot be undone and all data will be permanently lost.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger',
+      confirmationInput: databaseName,
+    });
+  }
+
+  async onRenameConfirmed(newName: string): Promise<void> {
+    const oldName = this.pendingRenameDatabase;
+    this.pendingRenameDatabase = null;
+
+    if (!oldName) return;
+
+    const connectionId = this.connectionState.activeConnectionId();
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    try {
+      const result = await this.ipc
+        .renameDatabase(connectionId, { currentName: oldName, newName })
+        .toPromise();
+
+      if (result?.success) {
+        this.notification.success(`Database renamed to "${newName}"`);
+        // Refresh the database list
+        await this.connectionState.loadDatabases();
+        // If the renamed database was selected, update selection
+        if (this.connectionState.selectedDatabase() === oldName) {
+          this.connectionState.selectDatabase(newName);
+        }
+        // Refresh explorer tree
+        const serverNode = this.explorerState
+          .rootNodes()
+          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
+        if (serverNode) {
+          await this.explorerState.refreshNode(serverNode.id);
+        }
+      } else {
+        this.notification.error(result?.error || 'Failed to rename database');
+      }
+    } catch (error) {
+      this.notification.error(error instanceof Error ? error.message : 'Failed to rename database');
+    }
+  }
+
+  async onDeleteConfirmed(): Promise<void> {
+    const databaseName = this.pendingDeleteDatabase;
+    this.pendingDeleteDatabase = null;
+
+    if (!databaseName) return;
+
+    const connectionId = this.connectionState.activeConnectionId();
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    try {
+      const result = await this.ipc
+        .deleteDatabase(connectionId, { name: databaseName, closeConnections: true })
+        .toPromise();
+
+      if (result?.success) {
+        this.notification.success(`Database "${databaseName}" deleted`);
+        // Refresh the database list
+        await this.connectionState.loadDatabases();
+        // If the deleted database was selected, clear selection
+        if (this.connectionState.selectedDatabase() === databaseName) {
+          this.connectionState.selectDatabase('');
+        }
+        // Refresh explorer tree
+        const serverNode = this.explorerState
+          .rootNodes()
+          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
+        if (serverNode) {
+          await this.explorerState.refreshNode(serverNode.id);
+        }
+      } else {
+        this.notification.error(result?.error || 'Failed to delete database');
+      }
+    } catch (error) {
+      this.notification.error(error instanceof Error ? error.message : 'Failed to delete database');
+    }
   }
 }

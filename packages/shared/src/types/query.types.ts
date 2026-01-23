@@ -18,6 +18,19 @@ export interface ColumnMetadata {
   maxLength?: number;
   precision?: number;
   scale?: number;
+  /** Whether this column is a primary key */
+  isPrimaryKey?: boolean;
+  /** Foreign key reference info if this column is a FK */
+  foreignKey?: {
+    referencedSchema: string;
+    referencedTable: string;
+    referencedColumn: string;
+    constraintName?: string;
+  };
+  /** Whether this column is an identity/auto-increment column */
+  isIdentity?: boolean;
+  /** Default value expression */
+  defaultValue?: string;
 }
 
 export interface ResultSet {

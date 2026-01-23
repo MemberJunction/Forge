@@ -120,24 +120,55 @@ export interface RowDetailData {
                 <table class="schema-table">
                   <thead>
                     <tr>
+                      <th class="col-key-header">Key</th>
                       <th>Column</th>
                       <th>Data Type</th>
                       <th>Nullable</th>
-                      <th>Max Length</th>
-                      <th>Precision</th>
-                      <th>Scale</th>
+                      <th>Default</th>
                     </tr>
                   </thead>
                   <tbody>
                     @for (col of data()?.columns ?? []; track col.name) {
-                      <tr>
+                      <tr [class.pk-row]="col.isPrimaryKey" [class.fk-row]="col.foreignKey">
+                        <td class="col-key">
+                          @if (col.isPrimaryKey) {
+                            <span class="key-badge pk" title="Primary Key">PK</span>
+                          }
+                          @if (col.foreignKey) {
+                            <span
+                              class="key-badge fk"
+                              title="Foreign Key to {{ col.foreignKey.referencedSchema }}.{{
+                                col.foreignKey.referencedTable
+                              }}.{{ col.foreignKey.referencedColumn }}"
+                              >FK</span
+                            >
+                          }
+                          @if (col.isIdentity) {
+                            <span class="key-badge identity" title="Identity Column">ID</span>
+                          }
+                        </td>
                         <td class="col-name">{{ col.name }}</td>
-                        <td class="col-type">{{ col.type }}</td>
-                        <td class="col-nullable">{{ col.nullable ? 'Yes' : 'No' }}</td>
-                        <td class="col-length">{{ col.maxLength ?? '-' }}</td>
-                        <td class="col-precision">{{ col.precision ?? '-' }}</td>
-                        <td class="col-scale">{{ col.scale ?? '-' }}</td>
+                        <td class="col-type">{{ formatColumnType(col) }}</td>
+                        <td class="col-nullable">
+                          @if (col.nullable) {
+                            <span class="nullable-yes">Yes</span>
+                          } @else {
+                            <span class="nullable-no">No</span>
+                          }
+                        </td>
+                        <td class="col-default">{{ col.defaultValue ?? '-' }}</td>
                       </tr>
+                      @if (col.foreignKey) {
+                        <tr class="fk-detail-row">
+                          <td></td>
+                          <td colspan="4" class="fk-reference">
+                            <mat-icon class="fk-icon">subdirectory_arrow_right</mat-icon>
+                            References: {{ col.foreignKey.referencedSchema }}.{{
+                              col.foreignKey.referencedTable
+                            }}({{ col.foreignKey.referencedColumn }})
+                          </td>
+                        </tr>
+                      }
                     }
                   </tbody>
                 </table>
@@ -470,8 +501,48 @@ export interface RowDetailData {
             top: 0;
           }
 
+          .col-key-header {
+            width: 70px;
+            text-align: center;
+          }
+
           td {
             color: var(--text-primary);
+          }
+
+          .col-key {
+            text-align: center;
+            display: flex;
+            gap: 4px;
+            justify-content: center;
+          }
+
+          .key-badge {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 2px 5px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+
+            &.pk {
+              background-color: rgba(255, 193, 7, 0.2);
+              color: #ffc107;
+              border: 1px solid rgba(255, 193, 7, 0.4);
+            }
+
+            &.fk {
+              background-color: rgba(33, 150, 243, 0.2);
+              color: #2196f3;
+              border: 1px solid rgba(33, 150, 243, 0.4);
+            }
+
+            &.identity {
+              background-color: rgba(156, 39, 176, 0.2);
+              color: #ce93d8;
+              border: 1px solid rgba(156, 39, 176, 0.4);
+            }
           }
 
           .col-name {
@@ -483,11 +554,52 @@ export interface RowDetailData {
             color: var(--status-info);
           }
 
-          .col-nullable,
-          .col-length,
-          .col-precision,
-          .col-scale {
+          .col-nullable {
+            .nullable-yes {
+              color: var(--text-muted);
+            }
+            .nullable-no {
+              color: var(--status-warning);
+              font-weight: 500;
+            }
+          }
+
+          .col-default {
+            font-family: var(--font-mono);
+            font-size: var(--font-size-xs);
             color: var(--text-secondary);
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .pk-row td {
+            background-color: rgba(255, 193, 7, 0.05);
+          }
+
+          .fk-row td {
+            background-color: rgba(33, 150, 243, 0.05);
+          }
+
+          .fk-detail-row {
+            .fk-reference {
+              font-size: var(--font-size-xs);
+              color: var(--status-info);
+              font-family: var(--font-mono);
+              padding-top: 0;
+              padding-bottom: var(--spacing-sm);
+              display: flex;
+              align-items: center;
+              gap: var(--spacing-xs);
+
+              .fk-icon {
+                font-size: 14px;
+                width: 14px;
+                height: 14px;
+                color: var(--text-muted);
+              }
+            }
           }
 
           tr:hover td {
@@ -656,5 +768,26 @@ export class RowDetailPanelComponent {
   private truncateValue(value: string, maxLength: number): string {
     if (value.length <= maxLength) return value;
     return value.substring(0, maxLength);
+  }
+
+  formatColumnType(col: ColumnMetadata): string {
+    let typeStr = col.type;
+
+    // Add length/precision info for certain types
+    if (col.maxLength && col.maxLength > 0 && col.maxLength !== 2147483647) {
+      if (
+        ['varchar', 'nvarchar', 'char', 'nchar', 'binary', 'varbinary'].some(t =>
+          col.type.toLowerCase().includes(t)
+        )
+      ) {
+        typeStr = `${col.type}(${col.maxLength === -1 ? 'MAX' : col.maxLength})`;
+      }
+    } else if (col.precision && col.precision > 0) {
+      if (['decimal', 'numeric'].some(t => col.type.toLowerCase().includes(t))) {
+        typeStr = `${col.type}(${col.precision}${col.scale ? ',' + col.scale : ''})`;
+      }
+    }
+
+    return typeStr;
   }
 }

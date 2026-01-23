@@ -661,6 +661,95 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
+   * Get enriched column metadata for a table with PK/FK info
+   * Returns data in the format expected by ColumnMetadata (for query results)
+   */
+  async getEnrichedColumnMetadata(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<
+    Array<{
+      name: string;
+      type: string;
+      nullable: boolean;
+      maxLength: number | null;
+      precision: number | null;
+      scale: number | null;
+      isPrimaryKey: boolean;
+      isIdentity: boolean;
+      defaultValue: string | null;
+      foreignKey: {
+        referencedSchema: string;
+        referencedTable: string;
+        referencedColumn: string;
+        constraintName: string;
+      } | null;
+    }>
+  > {
+    // Get columns and FK info in parallel
+    const [columns, foreignKeys] = await Promise.all([
+      this.listColumns(connectionId, database, schema, table),
+      this.listForeignKeys(connectionId, database, schema, table),
+    ]);
+
+    // Get identity column info
+    const identitySql = TsqlBuilder.getTableScriptData(database, schema, table);
+    const identityResult = await this.poolManager.query<{
+      columnName: string;
+      isIdentity: boolean;
+      defaultValue: string;
+    }>(connectionId, identitySql);
+
+    // Build a map of column -> FK info
+    const fkMap = new Map<
+      string,
+      {
+        referencedSchema: string;
+        referencedTable: string;
+        referencedColumn: string;
+        constraintName: string;
+      }
+    >();
+    for (const fk of foreignKeys) {
+      // Handle composite FKs - each column maps to corresponding referenced column
+      const cols = fk.columns;
+      const refCols = fk.referencedColumns;
+      for (let i = 0; i < cols.length; i++) {
+        fkMap.set(cols[i], {
+          referencedSchema: fk.referencedSchema,
+          referencedTable: fk.referencedTable,
+          referencedColumn: refCols[i] || refCols[0],
+          constraintName: fk.name,
+        });
+      }
+    }
+
+    // Build a map of column -> identity/default info
+    const identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
+    for (const row of identityResult.recordset) {
+      identityMap.set(row.columnName, {
+        isIdentity: Boolean(row.isIdentity),
+        defaultValue: row.defaultValue,
+      });
+    }
+
+    return columns.map(col => ({
+      name: col.name,
+      type: col.dataType,
+      nullable: col.isNullable,
+      maxLength: col.maxLength ?? null,
+      precision: col.precision ?? null,
+      scale: col.scale ?? null,
+      isPrimaryKey: col.isPrimaryKey ?? false,
+      isIdentity: identityMap.get(col.name)?.isIdentity ?? false,
+      defaultValue: identityMap.get(col.name)?.defaultValue ?? null,
+      foreignKey: fkMap.get(col.name) ?? null,
+    }));
+  }
+
+  /**
    * Invalidate all caches for a connection
    */
   invalidateConnection(connectionId: string): void {

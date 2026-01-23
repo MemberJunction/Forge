@@ -143,6 +143,30 @@ export interface ForgeAPI {
       schema: string,
       tableName: string
     ) => Promise<string>;
+    getEnrichedColumns: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<
+      Array<{
+        name: string;
+        type: string;
+        nullable: boolean;
+        maxLength: number | null;
+        precision: number | null;
+        scale: number | null;
+        isPrimaryKey: boolean;
+        isIdentity: boolean;
+        defaultValue: string | null;
+        foreignKey: {
+          referencedSchema: string;
+          referencedTable: string;
+          referencedColumn: string;
+          constraintName: string;
+        } | null;
+      }>
+    >;
   };
 
   query: {
@@ -403,6 +427,14 @@ const forgeAPI: ForgeAPI = {
     scriptTableAsInsert: (connectionId, databaseName, schema, tableName) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_INSERT,
+        connectionId,
+        databaseName,
+        schema,
+        tableName
+      ),
+    getEnrichedColumns: (connectionId, databaseName, schema, tableName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.EXPLORER.GET_ENRICHED_COLUMNS,
         connectionId,
         databaseName,
         schema,
