@@ -1,0 +1,538 @@
+import { Component, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { Router, ActivatedRoute } from '@angular/router';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatInputModule } from '@angular/material/input';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatCardModule } from '@angular/material/card';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { ConnectionStateService } from '../../core/state/connection.state';
+import { ExplorerStateService } from '../../core/state/explorer.state';
+import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
+
+@Component({
+  selector: 'app-connections',
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatIconModule,
+    MatButtonModule,
+    MatInputModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatCheckboxModule,
+    MatProgressSpinnerModule,
+    MatCardModule,
+    MatDividerModule,
+    MatTooltipModule,
+  ],
+  template: `
+    <div class="connections-container">
+      <div class="connections-sidebar">
+        <div class="sidebar-header">
+          <h2>Connections</h2>
+          <button mat-icon-button matTooltip="New Connection" (click)="newConnection()">
+            <mat-icon>add</mat-icon>
+          </button>
+        </div>
+        <div class="connection-list">
+          @for (profile of connectionState.profiles(); track profile.id) {
+            <div
+              class="connection-item"
+              [class.selected]="selectedProfileId() === profile.id"
+              (click)="selectProfile(profile)"
+            >
+              <mat-icon>dns</mat-icon>
+              <div class="connection-info">
+                <span class="name">{{ profile.name }}</span>
+                <span class="server">{{ profile.server }}</span>
+              </div>
+              <button
+                mat-icon-button
+                matTooltip="Delete"
+                (click)="deleteProfile(profile.id, $event)"
+              >
+                <mat-icon>delete</mat-icon>
+              </button>
+            </div>
+          }
+          @if (!connectionState.hasProfiles()) {
+            <div class="empty-state">
+              <mat-icon>cloud_off</mat-icon>
+              <p>No saved connections</p>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="connection-form">
+        <h2>{{ isEditing() ? 'Edit Connection' : 'New Connection' }}</h2>
+
+        <mat-card>
+          <mat-card-content>
+            <!-- Connection Name -->
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Connection Name *</mat-label>
+              <input matInput [(ngModel)]="formData.name" placeholder="My SQL Server" required />
+              <mat-hint>Required for saving the connection</mat-hint>
+            </mat-form-field>
+
+            <!-- Server -->
+            <div class="form-row">
+              <mat-form-field appearance="outline" class="flex-2">
+                <mat-label>Server</mat-label>
+                <input matInput [(ngModel)]="formData.server" placeholder="localhost or hostname" />
+              </mat-form-field>
+              <mat-form-field appearance="outline" class="flex-1">
+                <mat-label>Port</mat-label>
+                <input matInput type="number" [(ngModel)]="formData.port" placeholder="1433" />
+              </mat-form-field>
+            </div>
+
+            <mat-divider />
+
+            <!-- Authentication -->
+            <h3>Authentication</h3>
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Authentication Type</mat-label>
+              <mat-select [(ngModel)]="formData.authenticationType">
+                <mat-option value="sql">SQL Server Authentication</mat-option>
+                <mat-option value="windows">Windows Authentication</mat-option>
+                <mat-option value="azure-ad">Azure AD Authentication</mat-option>
+              </mat-select>
+            </mat-form-field>
+
+            @if (formData.authenticationType === 'sql') {
+              <div class="form-row">
+                <mat-form-field appearance="outline" class="flex-1">
+                  <mat-label>Username</mat-label>
+                  <input matInput [(ngModel)]="formData.username" />
+                </mat-form-field>
+                <mat-form-field appearance="outline" class="flex-1">
+                  <mat-label>Password</mat-label>
+                  <input matInput type="password" [(ngModel)]="formData.password" />
+                </mat-form-field>
+              </div>
+            }
+
+            <mat-divider />
+
+            <!-- Options -->
+            <h3>Options</h3>
+            <div class="checkbox-row">
+              <mat-checkbox [(ngModel)]="formData.encrypt"> Encrypt Connection </mat-checkbox>
+              <mat-checkbox [(ngModel)]="formData.trustServerCertificate">
+                Trust Server Certificate
+              </mat-checkbox>
+            </div>
+
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Connection Timeout (seconds)</mat-label>
+              <input matInput type="number" [(ngModel)]="formData.connectionTimeout" />
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Default Database (optional)</mat-label>
+              <input matInput [(ngModel)]="formData.database" placeholder="master" />
+            </mat-form-field>
+          </mat-card-content>
+
+          <mat-card-actions align="end">
+            <button mat-button (click)="cancel()">Cancel</button>
+            <button
+              mat-stroked-button
+              color="primary"
+              [disabled]="!canTestConnection() || testing()"
+              (click)="testConnection()"
+            >
+              @if (testing()) {
+                <mat-spinner diameter="18" />
+              } @else {
+                Test Connection
+              }
+            </button>
+            <button
+              mat-flat-button
+              color="primary"
+              [disabled]="!isValid() || saving()"
+              (click)="saveConnection()"
+            >
+              @if (saving()) {
+                <mat-spinner diameter="18" />
+              } @else {
+                {{ isEditing() ? 'Update' : 'Save' }}
+              }
+            </button>
+            <button
+              mat-flat-button
+              color="accent"
+              [disabled]="!isValid() || connectionState.connecting()"
+              (click)="connectNow()"
+            >
+              @if (connectionState.connecting()) {
+                <mat-spinner diameter="18" />
+              } @else {
+                Connect
+              }
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      </div>
+    </div>
+  `,
+  styles: [
+    `
+      .connections-container {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .connections-sidebar {
+        width: 280px;
+        border-right: 1px solid var(--border-primary);
+        background-color: var(--bg-secondary);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--spacing-md);
+        border-bottom: 1px solid var(--border-primary);
+
+        h2 {
+          font-size: var(--font-size-lg);
+          font-weight: 600;
+          margin: 0;
+        }
+      }
+
+      .connection-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: var(--spacing-sm);
+      }
+
+      .connection-item {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: var(--spacing-sm);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: background-color var(--transition-fast);
+
+        &:hover {
+          background-color: var(--bg-hover);
+        }
+
+        &.selected {
+          background-color: var(--bg-active);
+        }
+
+        mat-icon {
+          color: var(--text-secondary);
+        }
+
+        .connection-info {
+          flex: 1;
+          min-width: 0;
+
+          .name {
+            display: block;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .server {
+            display: block;
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+        }
+
+        button {
+          opacity: 0;
+          transition: opacity var(--transition-fast);
+        }
+
+        &:hover button {
+          opacity: 1;
+        }
+      }
+
+      .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: var(--spacing-xl);
+        color: var(--text-muted);
+        text-align: center;
+
+        mat-icon {
+          font-size: 48px;
+          width: 48px;
+          height: 48px;
+          opacity: 0.5;
+          margin-bottom: var(--spacing-sm);
+        }
+      }
+
+      .connection-form {
+        flex: 1;
+        padding: var(--spacing-lg);
+        overflow-y: auto;
+
+        h2 {
+          font-size: var(--font-size-xl);
+          font-weight: 600;
+          margin-bottom: var(--spacing-md);
+        }
+
+        h3 {
+          font-size: var(--font-size-md);
+          font-weight: 600;
+          margin: var(--spacing-md) 0;
+          color: var(--text-secondary);
+        }
+      }
+
+      mat-card {
+        max-width: 600px;
+        background-color: var(--bg-secondary);
+      }
+
+      .full-width {
+        width: 100%;
+      }
+
+      .form-row {
+        display: flex;
+        gap: var(--spacing-md);
+      }
+
+      .flex-1 {
+        flex: 1;
+      }
+
+      .flex-2 {
+        flex: 2;
+      }
+
+      .checkbox-row {
+        display: flex;
+        gap: var(--spacing-lg);
+        margin-bottom: var(--spacing-md);
+      }
+
+      mat-card-actions {
+        padding: var(--spacing-md);
+        gap: var(--spacing-sm);
+
+        button mat-spinner {
+          display: inline-block;
+        }
+      }
+
+      mat-divider {
+        margin: var(--spacing-md) 0;
+      }
+    `,
+  ],
+})
+export class ConnectionsComponent {
+  readonly connectionState = inject(ConnectionStateService);
+  private readonly explorerState = inject(ExplorerStateService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+
+  selectedProfileId = signal<string | null>(null);
+  isEditing = signal(false);
+  testing = signal(false);
+  saving = signal(false);
+
+  formData: Partial<ConnectionProfile> & { password?: string } = {
+    name: '',
+    server: 'localhost',
+    port: 1433,
+    authenticationType: 'sql',
+    username: 'sa',
+    password: '',
+    encrypt: true,
+    trustServerCertificate: true,
+    connectionTimeout: 30,
+    database: '',
+  };
+
+  constructor() {
+    // Check for query params (from Docker container selection)
+    this.route.queryParams.subscribe(params => {
+      if (params['server']) {
+        this.formData.server = params['server'];
+      }
+      if (params['port']) {
+        this.formData.port = parseInt(params['port'], 10);
+      }
+    });
+  }
+
+  newConnection(): void {
+    this.selectedProfileId.set(null);
+    this.isEditing.set(false);
+    this.resetForm();
+  }
+
+  selectProfile(profile: ConnectionProfile): void {
+    this.selectedProfileId.set(profile.id);
+    this.isEditing.set(true);
+    this.formData = {
+      ...profile,
+      password: '', // Don't show stored password
+    };
+  }
+
+  async deleteProfile(profileId: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    await this.connectionState.deleteProfile(profileId);
+    if (this.selectedProfileId() === profileId) {
+      this.newConnection();
+    }
+  }
+
+  async testConnection(): Promise<void> {
+    if (!this.canTestConnection()) return;
+
+    this.testing.set(true);
+    try {
+      const profile = this.buildTestProfile();
+      await this.connectionState.testConnection(profile, this.formData.password);
+    } finally {
+      this.testing.set(false);
+    }
+  }
+
+  private buildTestProfile(): ConnectionProfile {
+    return {
+      id: 'test-connection',
+      name: this.formData.name || 'Test Connection',
+      server: this.formData.server!,
+      port: this.formData.port!,
+      authenticationType: this.formData.authenticationType as AuthenticationType,
+      username: this.formData.username,
+      database: this.formData.database || undefined,
+      encrypt: this.formData.encrypt ?? true,
+      trustServerCertificate: this.formData.trustServerCertificate ?? true,
+      connectionTimeout: this.formData.connectionTimeout || 30,
+    };
+  }
+
+  async saveConnection(): Promise<void> {
+    if (!this.isValid() || this.saving()) return;
+
+    this.saving.set(true);
+    try {
+      const profile = this.buildProfile();
+      const savedProfile = await this.connectionState.saveProfile(profile, this.formData.password);
+      if (savedProfile) {
+        this.selectedProfileId.set(savedProfile.id);
+        this.isEditing.set(true);
+      }
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  async connectNow(): Promise<void> {
+    if (!this.isValid() || this.saving() || this.connectionState.connecting()) return;
+
+    this.saving.set(true);
+    // Save first if needed
+    const profile = this.buildProfile();
+    const savedProfile = await this.connectionState.saveProfile(profile, this.formData.password);
+
+    if (!savedProfile) {
+      this.saving.set(false);
+      return; // Save failed, error already shown
+    }
+
+    this.saving.set(false);
+
+    // Then connect
+    const success = await this.connectionState.connect(savedProfile.id);
+    if (success) {
+      // Add to explorer and navigate
+      this.explorerState.addServerNode(savedProfile.id, savedProfile.name);
+      this.explorerState.expandNode(`server-${savedProfile.id}`);
+      this.router.navigate(['/']);
+    }
+  }
+
+  cancel(): void {
+    this.router.navigate(['/']);
+  }
+
+  isValid(): boolean {
+    return !!(
+      this.formData.name &&
+      this.formData.server &&
+      this.formData.port &&
+      (this.formData.authenticationType !== 'sql' || this.formData.username)
+    );
+  }
+
+  canTestConnection(): boolean {
+    return !!(
+      this.formData.server &&
+      this.formData.port &&
+      (this.formData.authenticationType !== 'sql' || this.formData.username)
+    );
+  }
+
+  private buildProfile(): Partial<ConnectionProfile> & { id?: string } {
+    // Only include ID if we're editing an existing profile
+    const existingId = this.selectedProfileId();
+
+    return {
+      ...(existingId ? { id: existingId } : {}),
+      name: this.formData.name!,
+      server: this.formData.server!,
+      port: this.formData.port!,
+      authenticationType: this.formData.authenticationType as AuthenticationType,
+      username: this.formData.username,
+      database: this.formData.database || undefined,
+      encrypt: this.formData.encrypt ?? true,
+      trustServerCertificate: this.formData.trustServerCertificate ?? true,
+      connectionTimeout: this.formData.connectionTimeout || 30,
+    };
+  }
+
+  private resetForm(): void {
+    this.formData = {
+      name: '',
+      server: 'localhost',
+      port: 1433,
+      authenticationType: 'sql',
+      username: 'sa',
+      password: '',
+      encrypt: true,
+      trustServerCertificate: true,
+      connectionTimeout: 30,
+      database: '',
+    };
+  }
+}

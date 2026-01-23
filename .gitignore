@@ -6,6 +6,8 @@ dist/
 build/
 .angular/
 out/
+*.tsbuildinfo
+release/builder-debug.yml
 
 # Turbo
 .turbo/
