@@ -15,6 +15,8 @@ import type {
   ForeignKeyInfo,
   ConstraintInfo,
   TriggerInfo,
+  ExtendedProperty,
+  TableProperties,
 } from '@mj-forge/shared';
 import { MetadataService } from '../services/sql/metadata';
 
@@ -219,6 +221,36 @@ export function registerExplorerHandlers(): void {
       table: string
     ): Promise<TriggerInfo[]> => {
       return metadataService.listTriggers(connectionId, database, schema, table);
+    }
+  );
+
+  // Get table properties (comprehensive)
+  ipcMain.handle(
+    IPC_CHANNELS.EXPLORER.GET_TABLE_PROPERTIES,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      schema: string,
+      table: string
+    ): Promise<TableProperties> => {
+      console.log(`[Explorer] Getting table properties for ${database}.${schema}.${table}`);
+      return metadataService.getTableProperties(connectionId, database, schema, table);
+    }
+  );
+
+  // Get extended properties
+  ipcMain.handle(
+    IPC_CHANNELS.EXPLORER.GET_EXTENDED_PROPERTIES,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      schema: string,
+      table: string
+    ): Promise<ExtendedProperty[]> => {
+      console.log(`[Explorer] Getting extended properties for ${database}.${schema}.${table}`);
+      return metadataService.listExtendedProperties(connectionId, database, schema, table);
     }
   );
 }

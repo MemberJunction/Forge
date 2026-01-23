@@ -12,3 +12,6 @@ export * from './backup.types';
 
 // Docker types
 export * from './docker.types';
+
+// Settings types
+export * from './settings.types';

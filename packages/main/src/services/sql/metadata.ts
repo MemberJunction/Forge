@@ -14,6 +14,8 @@ import type {
   ForeignKeyInfo,
   ConstraintInfo,
   TriggerInfo,
+  ExtendedProperty,
+  TableProperties,
 } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { ObjectCache } from '../../utils/object-cache';
@@ -280,6 +282,96 @@ export class MetadataService extends BaseSingleton {
       triggerType: row.triggerType as TriggerInfo['triggerType'],
       createdAt: row.createdAt,
     }));
+  }
+
+  /**
+   * List extended properties for a table and its columns
+   */
+  async listExtendedProperties(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<ExtendedProperty[]> {
+    const sql = TsqlBuilder.listExtendedProperties(database, schema, table);
+    const result = await this.poolManager.query<ExtendedProperty>(connectionId, sql);
+    return result.recordset;
+  }
+
+  /**
+   * Get comprehensive table properties including space, storage, and all metadata
+   */
+  async getTableProperties(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<TableProperties> {
+    // Get basic properties
+    const propertiesSql = TsqlBuilder.getTableProperties(database, schema, table);
+    const propertiesResult = await this.poolManager.query<{
+      schema: string;
+      name: string;
+      objectId: number;
+      createdAt: string;
+      modifiedAt: string;
+      rowCount: number;
+      dataSpaceKb: number;
+      indexSpaceKb: number;
+      unusedSpaceKb: number;
+      totalSpaceKb: number;
+      hasIdentity: boolean;
+      identityColumn: string;
+      identitySeed: number;
+      identityIncrement: number;
+      isReplicated: boolean;
+      hasTextImage: boolean;
+      textImageOnFilegroup: string;
+      filegroup: string;
+    }>(connectionId, propertiesSql);
+
+    const baseProps = propertiesResult.recordset[0];
+    if (!baseProps) {
+      throw new Error(`Table ${schema}.${table} not found`);
+    }
+
+    // Get all related metadata in parallel
+    const [columns, indexes, foreignKeys, constraints, triggers, extendedProperties] =
+      await Promise.all([
+        this.listColumns(connectionId, database, schema, table),
+        this.listIndexes(connectionId, database, schema, table),
+        this.listForeignKeys(connectionId, database, schema, table),
+        this.listConstraints(connectionId, database, schema, table),
+        this.listTriggers(connectionId, database, schema, table),
+        this.listExtendedProperties(connectionId, database, schema, table),
+      ]);
+
+    return {
+      schema: baseProps.schema,
+      name: baseProps.name,
+      objectId: baseProps.objectId,
+      createdAt: baseProps.createdAt,
+      modifiedAt: baseProps.modifiedAt,
+      rowCount: baseProps.rowCount || 0,
+      dataSpaceKb: baseProps.dataSpaceKb || 0,
+      indexSpaceKb: baseProps.indexSpaceKb || 0,
+      unusedSpaceKb: baseProps.unusedSpaceKb || 0,
+      totalSpaceKb: baseProps.totalSpaceKb || 0,
+      hasIdentity: Boolean(baseProps.hasIdentity),
+      identityColumn: baseProps.identityColumn || undefined,
+      identitySeed: baseProps.identitySeed || undefined,
+      identityIncrement: baseProps.identityIncrement || undefined,
+      isReplicated: Boolean(baseProps.isReplicated),
+      hasTextImage: Boolean(baseProps.hasTextImage),
+      textImageOnFilegroup: baseProps.textImageOnFilegroup || undefined,
+      filegroup: baseProps.filegroup || 'PRIMARY',
+      columns,
+      indexes,
+      foreignKeys,
+      constraints,
+      triggers,
+      extendedProperties,
+    };
   }
 
   /**

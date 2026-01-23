@@ -1,5 +1,5 @@
 /**
- * Application Menu
+ * Application Menu - macOS-style menu system
  */
 
 import { Menu, app, shell, BrowserWindow } from 'electron';
@@ -15,6 +15,15 @@ export function createMenu(): void {
             label: app.name,
             submenu: [
               { role: 'about' as const },
+              { type: 'separator' as const },
+              {
+                label: 'Settings...',
+                accelerator: 'Cmd+,',
+                click: () => {
+                  const win = BrowserWindow.getFocusedWindow();
+                  win?.webContents.send('menu:open-settings');
+                },
+              },
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
@@ -59,6 +68,15 @@ export function createMenu(): void {
         },
         { type: 'separator' },
         {
+          label: 'Close Tab',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:close-tab');
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Save Query',
           accelerator: 'CmdOrCtrl+S',
           click: () => {
@@ -75,59 +93,16 @@ export function createMenu(): void {
           },
         },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
-      ],
-    },
-
-    // Server menu
-    {
-      label: 'Server',
-      submenu: [
         {
-          label: 'Connect...',
-          accelerator: 'CmdOrCtrl+Shift+C',
+          label: 'Export Results...',
+          accelerator: 'CmdOrCtrl+E',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
-            win?.webContents.send('menu:new-connection');
-          },
-        },
-        {
-          label: 'Disconnect',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow();
-            win?.webContents.send('menu:disconnect');
+            win?.webContents.send('menu:export-results');
           },
         },
         { type: 'separator' },
-        {
-          label: 'Refresh',
-          accelerator: 'CmdOrCtrl+R',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow();
-            win?.webContents.send('menu:refresh');
-          },
-        },
-      ],
-    },
-
-    // Database menu
-    {
-      label: 'Database',
-      submenu: [
-        {
-          label: 'Backup...',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow();
-            win?.webContents.send('menu:backup');
-          },
-        },
-        {
-          label: 'Restore...',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow();
-            win?.webContents.send('menu:restore');
-          },
-        },
+        isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },
 
@@ -154,13 +129,43 @@ export function createMenu(): void {
           },
         },
         {
-          label: 'Replace',
-          accelerator: 'CmdOrCtrl+H',
+          label: 'Find and Replace',
+          accelerator: isMac ? 'Cmd+Option+F' : 'Ctrl+H',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:replace');
           },
         },
+        { type: 'separator' },
+        {
+          label: 'Format SQL',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:format-sql');
+          },
+        },
+        {
+          label: 'Toggle Comment',
+          accelerator: 'CmdOrCtrl+/',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:toggle-comment');
+          },
+        },
+        ...(isMac
+          ? []
+          : [
+              { type: 'separator' as const },
+              {
+                label: 'Preferences...',
+                accelerator: 'Ctrl+,',
+                click: () => {
+                  const win = BrowserWindow.getFocusedWindow();
+                  win?.webContents.send('menu:open-settings');
+                },
+              },
+            ]),
       ],
     },
 
@@ -170,7 +175,7 @@ export function createMenu(): void {
       submenu: [
         {
           label: 'Execute',
-          accelerator: 'CmdOrCtrl+Return',
+          accelerator: isMac ? 'Cmd+Return' : 'F5',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:execute-query');
@@ -178,7 +183,7 @@ export function createMenu(): void {
         },
         {
           label: 'Execute Selection',
-          accelerator: 'CmdOrCtrl+Shift+Return',
+          accelerator: isMac ? 'Cmd+Shift+Return' : 'Ctrl+Shift+E',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:execute-selection');
@@ -187,10 +192,95 @@ export function createMenu(): void {
         { type: 'separator' },
         {
           label: 'Cancel Execution',
-          accelerator: 'Escape',
+          accelerator: isMac ? 'Cmd+.' : 'Alt+Break',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:cancel-query');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Query History...',
+          accelerator: 'CmdOrCtrl+Shift+H',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:query-history');
+          },
+        },
+      ],
+    },
+
+    // Server menu
+    {
+      label: 'Server',
+      submenu: [
+        {
+          label: 'Connect...',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:new-connection');
+          },
+        },
+        {
+          label: 'Disconnect',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:disconnect');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Refresh Object Explorer',
+          accelerator: isMac ? 'Cmd+Shift+R' : 'Ctrl+Shift+R',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:refresh');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Server Properties...',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:server-properties');
+          },
+        },
+      ],
+    },
+
+    // Database menu
+    {
+      label: 'Database',
+      submenu: [
+        {
+          label: 'New Database...',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:new-database');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Backup...',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:backup');
+          },
+        },
+        {
+          label: 'Restore...',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:restore');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Database Properties...',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:database-properties');
           },
         },
       ],
@@ -200,16 +290,6 @@ export function createMenu(): void {
     {
       label: 'View',
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-        { type: 'separator' },
         {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+\\',
@@ -218,6 +298,24 @@ export function createMenu(): void {
             win?.webContents.send('menu:toggle-sidebar');
           },
         },
+        {
+          label: 'Toggle Results Panel',
+          accelerator: 'CmdOrCtrl+Shift+\\',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:toggle-results');
+          },
+        },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'reload', label: 'Reload Window', visible: true },
+        { role: 'forceReload', label: 'Force Reload', visible: true },
+        { role: 'toggleDevTools' },
       ],
     },
 
@@ -227,6 +325,23 @@ export function createMenu(): void {
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
+        { type: 'separator' },
+        {
+          label: 'Next Tab',
+          accelerator: isMac ? 'Cmd+Shift+]' : 'Ctrl+Tab',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:next-tab');
+          },
+        },
+        {
+          label: 'Previous Tab',
+          accelerator: isMac ? 'Cmd+Shift+[' : 'Ctrl+Shift+Tab',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:previous-tab');
+          },
+        },
         ...(isMac
           ? [
               { type: 'separator' as const },
@@ -243,15 +358,39 @@ export function createMenu(): void {
       role: 'help',
       submenu: [
         {
-          label: 'Documentation',
+          label: 'MJ Forge Documentation',
           click: async () => {
-            await shell.openExternal('https://github.com/MemberJunction/Forge');
+            await shell.openExternal('https://github.com/MemberJunction/mj-forge');
           },
         },
         {
-          label: 'Report Issue',
+          label: 'Keyboard Shortcuts',
+          accelerator: 'CmdOrCtrl+Shift+/',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:show-shortcuts');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Report Issue...',
           click: async () => {
-            await shell.openExternal('https://github.com/MemberJunction/Forge/issues');
+            await shell.openExternal('https://github.com/MemberJunction/mj-forge/issues');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'T-SQL Reference',
+          click: async () => {
+            await shell.openExternal(
+              'https://docs.microsoft.com/en-us/sql/t-sql/language-reference'
+            );
+          },
+        },
+        {
+          label: 'SQL Server Documentation',
+          click: async () => {
+            await shell.openExternal('https://docs.microsoft.com/en-us/sql/sql-server/');
           },
         },
         { type: 'separator' },

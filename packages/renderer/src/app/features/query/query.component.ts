@@ -25,6 +25,10 @@ import { TabStateService } from '../../core/state/tab.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { QueryHistoryStateService } from '../../core/state/query-history.state';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
+import {
+  RowDetailPanelComponent,
+  RowDetailData,
+} from '../../shared/components/row-detail-panel/row-detail-panel.component';
 import type { QueryResult, ResultSet, QueryHistoryEntry, ExportFormat } from '@mj-forge/shared';
 
 // Monaco editor types - loaded dynamically
@@ -67,6 +71,7 @@ declare const monaco: { editor: MonacoEditor };
     MatInputModule,
     MatDividerModule,
     ResultsGridComponent,
+    RowDetailPanelComponent,
   ],
   template: `
     <div class="query-container">
@@ -261,6 +266,7 @@ declare const monaco: { editor: MonacoEditor };
                 <div class="results-grid">
                   <app-results-grid
                     [resultSet]="activeResultSet()"
+                    (cellSelected)="onCellSelected($event)"
                     (exportRequested)="exportResults($event)"
                   />
                 </div>
@@ -277,6 +283,14 @@ declare const monaco: { editor: MonacoEditor };
           </div>
         </div>
       </div>
+
+      <!-- Row Detail Panel -->
+      <app-row-detail-panel
+        [inputData]="rowDetailData()"
+        [totalRows]="activeResultSet()?.rows?.length ?? 0"
+        (closed)="closeRowDetail()"
+        (navigateRow)="navigateRowDetail($event)"
+      />
     </div>
   `,
   styles: [
@@ -616,6 +630,10 @@ export class QueryComponent implements OnInit, OnDestroy {
   showHistory = signal(false);
   historySearchText = '';
 
+  // Row detail panel state
+  rowDetailData = signal<RowDetailData | null>(null);
+  showRowDetail = signal(false);
+
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastTabId: string | null = null;
@@ -930,5 +948,39 @@ export class QueryComponent implements OnInit, OnDestroy {
       return this.editor.getModel()?.getValueInRange(selection) || '';
     }
     return this.editor.getValue();
+  }
+
+  // Row detail panel methods
+  onCellSelected(event: { row: number; column: string; value: unknown }): void {
+    const resultSet = this.activeResultSet();
+    if (!resultSet) return;
+
+    this.rowDetailData.set({
+      rowIndex: event.row,
+      row: resultSet.rows[event.row],
+      columns: resultSet.columns,
+    });
+    this.showRowDetail.set(true);
+  }
+
+  closeRowDetail(): void {
+    this.showRowDetail.set(false);
+    this.rowDetailData.set(null);
+  }
+
+  navigateRowDetail(direction: 'next' | 'previous'): void {
+    const resultSet = this.activeResultSet();
+    const currentData = this.rowDetailData();
+    if (!resultSet || !currentData) return;
+
+    const newIndex = direction === 'next' ? currentData.rowIndex + 1 : currentData.rowIndex - 1;
+
+    if (newIndex >= 0 && newIndex < resultSet.rows.length) {
+      this.rowDetailData.set({
+        rowIndex: newIndex,
+        row: resultSet.rows[newIndex],
+        columns: resultSet.columns,
+      });
+    }
   }
 }

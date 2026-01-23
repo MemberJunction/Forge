@@ -156,3 +156,55 @@ export interface ObjectDefinition {
   name: string;
   definition: string;
 }
+
+/**
+ * Extended Property - SQL Server's way of adding documentation/metadata to objects
+ * See: sp_addextendedproperty, fn_listextendedproperty
+ */
+export interface ExtendedProperty {
+  name: string;
+  value: string;
+  level0Type?: string; // 'SCHEMA'
+  level0Name?: string; // schema name
+  level1Type?: string; // 'TABLE', 'VIEW', etc.
+  level1Name?: string; // object name
+  level2Type?: string; // 'COLUMN', 'INDEX', etc.
+  level2Name?: string; // column/index name
+}
+
+/**
+ * Comprehensive table properties including storage, space, and metadata
+ */
+export interface TableProperties {
+  // Basic Info
+  schema: string;
+  name: string;
+  objectId: number;
+  createdAt: string;
+  modifiedAt?: string;
+
+  // Storage & Space
+  rowCount: number;
+  dataSpaceKb: number;
+  indexSpaceKb: number;
+  unusedSpaceKb: number;
+  totalSpaceKb: number;
+
+  // Table Settings
+  hasIdentity: boolean;
+  identityColumn?: string;
+  identitySeed?: number;
+  identityIncrement?: number;
+  isReplicated: boolean;
+  hasTextImage: boolean;
+  textImageOnFilegroup?: string;
+  filegroup: string;
+
+  // Additional metadata
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+  foreignKeys: ForeignKeyInfo[];
+  constraints: ConstraintInfo[];
+  triggers: TriggerInfo[];
+  extendedProperties: ExtendedProperty[];
+}

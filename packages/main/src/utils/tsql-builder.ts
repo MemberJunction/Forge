@@ -481,4 +481,202 @@ WHERE s.name = '${this.escapeString(schema)}'
   AND o.name = '${this.escapeString(table)}'
 ORDER BY t.name;`;
   }
+
+  /**
+   * Generate query to get extended properties for a table and its columns
+   */
+  static listExtendedProperties(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+-- Get table-level extended properties
+SELECT
+  ep.name,
+  CAST(ep.value AS NVARCHAR(MAX)) as value,
+  'SCHEMA' as level0Type,
+  '${this.escapeString(schema)}' as level0Name,
+  'TABLE' as level1Type,
+  '${this.escapeString(table)}' as level1Name,
+  NULL as level2Type,
+  NULL as level2Name
+FROM sys.extended_properties ep
+INNER JOIN sys.objects o ON ep.major_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}'
+  AND ep.minor_id = 0
+
+UNION ALL
+
+-- Get column-level extended properties
+SELECT
+  ep.name,
+  CAST(ep.value AS NVARCHAR(MAX)) as value,
+  'SCHEMA' as level0Type,
+  '${this.escapeString(schema)}' as level0Name,
+  'TABLE' as level1Type,
+  '${this.escapeString(table)}' as level1Name,
+  'COLUMN' as level2Type,
+  c.name as level2Name
+FROM sys.extended_properties ep
+INNER JOIN sys.objects o ON ep.major_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+INNER JOIN sys.columns c ON ep.major_id = c.object_id AND ep.minor_id = c.column_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND o.name = '${this.escapeString(table)}'
+  AND ep.minor_id > 0
+
+ORDER BY level2Type, level2Name, name;`;
+  }
+
+  /**
+   * Generate query to get comprehensive table properties
+   */
+  static getTableProperties(database: string, schema: string, table: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+SELECT
+  s.name as [schema],
+  t.name as name,
+  t.object_id as objectId,
+  t.create_date as createdAt,
+  t.modify_date as modifiedAt,
+
+  -- Row count
+  ISNULL(SUM(p.rows), 0) as rowCount,
+
+  -- Space info
+  ISNULL(SUM(CASE WHEN a.type = 1 THEN a.total_pages END) * 8, 0) as dataSpaceKb,
+  ISNULL(SUM(CASE WHEN a.type = 2 THEN a.total_pages END) * 8, 0) as indexSpaceKb,
+  ISNULL(SUM(a.total_pages - a.used_pages) * 8, 0) as unusedSpaceKb,
+  ISNULL(SUM(a.total_pages) * 8, 0) as totalSpaceKb,
+
+  -- Identity info
+  CASE WHEN ic.object_id IS NOT NULL THEN 1 ELSE 0 END as hasIdentity,
+  ic.name as identityColumn,
+  IDENT_SEED('${this.escapeString(schema)}.${this.escapeString(table)}') as identitySeed,
+  IDENT_INCR('${this.escapeString(schema)}.${this.escapeString(table)}') as identityIncrement,
+
+  -- Replication & text image
+  t.is_replicated as isReplicated,
+  CASE WHEN t.lob_data_space_id > 0 THEN 1 ELSE 0 END as hasTextImage,
+  tids.name as textImageOnFilegroup,
+
+  -- Filegroup
+  fg.name as filegroup
+
+FROM sys.tables t
+INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
+LEFT JOIN sys.allocation_units a ON p.partition_id = a.container_id
+LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.type IN (0, 1)
+LEFT JOIN sys.filegroups fg ON i.data_space_id = fg.data_space_id
+LEFT JOIN sys.data_spaces tids ON t.lob_data_space_id = tids.data_space_id
+LEFT JOIN (
+  SELECT c.object_id, c.name
+  FROM sys.columns c
+  WHERE c.is_identity = 1
+) ic ON t.object_id = ic.object_id
+WHERE s.name = '${this.escapeString(schema)}'
+  AND t.name = '${this.escapeString(table)}'
+GROUP BY s.name, t.name, t.object_id, t.create_date, t.modify_date,
+         ic.object_id, ic.name, t.is_replicated, t.lob_data_space_id, tids.name, fg.name;`;
+  }
+
+  /**
+   * Generate T-SQL to add an extended property
+   */
+  static addExtendedProperty(
+    database: string,
+    schema: string,
+    table: string,
+    propertyName: string,
+    propertyValue: string,
+    column?: string
+  ): string {
+    const escapedValue = this.escapeString(propertyValue);
+    const escapedName = this.escapeString(propertyName);
+
+    if (column) {
+      return `
+USE ${this.escapeIdentifier(database)};
+EXEC sp_addextendedproperty
+  @name = N'${escapedName}',
+  @value = N'${escapedValue}',
+  @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
+  @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}',
+  @level2type = N'COLUMN', @level2name = N'${this.escapeString(column)}';`;
+    }
+
+    return `
+USE ${this.escapeIdentifier(database)};
+EXEC sp_addextendedproperty
+  @name = N'${escapedName}',
+  @value = N'${escapedValue}',
+  @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
+  @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}';`;
+  }
+
+  /**
+   * Generate T-SQL to update an extended property
+   */
+  static updateExtendedProperty(
+    database: string,
+    schema: string,
+    table: string,
+    propertyName: string,
+    propertyValue: string,
+    column?: string
+  ): string {
+    const escapedValue = this.escapeString(propertyValue);
+    const escapedName = this.escapeString(propertyName);
+
+    if (column) {
+      return `
+USE ${this.escapeIdentifier(database)};
+EXEC sp_updateextendedproperty
+  @name = N'${escapedName}',
+  @value = N'${escapedValue}',
+  @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
+  @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}',
+  @level2type = N'COLUMN', @level2name = N'${this.escapeString(column)}';`;
+    }
+
+    return `
+USE ${this.escapeIdentifier(database)};
+EXEC sp_updateextendedproperty
+  @name = N'${escapedName}',
+  @value = N'${escapedValue}',
+  @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
+  @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}';`;
+  }
+
+  /**
+   * Generate T-SQL to drop an extended property
+   */
+  static dropExtendedProperty(
+    database: string,
+    schema: string,
+    table: string,
+    propertyName: string,
+    column?: string
+  ): string {
+    const escapedName = this.escapeString(propertyName);
+
+    if (column) {
+      return `
+USE ${this.escapeIdentifier(database)};
+EXEC sp_dropextendedproperty
+  @name = N'${escapedName}',
+  @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
+  @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}',
+  @level2type = N'COLUMN', @level2name = N'${this.escapeString(column)}';`;
+    }
+
+    return `
+USE ${this.escapeIdentifier(database)};
+EXEC sp_dropextendedproperty
+  @name = N'${escapedName}',
+  @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}',
+  @level1type = N'TABLE', @level1name = N'${this.escapeString(table)}';`;
+  }
 }

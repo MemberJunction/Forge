@@ -176,6 +176,24 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         --ag-header-height: 32px;
         --ag-cell-horizontal-padding: 8px;
 
+        /* Checkbox styling for dark/light mode */
+        --ag-checkbox-background-color: var(--bg-tertiary, #2d2d30);
+        --ag-checkbox-checked-color: var(--status-info, #3794ff);
+        --ag-checkbox-unchecked-color: var(--border-secondary, #454545);
+        --ag-checkbox-indeterminate-color: var(--status-info, #3794ff);
+
+        /* Input styling */
+        --ag-input-border-color: var(--border-primary, #333);
+        --ag-input-focus-border-color: var(--border-focus, #007acc);
+        --ag-input-disabled-background-color: var(--bg-secondary, #252526);
+
+        /* Icon colors */
+        --ag-icon-font-color: var(--text-secondary, #888);
+
+        /* Popup/modal backgrounds */
+        --ag-modal-overlay-background-color: rgba(0, 0, 0, 0.5);
+        --ag-popup-background-color: var(--bg-elevated, #333333);
+
         .ag-root-wrapper {
           border: none;
         }
@@ -290,6 +308,89 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           &:focus {
             border-color: var(--status-info, #4fc3f7);
             outline: none;
+          }
+        }
+
+        /* Checkbox styling */
+        .ag-checkbox-input-wrapper {
+          background-color: var(--bg-tertiary, #2d2d30);
+          border: 1px solid var(--border-secondary, #454545);
+          border-radius: 3px;
+
+          &::after {
+            color: var(--status-info, #3794ff);
+          }
+
+          &.ag-checked {
+            background-color: var(--status-info, #3794ff);
+            border-color: var(--status-info, #3794ff);
+
+            &::after {
+              color: white;
+            }
+          }
+
+          &:hover {
+            border-color: var(--status-info, #3794ff);
+          }
+        }
+
+        /* Input elements in ag-Grid */
+        input[class^='ag-'],
+        input[class*=' ag-'] {
+          background-color: var(--bg-tertiary, #2d2d30);
+          border: 1px solid var(--border-primary, #333);
+          color: var(--text-primary, #ccc);
+
+          &:focus {
+            border-color: var(--border-focus, #007acc);
+            outline: none;
+          }
+        }
+
+        /* Select elements */
+        .ag-select {
+          background-color: var(--bg-tertiary, #2d2d30);
+          border: 1px solid var(--border-primary, #333);
+          color: var(--text-primary, #ccc);
+        }
+
+        .ag-picker-field-wrapper {
+          background-color: var(--bg-tertiary, #2d2d30);
+          border: 1px solid var(--border-primary, #333);
+        }
+
+        /* Icons */
+        .ag-icon {
+          color: var(--text-secondary, #888);
+        }
+
+        /* Header checkbox */
+        .ag-header-select-all {
+          .ag-checkbox-input-wrapper {
+            background-color: var(--bg-secondary, #252526);
+          }
+        }
+
+        /* Tooltip */
+        .ag-tooltip {
+          background-color: var(--bg-elevated, #333333);
+          color: var(--text-primary, #ccc);
+          border: 1px solid var(--border-primary, #333);
+          box-shadow: var(--shadow-md);
+        }
+
+        /* Column header sort icons */
+        .ag-sort-indicator-icon {
+          color: var(--text-secondary, #888);
+        }
+
+        /* Filter icons */
+        .ag-header-cell-filter-button {
+          color: var(--text-secondary, #888);
+
+          &:hover {
+            color: var(--text-primary, #ccc);
           }
         }
       }

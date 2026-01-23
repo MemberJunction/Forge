@@ -11,6 +11,7 @@ import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state'
 import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { TablePropertiesService } from '../../core/services/table-properties.service';
 
 @Component({
   selector: 'app-sidebar',
@@ -383,6 +384,7 @@ export class SidebarComponent {
   private readonly router = inject(Router);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly notification = inject(NotificationService);
+  private readonly tableProperties = inject(TablePropertiesService);
 
   openConnectionDialog(): void {
     this.router.navigate(['/connections']);
@@ -666,15 +668,15 @@ export class SidebarComponent {
         id: 'properties',
         label: 'Properties...',
         icon: 'info',
+        shortcut: 'Alt+Enter',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            this.tabState.openObjectTab(
-              node.connectionId,
-              node.databaseName,
-              node.metadata.name,
-              node.metadata.type
-            );
-            this.router.navigate(['/explorer']);
+            this.tableProperties.open({
+              connectionId: node.connectionId,
+              databaseName: node.databaseName,
+              schema: node.metadata.schema || 'dbo',
+              tableName: node.metadata.name,
+            });
           }
         },
       },

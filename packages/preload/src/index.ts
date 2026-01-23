@@ -29,6 +29,8 @@ import type {
   ForeignKeyInfo,
   ConstraintInfo,
   TriggerInfo,
+  ExtendedProperty,
+  TableProperties,
 } from '@mj-forge/shared';
 
 /**
@@ -117,6 +119,18 @@ export interface ForgeAPI {
       schema: string,
       tableName: string
     ) => Promise<TriggerInfo[]>;
+    getTableProperties: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<TableProperties>;
+    getExtendedProperties: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<ExtendedProperty[]>;
   };
 
   query: {
@@ -156,21 +170,49 @@ export interface ForgeAPI {
   };
 
   menu: {
+    // File menu
     onNewConnection: (callback: () => void) => () => void;
-    onDisconnect: (callback: () => void) => () => void;
-    onRefresh: (callback: () => void) => () => void;
     onNewQuery: (callback: () => void) => () => void;
     onOpenQuery: (callback: () => void) => () => void;
+    onCloseTab: (callback: () => void) => () => void;
     onSaveQuery: (callback: () => void) => () => void;
     onSaveQueryAs: (callback: () => void) => () => void;
+    onExportResults: (callback: () => void) => () => void;
+
+    // Edit menu
+    onFind: (callback: () => void) => () => void;
+    onReplace: (callback: () => void) => () => void;
+    onFormatSql: (callback: () => void) => () => void;
+    onToggleComment: (callback: () => void) => () => void;
+
+    // Query menu
     onExecuteQuery: (callback: () => void) => () => void;
     onExecuteSelection: (callback: () => void) => () => void;
     onCancelQuery: (callback: () => void) => () => void;
-    onFind: (callback: () => void) => () => void;
-    onReplace: (callback: () => void) => () => void;
-    onToggleSidebar: (callback: () => void) => () => void;
+    onQueryHistory: (callback: () => void) => () => void;
+
+    // Server menu
+    onDisconnect: (callback: () => void) => () => void;
+    onRefresh: (callback: () => void) => () => void;
+    onServerProperties: (callback: () => void) => () => void;
+
+    // Database menu
+    onNewDatabase: (callback: () => void) => () => void;
     onBackup: (callback: () => void) => () => void;
     onRestore: (callback: () => void) => () => void;
+    onDatabaseProperties: (callback: () => void) => () => void;
+
+    // View menu
+    onToggleSidebar: (callback: () => void) => () => void;
+    onToggleResults: (callback: () => void) => () => void;
+
+    // Window menu
+    onNextTab: (callback: () => void) => () => void;
+    onPreviousTab: (callback: () => void) => () => void;
+
+    // Settings/Help
+    onOpenSettings: (callback: () => void) => () => void;
+    onShowShortcuts: (callback: () => void) => () => void;
   };
 }
 
@@ -183,21 +225,49 @@ function createEventListener<T>(channel: string, callback: (data: T) => void): (
 
 // Menu event channels
 const MENU_CHANNELS = {
+  // File menu
   NEW_CONNECTION: 'menu:new-connection',
-  DISCONNECT: 'menu:disconnect',
-  REFRESH: 'menu:refresh',
   NEW_QUERY: 'menu:new-query',
   OPEN_QUERY: 'menu:open-query',
+  CLOSE_TAB: 'menu:close-tab',
   SAVE_QUERY: 'menu:save-query',
   SAVE_QUERY_AS: 'menu:save-query-as',
+  EXPORT_RESULTS: 'menu:export-results',
+
+  // Edit menu
+  FIND: 'menu:find',
+  REPLACE: 'menu:replace',
+  FORMAT_SQL: 'menu:format-sql',
+  TOGGLE_COMMENT: 'menu:toggle-comment',
+
+  // Query menu
   EXECUTE_QUERY: 'menu:execute-query',
   EXECUTE_SELECTION: 'menu:execute-selection',
   CANCEL_QUERY: 'menu:cancel-query',
-  FIND: 'menu:find',
-  REPLACE: 'menu:replace',
-  TOGGLE_SIDEBAR: 'menu:toggle-sidebar',
+  QUERY_HISTORY: 'menu:query-history',
+
+  // Server menu
+  DISCONNECT: 'menu:disconnect',
+  REFRESH: 'menu:refresh',
+  SERVER_PROPERTIES: 'menu:server-properties',
+
+  // Database menu
+  NEW_DATABASE: 'menu:new-database',
   BACKUP: 'menu:backup',
   RESTORE: 'menu:restore',
+  DATABASE_PROPERTIES: 'menu:database-properties',
+
+  // View menu
+  TOGGLE_SIDEBAR: 'menu:toggle-sidebar',
+  TOGGLE_RESULTS: 'menu:toggle-results',
+
+  // Window menu
+  NEXT_TAB: 'menu:next-tab',
+  PREVIOUS_TAB: 'menu:previous-tab',
+
+  // Settings/Help
+  OPEN_SETTINGS: 'menu:open-settings',
+  SHOW_SHORTCUTS: 'menu:show-shortcuts',
 } as const;
 
 // Create the API implementation
@@ -294,6 +364,22 @@ const forgeAPI: ForgeAPI = {
         schema,
         tableName
       ),
+    getTableProperties: (connectionId, databaseName, schema, tableName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.EXPLORER.GET_TABLE_PROPERTIES,
+        connectionId,
+        databaseName,
+        schema,
+        tableName
+      ),
+    getExtendedProperties: (connectionId, databaseName, schema, tableName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.EXPLORER.GET_EXTENDED_PROPERTIES,
+        connectionId,
+        databaseName,
+        schema,
+        tableName
+      ),
   },
 
   query: {
@@ -328,21 +414,50 @@ const forgeAPI: ForgeAPI = {
   },
 
   menu: {
+    // File menu
     onNewConnection: callback => createEventListener(MENU_CHANNELS.NEW_CONNECTION, callback),
-    onDisconnect: callback => createEventListener(MENU_CHANNELS.DISCONNECT, callback),
-    onRefresh: callback => createEventListener(MENU_CHANNELS.REFRESH, callback),
     onNewQuery: callback => createEventListener(MENU_CHANNELS.NEW_QUERY, callback),
     onOpenQuery: callback => createEventListener(MENU_CHANNELS.OPEN_QUERY, callback),
+    onCloseTab: callback => createEventListener(MENU_CHANNELS.CLOSE_TAB, callback),
     onSaveQuery: callback => createEventListener(MENU_CHANNELS.SAVE_QUERY, callback),
     onSaveQueryAs: callback => createEventListener(MENU_CHANNELS.SAVE_QUERY_AS, callback),
+    onExportResults: callback => createEventListener(MENU_CHANNELS.EXPORT_RESULTS, callback),
+
+    // Edit menu
+    onFind: callback => createEventListener(MENU_CHANNELS.FIND, callback),
+    onReplace: callback => createEventListener(MENU_CHANNELS.REPLACE, callback),
+    onFormatSql: callback => createEventListener(MENU_CHANNELS.FORMAT_SQL, callback),
+    onToggleComment: callback => createEventListener(MENU_CHANNELS.TOGGLE_COMMENT, callback),
+
+    // Query menu
     onExecuteQuery: callback => createEventListener(MENU_CHANNELS.EXECUTE_QUERY, callback),
     onExecuteSelection: callback => createEventListener(MENU_CHANNELS.EXECUTE_SELECTION, callback),
     onCancelQuery: callback => createEventListener(MENU_CHANNELS.CANCEL_QUERY, callback),
-    onFind: callback => createEventListener(MENU_CHANNELS.FIND, callback),
-    onReplace: callback => createEventListener(MENU_CHANNELS.REPLACE, callback),
-    onToggleSidebar: callback => createEventListener(MENU_CHANNELS.TOGGLE_SIDEBAR, callback),
+    onQueryHistory: callback => createEventListener(MENU_CHANNELS.QUERY_HISTORY, callback),
+
+    // Server menu
+    onDisconnect: callback => createEventListener(MENU_CHANNELS.DISCONNECT, callback),
+    onRefresh: callback => createEventListener(MENU_CHANNELS.REFRESH, callback),
+    onServerProperties: callback => createEventListener(MENU_CHANNELS.SERVER_PROPERTIES, callback),
+
+    // Database menu
+    onNewDatabase: callback => createEventListener(MENU_CHANNELS.NEW_DATABASE, callback),
     onBackup: callback => createEventListener(MENU_CHANNELS.BACKUP, callback),
     onRestore: callback => createEventListener(MENU_CHANNELS.RESTORE, callback),
+    onDatabaseProperties: callback =>
+      createEventListener(MENU_CHANNELS.DATABASE_PROPERTIES, callback),
+
+    // View menu
+    onToggleSidebar: callback => createEventListener(MENU_CHANNELS.TOGGLE_SIDEBAR, callback),
+    onToggleResults: callback => createEventListener(MENU_CHANNELS.TOGGLE_RESULTS, callback),
+
+    // Window menu
+    onNextTab: callback => createEventListener(MENU_CHANNELS.NEXT_TAB, callback),
+    onPreviousTab: callback => createEventListener(MENU_CHANNELS.PREVIOUS_TAB, callback),
+
+    // Settings/Help
+    onOpenSettings: callback => createEventListener(MENU_CHANNELS.OPEN_SETTINGS, callback),
+    onShowShortcuts: callback => createEventListener(MENU_CHANNELS.SHOW_SHORTCUTS, callback),
   },
 };
 

@@ -29,6 +29,8 @@ import type {
   ForeignKeyInfo,
   ConstraintInfo,
   TriggerInfo,
+  ExtendedProperty,
+  TableProperties,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -155,6 +157,18 @@ interface ForgeAPI {
       schema: string,
       tableName: string
     ) => Promise<TriggerInfo[]>;
+    getTableProperties: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<TableProperties>;
+    getExtendedProperties: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      tableName: string
+    ) => Promise<ExtendedProperty[]>;
   };
   query: {
     execute: (request: QueryRequest) => Promise<QueryResult>;
@@ -184,22 +198,35 @@ interface ForgeAPI {
     showOpenDialog: (options: OpenDialogOptions) => Promise<OpenDialogReturnValue>;
     showSaveDialog: (options: SaveDialogOptions) => Promise<SaveDialogReturnValue>;
   };
-  menu?: {
+  menu: {
     onNewConnection: (callback: () => void) => () => void;
-    onDisconnect: (callback: () => void) => () => void;
-    onRefresh: (callback: () => void) => () => void;
     onNewQuery: (callback: () => void) => () => void;
     onOpenQuery: (callback: () => void) => () => void;
+    onCloseTab: (callback: () => void) => () => void;
     onSaveQuery: (callback: () => void) => () => void;
     onSaveQueryAs: (callback: () => void) => () => void;
+    onExportResults: (callback: () => void) => () => void;
+    onFind: (callback: () => void) => () => void;
+    onReplace: (callback: () => void) => () => void;
+    onFormatSql: (callback: () => void) => () => void;
+    onToggleComment: (callback: () => void) => () => void;
     onExecuteQuery: (callback: () => void) => () => void;
     onExecuteSelection: (callback: () => void) => () => void;
     onCancelQuery: (callback: () => void) => () => void;
-    onFind: (callback: () => void) => () => void;
-    onReplace: (callback: () => void) => () => void;
-    onToggleSidebar: (callback: () => void) => () => void;
+    onQueryHistory: (callback: () => void) => () => void;
+    onDisconnect: (callback: () => void) => () => void;
+    onRefresh: (callback: () => void) => () => void;
+    onServerProperties: (callback: () => void) => () => void;
+    onNewDatabase: (callback: () => void) => () => void;
     onBackup: (callback: () => void) => () => void;
     onRestore: (callback: () => void) => () => void;
+    onDatabaseProperties: (callback: () => void) => () => void;
+    onToggleSidebar: (callback: () => void) => () => void;
+    onToggleResults: (callback: () => void) => () => void;
+    onNextTab: (callback: () => void) => () => void;
+    onPreviousTab: (callback: () => void) => () => void;
+    onOpenSettings: (callback: () => void) => () => void;
+    onShowShortcuts: (callback: () => void) => () => void;
   };
 }
 

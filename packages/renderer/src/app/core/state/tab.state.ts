@@ -176,6 +176,24 @@ export class TabStateService {
     }
   }
 
+  nextTab(): void {
+    const tabs = this._tabs();
+    if (tabs.length <= 1) return;
+
+    const currentIndex = tabs.findIndex(t => t.id === this._activeTabId());
+    const nextIndex = (currentIndex + 1) % tabs.length;
+    this._activeTabId.set(tabs[nextIndex].id);
+  }
+
+  previousTab(): void {
+    const tabs = this._tabs();
+    if (tabs.length <= 1) return;
+
+    const currentIndex = tabs.findIndex(t => t.id === this._activeTabId());
+    const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    this._activeTabId.set(tabs[prevIndex].id);
+  }
+
   private getIconForObjectType(objectType: string): string {
     const iconMap: Record<string, string> = {
       table: 'table_chart',

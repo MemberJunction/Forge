@@ -42,6 +42,8 @@ export const IPC_CHANNELS = {
     GET_TABLE_CONSTRAINTS: 'explorer:get-table-constraints',
     GET_TABLE_TRIGGERS: 'explorer:get-table-triggers',
     GET_TABLE_METADATA: 'explorer:get-table-metadata',
+    GET_TABLE_PROPERTIES: 'explorer:get-table-properties',
+    GET_EXTENDED_PROPERTIES: 'explorer:get-extended-properties',
     // Legacy
     GET_TABLES: 'explorer:get-tables',
     GET_VIEWS: 'explorer:get-views',
