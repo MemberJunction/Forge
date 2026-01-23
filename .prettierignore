@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+.turbo
+coverage
+package-lock.json
+*.min.js
+*.min.css
+.angular
