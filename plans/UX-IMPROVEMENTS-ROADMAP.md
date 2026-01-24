@@ -311,6 +311,264 @@ monaco.languages.registerCompletionItemProvider('sql', {
 
 ---
 
+### 2.5 Workspace / Folder Support (VS Code-style)
+
+**Impact:** 🔥🔥🔥🔥🔥 - Essential for developers with SQL script projects.
+
+**Concept:** Like VS Code's "Open Folder", allow users to open a directory and work with multiple .sql files as a project.
+
+**Design:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ MJ Forge - ~/Projects/ecommerce-db                    ─ □ x │
+├─────────────────────────────────────────────────────────────┤
+│ ┌─────────────────┬─────────────────────────────────────────┤
+│ │ EXPLORER        │ migrations/002-add-indexes.sql          │
+│ │ ─────────────── │ ─────────────────────────────────────── │
+│ │ 📁 ecommerce-db │ CREATE INDEX IX_Orders_CustomerID       │
+│ │  ├─📁 migrations│ ON Orders(CustomerID)                   │
+│ │  │ ├─📄 001-init│ INCLUDE (OrderDate, TotalAmount);       │
+│ │  │ ├─📄 002-idx │                                         │
+│ │  │ └─📄 003-fks │ CREATE INDEX IX_Orders_Date             │
+│ │  ├─📁 queries   │ ON Orders(OrderDate DESC);              │
+│ │  │ ├─📄 reports │                                         │
+│ │  │ └─📄 cleanup │                                         │
+│ │  ├─📁 procedures│                                         │
+│ │  └─📄 README.md │                                         │
+│ │                 │                                         │
+│ │ ─────────────── │─────────────────────────────────────────│
+│ │ DB EXPLORER     │ Results                                 │
+│ │ 📊 Production   │ (execute to see results)                │
+│ │  └─📁 Tables    │                                         │
+│ └─────────────────┴─────────────────────────────────────────┘
+```
+
+**Core Features:**
+
+1. **Open Folder (⌘O)**
+   - Open any directory as workspace
+   - Show .sql files in file explorer panel
+   - Nested folder support
+   - File icons by type (.sql, .md, .json)
+
+2. **File Explorer Panel**
+   - Tree view of folder contents
+   - Filter to show only .sql files (optional)
+   - Create new file/folder
+   - Rename/delete files
+   - Drag to reorder (optional)
+
+3. **File Operations**
+   - New File (⌘N) → creates .sql in workspace
+   - Save (⌘S) → saves to file
+   - Save As (⌘⇧S) → save with new name
+   - Rename (Enter on selected file)
+   - Delete (⌘⌫ with confirmation)
+   - Duplicate file
+
+4. **Tab Integration**
+   - Tab shows filename instead of "Query 1"
+   - Dirty indicator (●) for unsaved changes
+   - Click file in explorer → opens in tab
+   - Close tab prompts to save if dirty
+
+5. **Workspace Settings (.mjforge/settings.json)**
+   ```json
+   {
+     "defaultConnection": "production-server",
+     "defaultDatabase": "OrdersDB",
+     "executeOnOpen": false,
+     "formatting": {
+       "keywordCase": "upper",
+       "indentSize": 2
+     }
+   }
+   ```
+
+6. **Recent Workspaces**
+   - File menu → Recent Workspaces
+   - Welcome screen shows recent workspaces
+   - Quick switch via command palette
+
+**Implementation:**
+
+**IPC Channels to Add:**
+```typescript
+// packages/shared/src/constants/ipc-channels.ts
+WORKSPACE: {
+  OPEN_FOLDER: 'workspace:open-folder',
+  GET_FILES: 'workspace:get-files',
+  READ_FILE: 'workspace:read-file',
+  WRITE_FILE: 'workspace:write-file',
+  CREATE_FILE: 'workspace:create-file',
+  DELETE_FILE: 'workspace:delete-file',
+  RENAME_FILE: 'workspace:rename-file',
+  WATCH: 'workspace:watch',           // File system watcher
+  UNWATCH: 'workspace:unwatch',
+  FILE_CHANGED: 'workspace:file-changed', // Event from watcher
+}
+```
+
+**Main Process Service:**
+```typescript
+// packages/main/src/services/workspace/workspace-manager.ts
+class WorkspaceManager {
+  private currentWorkspace: string | null = null;
+  private watcher: FSWatcher | null = null;
+
+  async openFolder(path: string): Promise<WorkspaceInfo> {
+    this.currentWorkspace = path;
+    const files = await this.scanDirectory(path);
+    this.startWatching(path);
+    return { path, files, settings: await this.loadSettings(path) };
+  }
+
+  async getFiles(path: string): Promise<FileTreeNode[]> {
+    // Recursively scan directory
+    // Filter by extension (.sql, .md, etc.)
+    // Return tree structure
+  }
+
+  async readFile(filePath: string): Promise<string> {
+    return fs.promises.readFile(filePath, 'utf-8');
+  }
+
+  async writeFile(filePath: string, content: string): Promise<void> {
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+  }
+
+  private startWatching(path: string): void {
+    this.watcher = chokidar.watch(path, {
+      ignored: /(^|[\/\\])\../, // Ignore dotfiles
+      persistent: true
+    });
+    this.watcher.on('change', (filePath) => {
+      mainWindow?.webContents.send(IPC.WORKSPACE.FILE_CHANGED, { filePath, event: 'change' });
+    });
+  }
+}
+```
+
+**Renderer State:**
+```typescript
+// packages/renderer/src/app/core/state/workspace.state.ts
+@Injectable({ providedIn: 'root' })
+export class WorkspaceStateService {
+  private _currentWorkspace = signal<WorkspaceInfo | null>(null);
+  private _files = signal<FileTreeNode[]>([]);
+  private _openFiles = signal<Map<string, OpenFile>>(new Map());
+
+  readonly currentWorkspace = this._currentWorkspace.asReadonly();
+  readonly files = this._files.asReadonly();
+  readonly hasWorkspace = computed(() => this._currentWorkspace() !== null);
+
+  async openFolder(): Promise<void> {
+    const result = await this.ipc.showOpenDialog({
+      properties: ['openDirectory']
+    });
+    if (result.filePaths[0]) {
+      const workspace = await this.ipc.openWorkspace(result.filePaths[0]);
+      this._currentWorkspace.set(workspace);
+      this._files.set(workspace.files);
+    }
+  }
+
+  async saveFile(filePath: string, content: string): Promise<void> {
+    await this.ipc.writeFile(filePath, content);
+    // Update open file state to mark as clean
+  }
+}
+```
+
+**UI Components to Create:**
+- `packages/renderer/src/app/shared/components/file-explorer/file-explorer.component.ts`
+- `packages/renderer/src/app/shared/components/file-explorer/file-tree-node.component.ts`
+
+**Sidebar Modification:**
+```typescript
+// Sidebar gets a toggle between "DB Explorer" and "File Explorer"
+// Or split panel showing both
+┌─────────────────┐
+│ [📁 Files] [📊 DB] │  ← Toggle buttons
+├─────────────────┤
+│ File tree or    │
+│ DB explorer     │
+│ based on toggle │
+└─────────────────┘
+```
+
+**Menu Additions:**
+```
+File
+├── New File                 ⌘N
+├── New Query (in memory)    ⌘⇧N
+├── Open File...             ⌘O
+├── Open Folder...           ⌘⇧O
+├── ──────────────
+├── Save                     ⌘S
+├── Save As...               ⌘⇧S
+├── Save All                 ⌘⌥S
+├── ──────────────
+├── Recent Files             →
+├── Recent Workspaces        →
+├── ──────────────
+├── Close File               ⌘W
+├── Close Folder
+└── ──────────────
+```
+
+**Use Cases This Enables:**
+
+1. **Migration Scripts Project**
+   ```
+   migrations/
+   ├── 001-initial-schema.sql
+   ├── 002-add-indexes.sql
+   ├── 003-add-foreign-keys.sql
+   └── rollback/
+       ├── 001-rollback.sql
+       └── 002-rollback.sql
+   ```
+
+2. **Stored Procedures Development**
+   ```
+   procedures/
+   ├── customers/
+   │   ├── sp_GetCustomer.sql
+   │   └── sp_UpdateCustomer.sql
+   └── orders/
+       ├── sp_CreateOrder.sql
+       └── sp_GetOrderHistory.sql
+   ```
+
+3. **Report Queries**
+   ```
+   reports/
+   ├── daily-sales.sql
+   ├── monthly-revenue.sql
+   └── customer-analytics.sql
+   ```
+
+4. **Team Shared Queries**
+   ```
+   team-queries/              ← Git repository
+   ├── .mjforge/
+   │   └── settings.json     ← Shared connection config
+   ├── troubleshooting/
+   │   ├── find-blocking.sql
+   │   └── check-indexes.sql
+   └── maintenance/
+       ├── cleanup-logs.sql
+       └── rebuild-indexes.sql
+   ```
+
+**Git Integration (Future Enhancement):**
+- Show git status indicators on files (modified, added, etc.)
+- Commit changes from within app
+- Diff view for changed files
+
+---
+
 ## Tier 3: Differentiating Features (2-4 weeks each)
 
 ### 3.1 Visual Execution Plan
@@ -585,10 +843,11 @@ Rules:
 | Query cancellation fix | 4 hours | Medium |
 | State persistence | 1 day | High |
 
-### Phase 2: Core UX (Weeks 2-4)
+### Phase 2: Core UX (Weeks 2-5)
 | Feature | Effort | Impact |
 |---------|--------|--------|
 | ⌘K Command palette | 1 week | Very High |
+| Workspace/Folder support | 1.5 weeks | Very High |
 | Instant object search | 3 days | High |
 | Keyboard shortcuts | 2 days | High |
 | Results grid enhancements | 3 days | Medium |
@@ -666,3 +925,4 @@ Rules:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2025-01-24 | Claude | Initial roadmap based on v1.0 analysis |
+| 1.1 | 2025-01-24 | Claude | Added Workspace/Folder support feature (VS Code-style) |
