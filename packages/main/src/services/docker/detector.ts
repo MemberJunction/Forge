@@ -138,6 +138,27 @@ export class DockerDetector extends BaseSingleton {
   }
 
   /**
+   * Stop a running container
+   */
+  async stopContainer(containerId: string): Promise<StartContainerResult> {
+    try {
+      const container = this.docker.getContainer(containerId);
+      await container.stop();
+
+      return {
+        success: true,
+        containerId,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        containerId,
+        error: error instanceof Error ? error.message : 'Failed to stop container',
+      };
+    }
+  }
+
+  /**
    * Translate a local path to a container path using volume mappings
    */
   translatePath(localPath: string, mappings: DockerVolumeMapping[]): PathTranslation {

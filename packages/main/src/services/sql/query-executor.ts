@@ -4,6 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import type * as mssql from 'mssql';
 import type { QueryRequest, QueryResult, ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { ConnectionPoolManager } from './connection-pool';
@@ -13,6 +14,7 @@ interface ActiveQuery {
   connectionId: string;
   startTime: number;
   cancelled: boolean;
+  request?: mssql.Request; // Track the actual request for cancellation
 }
 
 export class QueryExecutor extends BaseSingleton {
@@ -32,28 +34,36 @@ export class QueryExecutor extends BaseSingleton {
     const startTime = Date.now();
 
     // Track active query
-    this.activeQueries.set(queryId, {
+    const activeQuery: ActiveQuery = {
       queryId,
       connectionId: request.connectionId,
       startTime,
       cancelled: false,
-    });
+    };
+    this.activeQueries.set(queryId, activeQuery);
 
     try {
       const pool = await this.poolManager.getPool(request.connectionId);
       const sqlRequest = pool.request();
+
+      // Store the request object for cancellation
+      activeQuery.request = sqlRequest;
 
       // Switch to the specified database
       if (request.database) {
         await sqlRequest.batch(`USE [${request.database.replace(/\]/g, ']]')}]`);
       }
 
+      // Check if cancelled before executing
+      if (activeQuery.cancelled) {
+        return this.createCancelledResult(queryId, startTime);
+      }
+
       // Execute the query
       const result = await sqlRequest.query(request.sql);
 
       // Check if cancelled
-      const activeQuery = this.activeQueries.get(queryId);
-      if (activeQuery?.cancelled) {
+      if (activeQuery.cancelled) {
         return this.createCancelledResult(queryId, startTime);
       }
 
@@ -107,13 +117,24 @@ export class QueryExecutor extends BaseSingleton {
   /**
    * Cancel a running query
    */
-  async cancel(queryId: string): Promise<void> {
+  async cancel(queryId: string): Promise<boolean> {
     const activeQuery = this.activeQueries.get(queryId);
     if (activeQuery) {
       activeQuery.cancelled = true;
-      // Note: SQL Server query cancellation is complex and would require
-      // tracking the actual request object. For now, we just mark it cancelled.
+
+      // Actually cancel the mssql request if it exists
+      if (activeQuery.request) {
+        try {
+          activeQuery.request.cancel();
+          console.log(`Query ${queryId} cancelled successfully`);
+          return true;
+        } catch (error) {
+          console.error(`Error cancelling query ${queryId}:`, error);
+        }
+      }
+      return true;
     }
+    return false;
   }
 
   /**

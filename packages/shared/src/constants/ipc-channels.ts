@@ -102,6 +102,25 @@ export const IPC_CHANNELS = {
     SHOW_IN_FOLDER: 'app:show-in-folder',
     SHOW_OPEN_DIALOG: 'app:show-open-dialog',
     SHOW_SAVE_DIALOG: 'app:show-save-dialog',
+    // State persistence
+    GET_STATE: 'app:get-state',
+    SET_STATE: 'app:set-state',
+    SAVE_TABS: 'app:save-tabs',
+    GET_TABS: 'app:get-tabs',
+  },
+
+  // Workspace (for file/folder support)
+  WORKSPACE: {
+    OPEN_FOLDER: 'workspace:open-folder',
+    GET_FILES: 'workspace:get-files',
+    READ_FILE: 'workspace:read-file',
+    WRITE_FILE: 'workspace:write-file',
+    CREATE_FILE: 'workspace:create-file',
+    DELETE_FILE: 'workspace:delete-file',
+    RENAME_FILE: 'workspace:rename-file',
+    WATCH: 'workspace:watch',
+    UNWATCH: 'workspace:unwatch',
+    FILE_CHANGED: 'workspace:file-changed',
   },
 } as const;
 

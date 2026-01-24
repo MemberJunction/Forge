@@ -32,6 +32,10 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  AppState,
+  TabState,
+  FileTreeNode,
+  WorkspaceInfo,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -217,6 +221,21 @@ interface ForgeAPI {
     openExternal: (url: string) => Promise<void>;
     showOpenDialog: (options: OpenDialogOptions) => Promise<OpenDialogReturnValue>;
     showSaveDialog: (options: SaveDialogOptions) => Promise<SaveDialogReturnValue>;
+    // State persistence
+    getState: () => Promise<AppState>;
+    setState: (partial: Partial<AppState>) => Promise<void>;
+    saveTabs: (tabs: TabState[], activeTabId: string | null) => Promise<void>;
+    getTabs: () => Promise<{ tabs: TabState[]; activeTabId: string | null }>;
+  };
+  workspace: {
+    openFolder: (path: string) => Promise<WorkspaceInfo>;
+    getFiles: (path: string) => Promise<FileTreeNode[]>;
+    readFile: (filePath: string) => Promise<string>;
+    writeFile: (filePath: string, content: string) => Promise<void>;
+    createFile: (filePath: string, content?: string) => Promise<void>;
+    deleteFile: (filePath: string) => Promise<void>;
+    renameFile: (oldPath: string, newPath: string) => Promise<void>;
+    onFileChanged: (callback: (event: { filePath: string; type: string }) => void) => () => void;
   };
   menu: {
     onNewConnection: (callback: () => void) => () => void;
@@ -522,5 +541,51 @@ export class IpcService {
 
   showSaveDialog(options: SaveDialogOptions): Observable<SaveDialogReturnValue> {
     return from(this.api.app.showSaveDialog(options));
+  }
+
+  // State persistence methods
+  getAppState(): Observable<AppState> {
+    return from(this.api.app.getState());
+  }
+
+  setAppState(partial: Partial<AppState>): Observable<void> {
+    return from(this.api.app.setState(partial));
+  }
+
+  saveTabs(tabs: TabState[], activeTabId: string | null): Observable<void> {
+    return from(this.api.app.saveTabs(tabs, activeTabId));
+  }
+
+  getTabs(): Observable<{ tabs: TabState[]; activeTabId: string | null }> {
+    return from(this.api.app.getTabs());
+  }
+
+  // Workspace methods
+  openWorkspaceFolder(path: string): Observable<WorkspaceInfo> {
+    return from(this.api.workspace.openFolder(path));
+  }
+
+  getWorkspaceFiles(path: string): Observable<FileTreeNode[]> {
+    return from(this.api.workspace.getFiles(path));
+  }
+
+  readWorkspaceFile(filePath: string): Observable<string> {
+    return from(this.api.workspace.readFile(filePath));
+  }
+
+  writeWorkspaceFile(filePath: string, content: string): Observable<void> {
+    return from(this.api.workspace.writeFile(filePath, content));
+  }
+
+  createWorkspaceFile(filePath: string, content?: string): Observable<void> {
+    return from(this.api.workspace.createFile(filePath, content));
+  }
+
+  deleteWorkspaceFile(filePath: string): Observable<void> {
+    return from(this.api.workspace.deleteFile(filePath));
+  }
+
+  renameWorkspaceFile(oldPath: string, newPath: string): Observable<void> {
+    return from(this.api.workspace.renameFile(oldPath, newPath));
   }
 }

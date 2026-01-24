@@ -1,5 +1,8 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
+import { IpcService } from '../services/ipc.service';
+import type { TabState } from '@mj-forge/shared';
+import { firstValueFrom } from 'rxjs';
 
 export type TabType = 'query' | 'results' | 'object' | 'welcome';
 
@@ -18,6 +21,8 @@ export interface Tab {
 
 @Injectable({ providedIn: 'root' })
 export class TabStateService {
+  private readonly ipc = inject(IpcService);
+
   private readonly _tabs = signal<Tab[]>([
     {
       id: 'welcome',
@@ -46,12 +51,28 @@ export class TabStateService {
   readonly activeTab$ = toObservable(this.activeTab);
 
   private tabCounter = 0;
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Schedule a debounced save of tabs
+   */
+  private scheduleSave(): void {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+    }
+    this.saveTimeout = setTimeout(() => {
+      this.saveTabs();
+      this.saveTimeout = null;
+    }, 500);
+  }
 
   openTab(tab: Omit<Tab, 'id'>): string {
     const id = `tab-${++this.tabCounter}`;
     const newTab: Tab = { ...tab, id };
     this._tabs.update(tabs => [...tabs, newTab]);
     this._activeTabId.set(id);
+    // Auto-save tabs
+    this.saveTabs();
     return id;
   }
 
@@ -76,6 +97,8 @@ export class TabStateService {
         this._activeTabId.set(newTabs[newIndex].id);
       }
     }
+    // Auto-save tabs
+    this.saveTabs();
   }
 
   activateTab(tabId: string): void {
@@ -87,6 +110,10 @@ export class TabStateService {
 
   updateTab(tabId: string, updates: Partial<Tab>): void {
     this._tabs.update(tabs => tabs.map(t => (t.id === tabId ? { ...t, ...updates } : t)));
+    // Debounced save for content updates
+    if (updates.content !== undefined) {
+      this.scheduleSave();
+    }
   }
 
   setTabDirty(tabId: string, isDirty: boolean): void {
@@ -205,5 +232,79 @@ export class TabStateService {
       constraint: 'link',
     };
     return iconMap[objectType.toLowerCase()] || 'description';
+  }
+
+  /**
+   * Save tabs to persistent storage
+   */
+  async saveTabs(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    try {
+      const tabs = this._tabs();
+      // Only save query tabs (not results, objects, or welcome)
+      const persistableTabs: TabState[] = tabs
+        .filter(t => t.type === 'query')
+        .map(t => ({
+          id: t.id,
+          type: t.type,
+          title: t.title,
+          content: t.content,
+          databaseName: t.databaseName,
+          isDirty: t.isDirty,
+        }));
+
+      await firstValueFrom(this.ipc.saveTabs(persistableTabs, this._activeTabId()));
+    } catch (error) {
+      console.error('Failed to save tabs:', error);
+    }
+  }
+
+  /**
+   * Restore tabs from persistent storage
+   */
+  async restoreTabs(connectionId: string): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    try {
+      const { tabs: savedTabs, activeTabId } = await firstValueFrom(this.ipc.getTabs());
+
+      if (savedTabs.length === 0) return;
+
+      // Convert saved tabs to full Tab objects
+      const restoredTabs: Tab[] = savedTabs.map((t, index) => ({
+        id: t.id || `restored-${index}`,
+        type: t.type as TabType,
+        title: t.title,
+        icon: t.type === 'query' ? 'code' : 'description',
+        connectionId,
+        databaseName: t.databaseName,
+        content: t.content,
+        isDirty: t.isDirty,
+      }));
+
+      // Add welcome tab if not present
+      const hasWelcome = this._tabs().some(t => t.type === 'welcome');
+      if (hasWelcome) {
+        const welcomeTab = this._tabs().find(t => t.type === 'welcome')!;
+        this._tabs.set([welcomeTab, ...restoredTabs]);
+      } else {
+        this._tabs.update(tabs => [...tabs, ...restoredTabs]);
+      }
+
+      // Update tab counter based on restored tabs
+      const maxTabNum = restoredTabs
+        .map(t => parseInt(t.id.replace('tab-', ''), 10))
+        .filter(n => !isNaN(n))
+        .reduce((max, n) => Math.max(max, n), this.tabCounter);
+      this.tabCounter = maxTabNum;
+
+      // Restore active tab if it exists
+      if (activeTabId && this._tabs().some(t => t.id === activeTabId)) {
+        this._activeTabId.set(activeTabId);
+      }
+    } catch (error) {
+      console.error('Failed to restore tabs:', error);
+    }
   }
 }

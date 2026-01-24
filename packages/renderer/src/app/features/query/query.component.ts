@@ -30,6 +30,7 @@ import {
   RowDetailData,
 } from '../../shared/components/row-detail-panel/row-detail-panel.component';
 import type { QueryResult, ResultSet, QueryHistoryEntry, ExportFormat } from '@mj-forge/shared';
+import { format as formatSQL } from 'sql-formatter';
 
 // Monaco editor types - loaded dynamically
 interface MonacoEditor {
@@ -116,10 +117,10 @@ declare const monaco: { editor: MonacoEditor };
         <button mat-icon-button matTooltip="Query History" (click)="toggleHistory()">
           <mat-icon>history</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Format SQL">
+        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" (click)="formatSql()">
           <mat-icon>auto_fix_high</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Show Execution Plan">
+        <button mat-icon-button matTooltip="Show Execution Plan" (click)="showExecutionPlan()">
           <mat-icon>account_tree</mat-icon>
         </button>
 
@@ -687,7 +688,18 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   private handleKeydown = (event: KeyboardEvent): void => {
+    // F5 - Execute query
     if (event.key === 'F5') {
+      event.preventDefault();
+      this.executeQuery();
+    }
+    // Cmd+Shift+F - Format SQL
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'f') {
+      event.preventDefault();
+      this.formatSql();
+    }
+    // Cmd+Enter - Execute query (alternative)
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault();
       this.executeQuery();
     }
@@ -982,5 +994,41 @@ export class QueryComponent implements OnInit, OnDestroy {
         columns: resultSet.columns,
       });
     }
+  }
+
+  // SQL Formatting
+  formatSql(): void {
+    if (!this.editor) {
+      this.notification.warning('Editor not ready');
+      return;
+    }
+
+    const sql = this.editor.getValue();
+    if (!sql.trim()) {
+      this.notification.warning('No SQL to format');
+      return;
+    }
+
+    try {
+      const formatted = formatSQL(sql, {
+        language: 'tsql',
+        tabWidth: 2,
+        useTabs: false,
+        keywordCase: 'upper',
+        dataTypeCase: 'upper',
+        functionCase: 'upper',
+        linesBetweenQueries: 2,
+      });
+      this.editor.setValue(formatted);
+      this.notification.success('SQL formatted');
+    } catch (error) {
+      this.notification.error('Failed to format SQL');
+      console.error('SQL formatting error:', error);
+    }
+  }
+
+  // Show Execution Plan (placeholder for now)
+  showExecutionPlan(): void {
+    this.notification.info('Execution plan visualization coming soon');
   }
 }

@@ -31,6 +31,10 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  AppState,
+  TabState,
+  FileTreeNode,
+  WorkspaceInfo,
 } from '@mj-forge/shared';
 
 /**
@@ -203,6 +207,22 @@ export interface ForgeAPI {
     showSaveDialog: (
       options: Electron.SaveDialogOptions
     ) => Promise<Electron.SaveDialogReturnValue>;
+    // State persistence
+    getState: () => Promise<AppState>;
+    setState: (partial: Partial<AppState>) => Promise<void>;
+    saveTabs: (tabs: TabState[], activeTabId: string | null) => Promise<void>;
+    getTabs: () => Promise<{ tabs: TabState[]; activeTabId: string | null }>;
+  };
+
+  workspace: {
+    openFolder: (path: string) => Promise<WorkspaceInfo>;
+    getFiles: (path: string) => Promise<FileTreeNode[]>;
+    readFile: (filePath: string) => Promise<string>;
+    writeFile: (filePath: string, content: string) => Promise<void>;
+    createFile: (filePath: string, content?: string) => Promise<void>;
+    deleteFile: (filePath: string) => Promise<void>;
+    renameFile: (oldPath: string, newPath: string) => Promise<void>;
+    onFileChanged: (callback: (event: { filePath: string; type: string }) => void) => () => void;
   };
 
   menu: {
@@ -471,6 +491,22 @@ const forgeAPI: ForgeAPI = {
     openExternal: url => ipcRenderer.invoke(IPC_CHANNELS.APP.OPEN_EXTERNAL, url),
     showOpenDialog: options => ipcRenderer.invoke(IPC_CHANNELS.APP.SHOW_OPEN_DIALOG, options),
     showSaveDialog: options => ipcRenderer.invoke(IPC_CHANNELS.APP.SHOW_SAVE_DIALOG, options),
+    // State persistence
+    getState: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_STATE),
+    setState: partial => ipcRenderer.invoke(IPC_CHANNELS.APP.SET_STATE, partial),
+    saveTabs: (tabs, activeTabId) => ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_TABS, tabs, activeTabId),
+    getTabs: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_TABS),
+  },
+
+  workspace: {
+    openFolder: path => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, path),
+    getFiles: path => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.GET_FILES, path),
+    readFile: filePath => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.READ_FILE, filePath),
+    writeFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.WRITE_FILE, filePath, content),
+    createFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.CREATE_FILE, filePath, content),
+    deleteFile: filePath => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.DELETE_FILE, filePath),
+    renameFile: (oldPath, newPath) => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.RENAME_FILE, oldPath, newPath),
+    onFileChanged: callback => createEventListener(IPC_CHANNELS.WORKSPACE.FILE_CHANGED, callback),
   },
 
   menu: {
