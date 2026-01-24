@@ -7,14 +7,21 @@ import {
   SimpleChanges,
   inject,
   signal,
+  computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { AgGridAngular } from 'ag-grid-angular';
 import {
   ColDef,
   GridApi,
   GridReadyEvent,
   CellClickedEvent,
+  CellContextMenuEvent,
   ValueFormatterParams,
   CellClassParams,
   ModuleRegistry,
@@ -22,6 +29,18 @@ import {
 } from 'ag-grid-community';
 import type { ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { NotificationService } from '../../../core/services/notification.service';
+import { IpcService } from '../../../core/services/ipc.service';
+import { firstValueFrom } from 'rxjs';
+
+interface ColumnStats {
+  column: string;
+  type: string;
+  nullCount: number;
+  distinctCount: number;
+  minValue?: unknown;
+  maxValue?: unknown;
+  avgValue?: number;
+}
 
 // Register all community modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -29,55 +48,192 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 @Component({
   selector: 'app-results-grid',
   standalone: true,
-  imports: [CommonModule, AgGridAngular],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatIconModule,
+    MatButtonModule,
+    MatMenuModule,
+    MatTooltipModule,
+    AgGridAngular,
+  ],
   template: `
     <div class="results-grid-container">
       <div class="grid-toolbar">
         <div class="grid-info">
           <span class="row-count">{{ rowCount() }} rows</span>
           @if (selectedCount() > 0) {
-            <span class="selection-info">{{ selectedCount() }} cells selected</span>
+            <span class="selection-info">{{ selectedCount() }} selected</span>
+          }
+          @if (filterText()) {
+            <span class="filter-info">filtered</span>
           }
         </div>
+
+        <div class="grid-search">
+          <input
+            type="text"
+            placeholder="Quick filter..."
+            [ngModel]="filterText()"
+            (ngModelChange)="onFilterChange($event)"
+          />
+          @if (filterText()) {
+            <button class="clear-btn" (click)="clearFilter()">
+              <mat-icon>close</mat-icon>
+            </button>
+          }
+        </div>
+
         <div class="grid-actions">
-          <button class="grid-btn" (click)="autoSizeAllColumns()" title="Auto-size columns">
-            <svg viewBox="0 0 24 24" width="16" height="16">
-              <path fill="currentColor" d="M4 4h16v2H4V4zm0 6h16v2H4v-2zm0 6h16v2H4v-2z" />
-            </svg>
+          <button
+            class="grid-btn"
+            matTooltip="Column Statistics"
+            (click)="toggleStats()"
+            [class.active]="showStats()"
+          >
+            <mat-icon>analytics</mat-icon>
+          </button>
+          <button class="grid-btn" matTooltip="Auto-size columns" (click)="autoSizeAllColumns()">
+            <mat-icon>view_column</mat-icon>
           </button>
           <button
             class="grid-btn"
+            matTooltip="Copy selected (Ctrl+C)"
             (click)="copySelectedToClipboard()"
-            title="Copy selected (Ctrl+C)"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16">
-              <path
-                fill="currentColor"
-                d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
-              />
-            </svg>
+            <mat-icon>content_copy</mat-icon>
           </button>
-          <button class="grid-btn" (click)="exportCsv()" title="Export to CSV">
-            <svg viewBox="0 0 24 24" width="16" height="16">
-              <path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
-            </svg>
+          <button class="grid-btn" [matMenuTriggerFor]="exportMenu" matTooltip="Export">
+            <mat-icon>download</mat-icon>
           </button>
+
+          <mat-menu #exportMenu="matMenu">
+            <button mat-menu-item (click)="exportCsv()">
+              <mat-icon>description</mat-icon>
+              <span>Export as CSV</span>
+            </button>
+            <button mat-menu-item (click)="exportJson()">
+              <mat-icon>code</mat-icon>
+              <span>Export as JSON</span>
+            </button>
+            <button mat-menu-item (click)="exportSqlInsert()">
+              <mat-icon>storage</mat-icon>
+              <span>Export as SQL INSERT</span>
+            </button>
+            <button mat-menu-item (click)="copySelectedToClipboard(true)">
+              <mat-icon>table_chart</mat-icon>
+              <span>Copy with Headers</span>
+            </button>
+          </mat-menu>
         </div>
       </div>
-      <ag-grid-angular
-        class="ag-theme-custom"
-        [rowData]="rowData"
-        [columnDefs]="columnDefs"
-        [defaultColDef]="defaultColDef"
-        [rowSelection]="rowSelectionOptions"
-        [suppressClipboardPaste]="true"
-        [animateRows]="false"
-        [suppressRowHoverHighlight]="false"
-        [rowBuffer]="20"
-        (gridReady)="onGridReady($event)"
-        (cellClicked)="onCellClicked($event)"
-        (selectionChanged)="onSelectionChanged()"
-      />
+
+      <!-- Column Statistics Panel -->
+      @if (showStats()) {
+        <div class="stats-panel">
+          <div class="stats-header">
+            <h4>Column Statistics</h4>
+            <button class="close-btn" (click)="showStats.set(false)">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+          <div class="stats-content">
+            @for (stat of columnStats(); track stat.column) {
+              <div class="stat-item">
+                <div class="stat-name">{{ stat.column }}</div>
+                <div class="stat-details">
+                  <span class="stat-type">{{ stat.type }}</span>
+                  <span>{{ stat.distinctCount }} distinct</span>
+                  <span>{{ stat.nullCount }} nulls</span>
+                  @if (stat.minValue !== undefined) {
+                    <span>min: {{ stat.minValue }}</span>
+                  }
+                  @if (stat.maxValue !== undefined) {
+                    <span>max: {{ stat.maxValue }}</span>
+                  }
+                  @if (stat.avgValue !== undefined) {
+                    <span>avg: {{ stat.avgValue | number:'1.2-2' }}</span>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <div class="grid-wrapper">
+        <ag-grid-angular
+          class="ag-theme-custom"
+          [rowData]="rowData"
+          [columnDefs]="columnDefs"
+          [defaultColDef]="defaultColDef"
+          [rowSelection]="rowSelectionOptions"
+          [suppressClipboardPaste]="true"
+          [animateRows]="false"
+          [suppressRowHoverHighlight]="false"
+          [rowBuffer]="20"
+          [quickFilterText]="filterText()"
+          [enableCellTextSelection]="true"
+          (gridReady)="onGridReady($event)"
+          (cellClicked)="onCellClicked($event)"
+          (cellContextMenu)="onCellContextMenu($event)"
+          (selectionChanged)="onSelectionChanged()"
+        />
+      </div>
+
+      <!-- Cell Value Preview Panel -->
+      @if (selectedCell()) {
+        <div class="preview-panel">
+          <div class="preview-header">
+            <span class="preview-column">{{ selectedCell()!.column }}</span>
+            <span class="preview-type">{{ selectedCell()!.type }}</span>
+            <button class="close-btn" (click)="selectedCell.set(null)">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+          <div class="preview-content">
+            <pre>{{ formatPreviewValue(selectedCell()!.value) }}</pre>
+          </div>
+          <div class="preview-actions">
+            <button class="action-btn" (click)="copyPreviewValue()">
+              <mat-icon>content_copy</mat-icon>
+              Copy
+            </button>
+          </div>
+        </div>
+      }
+
+      <!-- Context Menu -->
+      @if (contextMenuPosition()) {
+        <div
+          class="context-menu"
+          [style.top.px]="contextMenuPosition()!.y"
+          [style.left.px]="contextMenuPosition()!.x"
+          (mouseleave)="closeContextMenu()"
+        >
+          <button class="menu-item" (click)="copyCellValue()">
+            <mat-icon>content_copy</mat-icon>
+            Copy Cell Value
+          </button>
+          <button class="menu-item" (click)="copyRowAsJson()">
+            <mat-icon>code</mat-icon>
+            Copy Row as JSON
+          </button>
+          <button class="menu-item" (click)="copyRowAsSql()">
+            <mat-icon>storage</mat-icon>
+            Copy as INSERT
+          </button>
+          <div class="menu-divider"></div>
+          <button class="menu-item" (click)="filterByValue()">
+            <mat-icon>filter_alt</mat-icon>
+            Filter by Value
+          </button>
+          <button class="menu-item" (click)="excludeValue()">
+            <mat-icon>filter_alt_off</mat-icon>
+            Exclude Value
+          </button>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -94,6 +250,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         flex-direction: column;
         height: 100%;
         overflow: hidden;
+        position: relative;
       }
 
       .grid-toolbar {
@@ -103,7 +260,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         padding: 4px 8px;
         background-color: var(--bg-tertiary, #1e1e1e);
         border-bottom: 1px solid var(--border-primary, #333);
-        min-height: 28px;
+        min-height: 36px;
+        gap: 12px;
       }
 
       .grid-info {
@@ -112,6 +270,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         gap: 12px;
         font-size: 12px;
         color: var(--text-secondary, #888);
+        flex-shrink: 0;
       }
 
       .row-count {
@@ -122,17 +281,74 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         color: var(--status-info, #4fc3f7);
       }
 
+      .filter-info {
+        color: var(--status-warning, #ffb74d);
+      }
+
+      .grid-search {
+        flex: 1;
+        max-width: 300px;
+        position: relative;
+
+        input {
+          width: 100%;
+          padding: 4px 28px 4px 8px;
+          background-color: var(--bg-primary, #1e1e1e);
+          border: 1px solid var(--border-primary, #333);
+          border-radius: 4px;
+          color: var(--text-primary, #ccc);
+          font-size: 12px;
+
+          &:focus {
+            outline: none;
+            border-color: var(--status-info, #4fc3f7);
+          }
+
+          &::placeholder {
+            color: var(--text-muted, #666);
+          }
+        }
+
+        .clear-btn {
+          position: absolute;
+          right: 4px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 20px;
+          height: 20px;
+          padding: 0;
+          background: transparent;
+          border: none;
+          color: var(--text-muted, #666);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          mat-icon {
+            font-size: 14px;
+            width: 14px;
+            height: 14px;
+          }
+
+          &:hover {
+            color: var(--text-primary, #ccc);
+          }
+        }
+      }
+
       .grid-actions {
         display: flex;
         gap: 4px;
+        flex-shrink: 0;
       }
 
       .grid-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         padding: 0;
         background: transparent;
         border: none;
@@ -140,6 +356,12 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         color: var(--text-secondary, #888);
         cursor: pointer;
         transition: all 0.15s ease;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
 
         &:hover {
           background-color: var(--bg-hover, #2a2a2a);
@@ -149,12 +371,231 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         &:active {
           background-color: var(--bg-active, #333);
         }
+
+        &.active {
+          background-color: var(--status-info, #4fc3f7);
+          color: white;
+        }
+      }
+
+      .grid-wrapper {
+        flex: 1;
+        overflow: hidden;
       }
 
       ag-grid-angular {
-        flex: 1;
         width: 100%;
         height: 100%;
+      }
+
+      /* Stats Panel */
+      .stats-panel {
+        background-color: var(--bg-secondary, #252526);
+        border-bottom: 1px solid var(--border-primary, #333);
+        max-height: 200px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .stats-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-primary, #333);
+
+        h4 {
+          margin: 0;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-secondary, #888);
+          text-transform: uppercase;
+        }
+      }
+
+      .stats-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 8px;
+      }
+
+      .stat-item {
+        padding: 8px;
+        background-color: var(--bg-tertiary, #2d2d30);
+        border-radius: 4px;
+
+        .stat-name {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-primary, #ccc);
+          margin-bottom: 4px;
+        }
+
+        .stat-details {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          font-size: 11px;
+          color: var(--text-secondary, #888);
+
+          .stat-type {
+            color: var(--status-info, #4fc3f7);
+          }
+        }
+      }
+
+      /* Preview Panel */
+      .preview-panel {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background-color: var(--bg-secondary, #252526);
+        border-top: 1px solid var(--border-primary, #333);
+        max-height: 150px;
+        display: flex;
+        flex-direction: column;
+        z-index: 100;
+      }
+
+      .preview-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border-primary, #333);
+
+        .preview-column {
+          font-weight: 600;
+          color: var(--text-primary, #ccc);
+        }
+
+        .preview-type {
+          font-size: 11px;
+          color: var(--text-muted, #666);
+          padding: 2px 6px;
+          background-color: var(--bg-tertiary, #2d2d30);
+          border-radius: 4px;
+        }
+      }
+
+      .preview-content {
+        flex: 1;
+        overflow: auto;
+        padding: 8px 12px;
+
+        pre {
+          margin: 0;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 12px;
+          color: var(--text-primary, #ccc);
+          white-space: pre-wrap;
+          word-break: break-all;
+        }
+      }
+
+      .preview-actions {
+        display: flex;
+        gap: 4px;
+        padding: 6px 12px;
+        border-top: 1px solid var(--border-primary, #333);
+      }
+
+      .action-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        background: transparent;
+        border: 1px solid var(--border-primary, #333);
+        border-radius: 4px;
+        color: var(--text-secondary, #888);
+        font-size: 11px;
+        cursor: pointer;
+
+        mat-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
+        }
+
+        &:hover {
+          background-color: var(--bg-hover, #2a2a2a);
+          color: var(--text-primary, #ccc);
+        }
+      }
+
+      .close-btn {
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 4px;
+        color: var(--text-muted, #666);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: auto;
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+        }
+
+        &:hover {
+          background-color: var(--bg-hover, #2a2a2a);
+          color: var(--text-primary, #ccc);
+        }
+      }
+
+      /* Context Menu */
+      .context-menu {
+        position: fixed;
+        background-color: var(--bg-secondary, #252526);
+        border: 1px solid var(--border-primary, #333);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 180px;
+        z-index: 10000;
+        padding: 4px 0;
+      }
+
+      .menu-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        background: transparent;
+        border: none;
+        color: var(--text-primary, #ccc);
+        font-size: 12px;
+        cursor: pointer;
+        text-align: left;
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+          color: var(--text-secondary, #888);
+        }
+
+        &:hover {
+          background-color: var(--bg-hover, #2a2a2a);
+        }
+      }
+
+      .menu-divider {
+        height: 1px;
+        background-color: var(--border-primary, #333);
+        margin: 4px 0;
       }
 
       /* Custom ag-Grid theme */
@@ -399,16 +840,28 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 })
 export class ResultsGridComponent implements OnChanges {
   @Input() resultSet: ResultSet | null = null;
+  @Input() tableName: string = 'result';
   @Output() cellSelected = new EventEmitter<{ row: number; column: string; value: unknown }>();
   @Output() exportRequested = new EventEmitter<'csv' | 'json' | 'sql'>();
 
   private readonly notification = inject(NotificationService);
+  private readonly ipc = inject(IpcService);
   private gridApi: GridApi | null = null;
 
   rowData: Record<string, unknown>[] = [];
   columnDefs: ColDef[] = [];
   rowCount = signal(0);
   selectedCount = signal(0);
+  filterText = signal('');
+  showStats = signal(false);
+  selectedCell = signal<{ column: string; type: string; value: unknown } | null>(null);
+  contextMenuPosition = signal<{ x: number; y: number } | null>(null);
+  private contextMenuCell: { row: Record<string, unknown>; column: string } | null = null;
+
+  readonly columnStats = computed(() => {
+    if (!this.resultSet) return [];
+    return this.calculateColumnStats();
+  });
 
   defaultColDef: ColDef = {
     sortable: true,
@@ -570,11 +1023,26 @@ export class ResultsGridComponent implements OnChanges {
   }
 
   onCellClicked(event: CellClickedEvent): void {
+    const field = event.colDef.field ?? '';
+    const column = this.resultSet?.columns.find(c => c.name === field);
+
     this.cellSelected.emit({
       row: event.rowIndex ?? 0,
-      column: event.colDef.field ?? '',
+      column: field,
       value: event.value,
     });
+
+    // Update selected cell for preview panel (only for long values)
+    if (field && column) {
+      const valueStr = this.formatPreviewValue(event.value);
+      if (valueStr.length > 50 || valueStr.includes('\n')) {
+        this.selectedCell.set({
+          column: field,
+          type: column.type,
+          value: event.value,
+        });
+      }
+    }
   }
 
   onSelectionChanged(): void {
@@ -658,5 +1126,243 @@ export class ResultsGridComponent implements OnChanges {
       fileName: `query-results-${new Date().toISOString().slice(0, 10)}.csv`,
     });
     this.notification.info('Results exported to CSV');
+  }
+
+  async exportJson(): Promise<void> {
+    if (!this.resultSet || !this.ipc.isAvailable) return;
+
+    const json = JSON.stringify(this.resultSet.rows, null, 2);
+    const defaultPath = `query-results-${new Date().toISOString().slice(0, 10)}.json`;
+
+    try {
+      const result = await firstValueFrom(
+        this.ipc.showSaveDialog({
+          title: 'Export as JSON',
+          defaultPath,
+          filters: [{ name: 'JSON Files', extensions: ['json'] }],
+        })
+      );
+
+      if (!result.canceled && result.filePath) {
+        await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, json));
+        this.notification.success('Results exported to JSON');
+      }
+    } catch (error) {
+      this.notification.error('Failed to export JSON');
+      console.error('Export JSON failed:', error);
+    }
+  }
+
+  async exportSqlInsert(): Promise<void> {
+    if (!this.resultSet) return;
+
+    const columns = this.resultSet.columns.map(c => `[${c.name}]`).join(', ');
+    const inserts: string[] = [];
+
+    for (const row of this.resultSet.rows) {
+      const values = this.resultSet.columns.map(col => {
+        const value = row[col.name];
+        return this.formatSqlValue(value, col);
+      });
+      inserts.push(`INSERT INTO [${this.tableName}] (${columns}) VALUES (${values.join(', ')});`);
+    }
+
+    const sql = inserts.join('\n');
+
+    if (this.ipc.isAvailable) {
+      const defaultPath = `insert-${this.tableName}-${new Date().toISOString().slice(0, 10)}.sql`;
+
+      try {
+        const result = await firstValueFrom(
+          this.ipc.showSaveDialog({
+            title: 'Export as SQL INSERT',
+            defaultPath,
+            filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+          })
+        );
+
+        if (!result.canceled && result.filePath) {
+          await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, sql));
+          this.notification.success('Results exported as SQL INSERT statements');
+        }
+      } catch (error) {
+        this.notification.error('Failed to export SQL');
+        console.error('Export SQL failed:', error);
+      }
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(sql);
+      this.notification.info('SQL INSERT statements copied to clipboard');
+    }
+  }
+
+  private formatSqlValue(value: unknown, column: ColumnMetadata): string {
+    if (value === null || value === undefined) {
+      return 'NULL';
+    }
+
+    if (typeof value === 'number') {
+      return String(value);
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? '1' : '0';
+    }
+
+    if (value instanceof Date) {
+      return `'${value.toISOString()}'`;
+    }
+
+    if (typeof value === 'string') {
+      return `N'${value.replace(/'/g, "''")}'`;
+    }
+
+    if (typeof value === 'object') {
+      return `N'${JSON.stringify(value).replace(/'/g, "''")}'`;
+    }
+
+    return `N'${String(value).replace(/'/g, "''")}'`;
+  }
+
+  onFilterChange(text: string): void {
+    this.filterText.set(text);
+  }
+
+  clearFilter(): void {
+    this.filterText.set('');
+  }
+
+  toggleStats(): void {
+    this.showStats.update(v => !v);
+  }
+
+  private calculateColumnStats(): ColumnStats[] {
+    if (!this.resultSet) return [];
+
+    return this.resultSet.columns.map(col => {
+      const values = this.resultSet!.rows.map(r => r[col.name]);
+      const nonNullValues = values.filter(v => v !== null && v !== undefined);
+      const distinctValues = new Set(nonNullValues.map(v => JSON.stringify(v)));
+
+      const stats: ColumnStats = {
+        column: col.name,
+        type: col.type,
+        nullCount: values.length - nonNullValues.length,
+        distinctCount: distinctValues.size,
+      };
+
+      // Calculate min/max for comparable types
+      if (nonNullValues.length > 0) {
+        if (this.isNumericType(col.type)) {
+          const numericValues = nonNullValues.filter(v => typeof v === 'number') as number[];
+          if (numericValues.length > 0) {
+            stats.minValue = Math.min(...numericValues);
+            stats.maxValue = Math.max(...numericValues);
+            stats.avgValue = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
+          }
+        } else if (this.isDateType(col.type)) {
+          const dateValues = nonNullValues
+            .map(v => v instanceof Date ? v : new Date(String(v)))
+            .filter(d => !isNaN(d.getTime()));
+          if (dateValues.length > 0) {
+            stats.minValue = new Date(Math.min(...dateValues.map(d => d.getTime()))).toISOString().slice(0, 10);
+            stats.maxValue = new Date(Math.max(...dateValues.map(d => d.getTime()))).toISOString().slice(0, 10);
+          }
+        } else if (typeof nonNullValues[0] === 'string') {
+          const stringValues = nonNullValues.filter(v => typeof v === 'string') as string[];
+          if (stringValues.length > 0) {
+            const sorted = [...stringValues].sort();
+            stats.minValue = sorted[0].slice(0, 20) + (sorted[0].length > 20 ? '...' : '');
+            stats.maxValue = sorted[sorted.length - 1].slice(0, 20) + (sorted[sorted.length - 1].length > 20 ? '...' : '');
+          }
+        }
+      }
+
+      return stats;
+    });
+  }
+
+  onCellContextMenu(event: CellContextMenuEvent): void {
+    event.event?.preventDefault();
+
+    const mouseEvent = event.event as MouseEvent;
+    this.contextMenuPosition.set({ x: mouseEvent.clientX, y: mouseEvent.clientY });
+    this.contextMenuCell = {
+      row: event.data,
+      column: event.colDef?.field || '',
+    };
+  }
+
+  closeContextMenu(): void {
+    this.contextMenuPosition.set(null);
+    this.contextMenuCell = null;
+  }
+
+  copyCellValue(): void {
+    if (this.contextMenuCell) {
+      const value = this.contextMenuCell.row[this.contextMenuCell.column];
+      navigator.clipboard.writeText(this.formatValueForClipboard(value));
+      this.notification.info('Cell value copied');
+    }
+    this.closeContextMenu();
+  }
+
+  copyRowAsJson(): void {
+    if (this.contextMenuCell) {
+      const json = JSON.stringify(this.contextMenuCell.row, null, 2);
+      navigator.clipboard.writeText(json);
+      this.notification.info('Row copied as JSON');
+    }
+    this.closeContextMenu();
+  }
+
+  copyRowAsSql(): void {
+    if (this.contextMenuCell && this.resultSet) {
+      const columns = this.resultSet.columns.map(c => `[${c.name}]`).join(', ');
+      const values = this.resultSet.columns.map(col => {
+        const value = this.contextMenuCell!.row[col.name];
+        return this.formatSqlValue(value, col);
+      });
+      const sql = `INSERT INTO [${this.tableName}] (${columns}) VALUES (${values.join(', ')});`;
+      navigator.clipboard.writeText(sql);
+      this.notification.info('Row copied as INSERT statement');
+    }
+    this.closeContextMenu();
+  }
+
+  filterByValue(): void {
+    if (this.contextMenuCell) {
+      const value = this.contextMenuCell.row[this.contextMenuCell.column];
+      const filterValue = value === null ? 'NULL' : String(value);
+      this.filterText.set(filterValue);
+    }
+    this.closeContextMenu();
+  }
+
+  excludeValue(): void {
+    if (this.contextMenuCell) {
+      const value = this.contextMenuCell.row[this.contextMenuCell.column];
+      // Note: Quick filter doesn't support exclusion, but we'll set it for now
+      this.notification.info('Use column filter for exclusion');
+    }
+    this.closeContextMenu();
+  }
+
+  formatPreviewValue(value: unknown): string {
+    if (value === null || value === undefined) {
+      return 'NULL';
+    }
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 2);
+    }
+    return String(value);
+  }
+
+  copyPreviewValue(): void {
+    const cell = this.selectedCell();
+    if (cell) {
+      navigator.clipboard.writeText(this.formatPreviewValue(cell.value));
+      this.notification.info('Value copied to clipboard');
+    }
   }
 }
