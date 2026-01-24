@@ -30,6 +30,10 @@ export const routes: Routes = [
       import('./features/restore/restore.component').then(m => m.RestoreComponent),
   },
   {
+    path: 'erd',
+    loadComponent: () => import('./features/erd/erd.component').then(m => m.ErdComponent),
+  },
+  {
     path: '**',
     redirectTo: '',
   },

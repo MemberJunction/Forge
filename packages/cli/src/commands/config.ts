@@ -10,7 +10,7 @@ import {
   setDefaultConnection,
   type ForgeConfig,
 } from '../utils/config';
-import { printSuccess, printError, printInfo, printWarning } from '../utils/output';
+import { printSuccess, printError, printInfo } from '../utils/output';
 
 export const configCommand = new Command('config')
   .description('Manage CLI configuration')
@@ -54,7 +54,7 @@ function configListCommand(): Command {
       console.log(
         table(tableData, {
           border: getBorderCharacters('norc'),
-          drawHorizontalLine: (lineIndex, rowCount) =>
+          drawHorizontalLine: (lineIndex: number, rowCount: number) =>
             lineIndex === 0 || lineIndex === 1 || lineIndex === rowCount,
         })
       );
@@ -80,7 +80,7 @@ function configSetCommand(): Command {
           printSuccess(`Output format set to: ${value}`);
           break;
 
-        case 'maxRows':
+        case 'maxRows': {
           const rows = parseInt(value, 10);
           if (isNaN(rows) || rows < 1) {
             printError('Invalid value. Must be a positive number.');
@@ -89,6 +89,7 @@ function configSetCommand(): Command {
           config.maxRows = rows;
           printSuccess(`Max rows set to: ${rows}`);
           break;
+        }
 
         default:
           printError(`Unknown configuration key: ${key}`);
@@ -143,7 +144,7 @@ function configDefaultCommand(): Command {
   return new Command('default')
     .description('Set the default connection')
     .argument('<name>', 'Connection name')
-    .action((name) => {
+    .action(name => {
       if (setDefaultConnection(name)) {
         printSuccess(`Default connection set to: ${name}`);
       } else {
@@ -154,20 +155,16 @@ function configDefaultCommand(): Command {
 }
 
 function configShowCommand(): Command {
-  return new Command('show')
-    .description('Show current configuration')
-    .action(() => {
-      const config = loadConfig();
+  return new Command('show').description('Show current configuration').action(() => {
+    const config = loadConfig();
 
-      console.log(chalk.cyan('\nConfiguration:\n'));
-      console.log(`  ${chalk.bold('Output Format:')}    ${config.outputFormat}`);
-      console.log(`  ${chalk.bold('Max Rows:')}         ${config.maxRows}`);
-      console.log(
-        `  ${chalk.bold('Default Connection:')} ${config.defaultConnection || chalk.dim('(not set)')}`
-      );
-      console.log(
-        `  ${chalk.bold('Saved Connections:')} ${Object.keys(config.connections).length}`
-      );
-      console.log('');
-    });
+    console.log(chalk.cyan('\nConfiguration:\n'));
+    console.log(`  ${chalk.bold('Output Format:')}    ${config.outputFormat}`);
+    console.log(`  ${chalk.bold('Max Rows:')}         ${config.maxRows}`);
+    console.log(
+      `  ${chalk.bold('Default Connection:')} ${config.defaultConnection || chalk.dim('(not set)')}`
+    );
+    console.log(`  ${chalk.bold('Saved Connections:')} ${Object.keys(config.connections).length}`);
+    console.log('');
+  });
 }

@@ -11,6 +11,17 @@ import {
 } from '../utils/config';
 import { printSuccess, printError, printInfo } from '../utils/output';
 
+interface ConnectPromptAnswers {
+  server: string;
+  port: string;
+  database: string;
+  user: string;
+  password: string;
+  trustCert: boolean;
+  save: boolean;
+  name: string;
+}
+
 export const connectCommand = new Command('connect')
   .description('Connect to a SQL Server instance')
   .option('-s, --server <server>', 'Server hostname or IP')
@@ -22,7 +33,7 @@ export const connectCommand = new Command('connect')
   .option('-c, --connection <name>', 'Use saved connection')
   .option('--trust-cert', 'Trust server certificate', false)
   .option('--no-encrypt', 'Disable encryption')
-  .action(async (options) => {
+  .action(async options => {
     try {
       let config: ConnectionConfig;
 
@@ -49,7 +60,7 @@ export const connectCommand = new Command('connect')
         };
       } else {
         // Interactive mode
-        const answers = await inquirer.prompt([
+        const answers = (await inquirer.prompt([
           {
             type: 'input',
             name: 'server',
@@ -76,7 +87,7 @@ export const connectCommand = new Command('connect')
             type: 'password',
             name: 'password',
             message: 'Password:',
-            when: (answers: { user?: string }) => !!answers.user,
+            when: (prevAnswers: Partial<ConnectPromptAnswers>) => !!prevAnswers.user,
           },
           {
             type: 'confirm',
@@ -94,10 +105,10 @@ export const connectCommand = new Command('connect')
             type: 'input',
             name: 'name',
             message: 'Connection name:',
-            when: (answers: { save?: boolean }) => answers.save,
+            when: (prevAnswers: Partial<ConnectPromptAnswers>) => prevAnswers.save,
             validate: (input: string) => input.length > 0 || 'Name is required',
           },
-        ]);
+        ])) as ConnectPromptAnswers;
 
         config = {
           name: answers.name || answers.server,

@@ -716,6 +716,24 @@ export class SidebarComponent {
       },
       { id: 'div2', label: '', divider: true },
       {
+        id: 'show-relationships',
+        label: 'Show Relationships',
+        icon: 'account_tree',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openErdTab(
+              node.connectionId,
+              node.databaseName,
+              node.metadata.name,
+              schema
+            );
+            this.router.navigate(['/erd']);
+          }
+        },
+      },
+      {
         id: 'properties',
         label: 'Properties...',
         icon: 'info',

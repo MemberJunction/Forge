@@ -59,7 +59,7 @@ function formatAsTable(data: Record<string, unknown>[]): string {
     columnDefault: {
       truncate: 50,
     },
-    drawHorizontalLine: (lineIndex, rowCount) => {
+    drawHorizontalLine: (lineIndex: number, rowCount: number) => {
       return lineIndex === 0 || lineIndex === 1 || lineIndex === rowCount;
     },
   });

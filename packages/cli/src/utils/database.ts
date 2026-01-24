@@ -61,7 +61,7 @@ export async function executeQuery(
   }
 
   const result = await request.query(finalQuery);
-  return result.recordsets;
+  return result.recordsets as sql.IRecordSet<Record<string, unknown>>[];
 }
 
 export async function getDatabases(): Promise<string[]> {
@@ -78,7 +78,9 @@ export async function getDatabases(): Promise<string[]> {
   return result.recordset.map((r: { name: string }) => r.name);
 }
 
-export async function getTables(database?: string): Promise<Array<{ schema: string; name: string }>> {
+export async function getTables(
+  database?: string
+): Promise<Array<{ schema: string; name: string }>> {
   if (!currentPool) {
     throw new Error('Not connected to a server.');
   }

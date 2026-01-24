@@ -152,7 +152,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
                     <span>max: {{ stat.maxValue }}</span>
                   }
                   @if (stat.avgValue !== undefined) {
-                    <span>avg: {{ stat.avgValue | number:'1.2-2' }}</span>
+                    <span>avg: {{ stat.avgValue | number: '1.2-2' }}</span>
                   }
                 </div>
               </div>
@@ -163,7 +163,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
       <div class="grid-wrapper">
         <ag-grid-angular
-          class="ag-theme-custom"
+          class="ag-theme-quartz-dark"
+          [theme]="'legacy'"
           [rowData]="rowData"
           [columnDefs]="columnDefs"
           [defaultColDef]="defaultColDef"
@@ -258,8 +259,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         align-items: center;
         justify-content: space-between;
         padding: 4px 8px;
-        background-color: var(--bg-tertiary, #1e1e1e);
-        border-bottom: 1px solid var(--border-primary, #333);
+        background-color: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-primary);
         min-height: 36px;
         gap: 12px;
       }
@@ -269,20 +270,20 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         align-items: center;
         gap: 12px;
         font-size: 12px;
-        color: var(--text-secondary, #888);
+        color: var(--text-secondary);
         flex-shrink: 0;
       }
 
       .row-count {
-        color: var(--text-primary, #ccc);
+        color: var(--text-primary);
       }
 
       .selection-info {
-        color: var(--status-info, #4fc3f7);
+        color: var(--status-info);
       }
 
       .filter-info {
-        color: var(--status-warning, #ffb74d);
+        color: var(--status-warning);
       }
 
       .grid-search {
@@ -293,19 +294,19 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         input {
           width: 100%;
           padding: 4px 28px 4px 8px;
-          background-color: var(--bg-primary, #1e1e1e);
-          border: 1px solid var(--border-primary, #333);
+          background-color: var(--bg-primary);
+          border: 1px solid var(--border-primary);
           border-radius: 4px;
-          color: var(--text-primary, #ccc);
+          color: var(--text-primary);
           font-size: 12px;
 
           &:focus {
             outline: none;
-            border-color: var(--status-info, #4fc3f7);
+            border-color: var(--border-focus);
           }
 
           &::placeholder {
-            color: var(--text-muted, #666);
+            color: var(--text-muted);
           }
         }
 
@@ -319,7 +320,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           padding: 0;
           background: transparent;
           border: none;
-          color: var(--text-muted, #666);
+          color: var(--text-muted);
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -332,7 +333,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           }
 
           &:hover {
-            color: var(--text-primary, #ccc);
+            color: var(--text-primary);
           }
         }
       }
@@ -353,7 +354,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         background: transparent;
         border: none;
         border-radius: 4px;
-        color: var(--text-secondary, #888);
+        color: var(--text-secondary);
         cursor: pointer;
         transition: all 0.15s ease;
 
@@ -364,16 +365,16 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         &:hover {
-          background-color: var(--bg-hover, #2a2a2a);
-          color: var(--text-primary, #ccc);
+          background-color: var(--bg-hover);
+          color: var(--text-primary);
         }
 
         &:active {
-          background-color: var(--bg-active, #333);
+          background-color: var(--bg-active);
         }
 
         &.active {
-          background-color: var(--status-info, #4fc3f7);
+          background-color: var(--status-info);
           color: white;
         }
       }
@@ -390,8 +391,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
       /* Stats Panel */
       .stats-panel {
-        background-color: var(--bg-secondary, #252526);
-        border-bottom: 1px solid var(--border-primary, #333);
+        background-color: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-primary);
         max-height: 200px;
         overflow: hidden;
         display: flex;
@@ -403,13 +404,13 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         align-items: center;
         justify-content: space-between;
         padding: 8px 12px;
-        border-bottom: 1px solid var(--border-primary, #333);
+        border-bottom: 1px solid var(--border-primary);
 
         h4 {
           margin: 0;
           font-size: 12px;
           font-weight: 600;
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
           text-transform: uppercase;
         }
       }
@@ -425,13 +426,13 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
       .stat-item {
         padding: 8px;
-        background-color: var(--bg-tertiary, #2d2d30);
+        background-color: var(--bg-tertiary);
         border-radius: 4px;
 
         .stat-name {
           font-size: 12px;
           font-weight: 600;
-          color: var(--text-primary, #ccc);
+          color: var(--text-primary);
           margin-bottom: 4px;
         }
 
@@ -440,10 +441,10 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           flex-wrap: wrap;
           gap: 8px;
           font-size: 11px;
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
 
           .stat-type {
-            color: var(--status-info, #4fc3f7);
+            color: var(--status-info);
           }
         }
       }
@@ -454,8 +455,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         bottom: 0;
         left: 0;
         right: 0;
-        background-color: var(--bg-secondary, #252526);
-        border-top: 1px solid var(--border-primary, #333);
+        background-color: var(--bg-secondary);
+        border-top: 1px solid var(--border-primary);
         max-height: 150px;
         display: flex;
         flex-direction: column;
@@ -467,18 +468,18 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         align-items: center;
         gap: 8px;
         padding: 6px 12px;
-        border-bottom: 1px solid var(--border-primary, #333);
+        border-bottom: 1px solid var(--border-primary);
 
         .preview-column {
           font-weight: 600;
-          color: var(--text-primary, #ccc);
+          color: var(--text-primary);
         }
 
         .preview-type {
           font-size: 11px;
-          color: var(--text-muted, #666);
+          color: var(--text-muted);
           padding: 2px 6px;
-          background-color: var(--bg-tertiary, #2d2d30);
+          background-color: var(--bg-tertiary);
           border-radius: 4px;
         }
       }
@@ -492,7 +493,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           margin: 0;
           font-family: 'JetBrains Mono', monospace;
           font-size: 12px;
-          color: var(--text-primary, #ccc);
+          color: var(--text-primary);
           white-space: pre-wrap;
           word-break: break-all;
         }
@@ -502,7 +503,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         display: flex;
         gap: 4px;
         padding: 6px 12px;
-        border-top: 1px solid var(--border-primary, #333);
+        border-top: 1px solid var(--border-primary);
       }
 
       .action-btn {
@@ -511,9 +512,9 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         gap: 4px;
         padding: 4px 8px;
         background: transparent;
-        border: 1px solid var(--border-primary, #333);
+        border: 1px solid var(--border-primary);
         border-radius: 4px;
-        color: var(--text-secondary, #888);
+        color: var(--text-secondary);
         font-size: 11px;
         cursor: pointer;
 
@@ -524,8 +525,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         &:hover {
-          background-color: var(--bg-hover, #2a2a2a);
-          color: var(--text-primary, #ccc);
+          background-color: var(--bg-hover);
+          color: var(--text-primary);
         }
       }
 
@@ -536,7 +537,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         background: transparent;
         border: none;
         border-radius: 4px;
-        color: var(--text-muted, #666);
+        color: var(--text-muted);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -550,18 +551,18 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         &:hover {
-          background-color: var(--bg-hover, #2a2a2a);
-          color: var(--text-primary, #ccc);
+          background-color: var(--bg-hover);
+          color: var(--text-primary);
         }
       }
 
       /* Context Menu */
       .context-menu {
         position: fixed;
-        background-color: var(--bg-secondary, #252526);
-        border: 1px solid var(--border-primary, #333);
+        background-color: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
         border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-md);
         min-width: 180px;
         z-index: 10000;
         padding: 4px 0;
@@ -575,7 +576,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         padding: 8px 12px;
         background: transparent;
         border: none;
-        color: var(--text-primary, #ccc);
+        color: var(--text-primary);
         font-size: 12px;
         cursor: pointer;
         text-align: left;
@@ -584,33 +585,34 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           font-size: 16px;
           width: 16px;
           height: 16px;
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
         }
 
         &:hover {
-          background-color: var(--bg-hover, #2a2a2a);
+          background-color: var(--bg-hover);
         }
       }
 
       .menu-divider {
         height: 1px;
-        background-color: var(--border-primary, #333);
+        background-color: var(--border-primary);
         margin: 4px 0;
       }
 
-      /* Custom ag-Grid theme */
-      :host ::ng-deep .ag-theme-custom {
-        --ag-background-color: var(--bg-primary, #1e1e1e);
-        --ag-header-background-color: var(--bg-secondary, #252526);
-        --ag-odd-row-background-color: var(--bg-primary, #1e1e1e);
-        --ag-row-hover-color: var(--bg-hover, #2a2d2e);
-        --ag-selected-row-background-color: rgba(33, 150, 243, 0.2);
-        --ag-range-selection-background-color: rgba(33, 150, 243, 0.3);
-        --ag-range-selection-border-color: #2196f3;
-        --ag-header-foreground-color: var(--text-secondary, #888);
-        --ag-foreground-color: var(--text-primary, #ccc);
-        --ag-border-color: var(--border-primary, #333);
-        --ag-secondary-foreground-color: var(--text-muted, #666);
+      /* Custom ag-Grid theme overrides for dark mode */
+      :host ::ng-deep .ag-theme-quartz-dark {
+        --ag-background-color: var(--bg-primary);
+        --ag-header-background-color: var(--grid-header-bg);
+        --ag-odd-row-background-color: var(--grid-row-odd);
+        --ag-even-row-background-color: var(--grid-row-even);
+        --ag-row-hover-color: var(--grid-row-hover);
+        --ag-selected-row-background-color: var(--grid-row-selected);
+        --ag-range-selection-background-color: var(--grid-range-selection);
+        --ag-range-selection-border-color: var(--grid-range-border);
+        --ag-header-foreground-color: var(--text-secondary);
+        --ag-foreground-color: var(--text-primary);
+        --ag-border-color: var(--border-primary);
+        --ag-secondary-foreground-color: var(--text-muted);
         --ag-font-family: 'JetBrains Mono', 'Consolas', monospace;
         --ag-font-size: 12px;
         --ag-row-height: 24px;
@@ -618,29 +620,29 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         --ag-cell-horizontal-padding: 8px;
 
         /* Checkbox styling for dark/light mode */
-        --ag-checkbox-background-color: var(--bg-tertiary, #2d2d30);
-        --ag-checkbox-checked-color: var(--status-info, #3794ff);
-        --ag-checkbox-unchecked-color: var(--border-secondary, #454545);
-        --ag-checkbox-indeterminate-color: var(--status-info, #3794ff);
+        --ag-checkbox-background-color: var(--bg-tertiary);
+        --ag-checkbox-checked-color: var(--status-info);
+        --ag-checkbox-unchecked-color: var(--border-secondary);
+        --ag-checkbox-indeterminate-color: var(--status-info);
 
         /* Input styling */
-        --ag-input-border-color: var(--border-primary, #333);
-        --ag-input-focus-border-color: var(--border-focus, #007acc);
-        --ag-input-disabled-background-color: var(--bg-secondary, #252526);
+        --ag-input-border-color: var(--border-primary);
+        --ag-input-focus-border-color: var(--border-focus);
+        --ag-input-disabled-background-color: var(--bg-secondary);
 
         /* Icon colors */
-        --ag-icon-font-color: var(--text-secondary, #888);
+        --ag-icon-font-color: var(--text-secondary);
 
         /* Popup/modal backgrounds */
         --ag-modal-overlay-background-color: rgba(0, 0, 0, 0.5);
-        --ag-popup-background-color: var(--bg-elevated, #333333);
+        --ag-popup-background-color: var(--bg-elevated);
 
         .ag-root-wrapper {
           border: none;
         }
 
         .ag-header {
-          border-bottom: 1px solid var(--border-primary, #333);
+          border-bottom: 1px solid var(--border-primary);
         }
 
         .ag-header-cell {
@@ -656,16 +658,16 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         .ag-cell {
-          border-right: 1px solid var(--border-primary, #333);
+          border-right: 1px solid var(--grid-cell-border);
           line-height: 24px;
         }
 
         .ag-row {
-          border-bottom: 1px solid var(--border-primary, #2a2a2a);
+          border-bottom: 1px solid var(--grid-cell-border);
         }
 
         .ag-cell.cell-null {
-          color: var(--text-muted, #666);
+          color: var(--text-muted);
           font-style: italic;
         }
 
@@ -674,27 +676,27 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         .ag-cell.cell-boolean {
-          color: var(--status-info, #4fc3f7);
+          color: var(--status-info);
         }
 
         .ag-cell.cell-date {
-          color: var(--status-warning, #ffb74d);
+          color: var(--status-warning);
         }
 
         /* Row number column */
         .ag-cell.row-number-cell {
-          background-color: var(--bg-secondary, #252526);
-          color: var(--text-muted, #666);
+          background-color: var(--grid-header-bg);
+          color: var(--text-muted);
           text-align: right;
           font-size: 10px;
-          border-right: 1px solid var(--border-primary, #333);
+          border-right: 1px solid var(--border-primary);
         }
 
         /* Context menu styling */
         .ag-menu {
-          background-color: var(--bg-secondary, #252526);
-          border: 1px solid var(--border-primary, #333);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+          background-color: var(--bg-secondary);
+          border: 1px solid var(--border-primary);
+          box-shadow: var(--shadow-md);
         }
 
         .ag-menu-option {
@@ -702,7 +704,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           cursor: pointer;
 
           &:hover {
-            background-color: var(--bg-hover, #2a2d2e);
+            background-color: var(--bg-hover);
           }
         }
 
@@ -717,22 +719,22 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         ::-webkit-scrollbar-track {
-          background: var(--bg-primary, #1e1e1e);
+          background: var(--bg-primary);
         }
 
         ::-webkit-scrollbar-thumb {
-          background: var(--border-primary, #444);
+          background: var(--border-secondary);
           border-radius: 5px;
 
           &:hover {
-            background: var(--text-muted, #555);
+            background: var(--text-muted);
           }
         }
 
         /* Filter styling */
         .ag-filter {
-          background-color: var(--bg-secondary, #252526);
-          border: 1px solid var(--border-primary, #333);
+          background-color: var(--bg-secondary);
+          border: 1px solid var(--border-primary);
         }
 
         .ag-filter-body-wrapper {
@@ -740,31 +742,31 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         }
 
         .ag-text-field-input {
-          background-color: var(--bg-primary, #1e1e1e);
-          border: 1px solid var(--border-primary, #333);
-          color: var(--text-primary, #ccc);
+          background-color: var(--bg-primary);
+          border: 1px solid var(--border-primary);
+          color: var(--text-primary);
           padding: 4px 8px;
           border-radius: 4px;
 
           &:focus {
-            border-color: var(--status-info, #4fc3f7);
+            border-color: var(--border-focus);
             outline: none;
           }
         }
 
         /* Checkbox styling */
         .ag-checkbox-input-wrapper {
-          background-color: var(--bg-tertiary, #2d2d30);
-          border: 1px solid var(--border-secondary, #454545);
+          background-color: var(--bg-tertiary);
+          border: 1px solid var(--border-secondary);
           border-radius: 3px;
 
           &::after {
-            color: var(--status-info, #3794ff);
+            color: var(--status-info);
           }
 
           &.ag-checked {
-            background-color: var(--status-info, #3794ff);
-            border-color: var(--status-info, #3794ff);
+            background-color: var(--status-info);
+            border-color: var(--status-info);
 
             &::after {
               color: white;
@@ -772,66 +774,66 @@ ModuleRegistry.registerModules([AllCommunityModule]);
           }
 
           &:hover {
-            border-color: var(--status-info, #3794ff);
+            border-color: var(--status-info);
           }
         }
 
         /* Input elements in ag-Grid */
         input[class^='ag-'],
         input[class*=' ag-'] {
-          background-color: var(--bg-tertiary, #2d2d30);
-          border: 1px solid var(--border-primary, #333);
-          color: var(--text-primary, #ccc);
+          background-color: var(--bg-tertiary);
+          border: 1px solid var(--border-primary);
+          color: var(--text-primary);
 
           &:focus {
-            border-color: var(--border-focus, #007acc);
+            border-color: var(--border-focus);
             outline: none;
           }
         }
 
         /* Select elements */
         .ag-select {
-          background-color: var(--bg-tertiary, #2d2d30);
-          border: 1px solid var(--border-primary, #333);
-          color: var(--text-primary, #ccc);
+          background-color: var(--bg-tertiary);
+          border: 1px solid var(--border-primary);
+          color: var(--text-primary);
         }
 
         .ag-picker-field-wrapper {
-          background-color: var(--bg-tertiary, #2d2d30);
-          border: 1px solid var(--border-primary, #333);
+          background-color: var(--bg-tertiary);
+          border: 1px solid var(--border-primary);
         }
 
         /* Icons */
         .ag-icon {
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
         }
 
         /* Header checkbox */
         .ag-header-select-all {
           .ag-checkbox-input-wrapper {
-            background-color: var(--bg-secondary, #252526);
+            background-color: var(--bg-secondary);
           }
         }
 
         /* Tooltip */
         .ag-tooltip {
-          background-color: var(--bg-elevated, #333333);
-          color: var(--text-primary, #ccc);
-          border: 1px solid var(--border-primary, #333);
+          background-color: var(--bg-elevated);
+          color: var(--text-primary);
+          border: 1px solid var(--border-primary);
           box-shadow: var(--shadow-md);
         }
 
         /* Column header sort icons */
         .ag-sort-indicator-icon {
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
         }
 
         /* Filter icons */
         .ag-header-cell-filter-button {
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
 
           &:hover {
-            color: var(--text-primary, #ccc);
+            color: var(--text-primary);
           }
         }
       }
@@ -1196,7 +1198,7 @@ export class ResultsGridComponent implements OnChanges {
     }
   }
 
-  private formatSqlValue(value: unknown, column: ColumnMetadata): string {
+  private formatSqlValue(value: unknown, _column: ColumnMetadata): string {
     if (value === null || value === undefined) {
       return 'NULL';
     }
@@ -1262,18 +1264,24 @@ export class ResultsGridComponent implements OnChanges {
           }
         } else if (this.isDateType(col.type)) {
           const dateValues = nonNullValues
-            .map(v => v instanceof Date ? v : new Date(String(v)))
+            .map(v => (v instanceof Date ? v : new Date(String(v))))
             .filter(d => !isNaN(d.getTime()));
           if (dateValues.length > 0) {
-            stats.minValue = new Date(Math.min(...dateValues.map(d => d.getTime()))).toISOString().slice(0, 10);
-            stats.maxValue = new Date(Math.max(...dateValues.map(d => d.getTime()))).toISOString().slice(0, 10);
+            stats.minValue = new Date(Math.min(...dateValues.map(d => d.getTime())))
+              .toISOString()
+              .slice(0, 10);
+            stats.maxValue = new Date(Math.max(...dateValues.map(d => d.getTime())))
+              .toISOString()
+              .slice(0, 10);
           }
         } else if (typeof nonNullValues[0] === 'string') {
           const stringValues = nonNullValues.filter(v => typeof v === 'string') as string[];
           if (stringValues.length > 0) {
             const sorted = [...stringValues].sort();
             stats.minValue = sorted[0].slice(0, 20) + (sorted[0].length > 20 ? '...' : '');
-            stats.maxValue = sorted[sorted.length - 1].slice(0, 20) + (sorted[sorted.length - 1].length > 20 ? '...' : '');
+            stats.maxValue =
+              sorted[sorted.length - 1].slice(0, 20) +
+              (sorted[sorted.length - 1].length > 20 ? '...' : '');
           }
         }
       }
@@ -1341,8 +1349,7 @@ export class ResultsGridComponent implements OnChanges {
 
   excludeValue(): void {
     if (this.contextMenuCell) {
-      const value = this.contextMenuCell.row[this.contextMenuCell.column];
-      // Note: Quick filter doesn't support exclusion, but we'll set it for now
+      // Note: Quick filter doesn't support exclusion
       this.notification.info('Use column filter for exclusion');
     }
     this.closeContextMenu();

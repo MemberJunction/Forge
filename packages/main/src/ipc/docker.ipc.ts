@@ -4,12 +4,7 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
-import type {
-  DockerStatus,
-  DockerContainer,
-  DockerVolume,
-  DockerVolumeMapping,
-} from '@mj-forge/shared';
+import type { DockerStatus, DockerContainer, DockerVolume } from '@mj-forge/shared';
 import { DockerDetector } from '../services/docker/detector';
 
 export function registerDockerHandlers(): void {

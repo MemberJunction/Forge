@@ -24,12 +24,14 @@ program.addCommand(configCommand);
 
 // Default action - show help
 program.action(() => {
-  console.log(chalk.cyan(`
+  console.log(
+    chalk.cyan(`
   ╔═══════════════════════════════════════════╗
   ║           ${chalk.bold('MJ Forge CLI')}                    ║
   ║     SQL Server Management Tool            ║
   ╚═══════════════════════════════════════════╝
-  `));
+  `)
+  );
   program.help();
 });
 
@@ -39,7 +41,7 @@ program.exitOverride();
 try {
   program.parse();
 } catch (error: unknown) {
-  if (error instanceof Error && 'code' !== 'commander.help') {
+  if (error instanceof Error && (error as { code?: string }).code !== 'commander.help') {
     console.error(chalk.red('Error:'), error.message);
     process.exit(1);
   }

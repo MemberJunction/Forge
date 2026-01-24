@@ -1,5 +1,9 @@
 @use '@angular/material' as mat;
 
+/* ag-Grid theming - import base styles then customize with CSS variables */
+@import 'ag-grid-community/styles/ag-grid.css';
+@import 'ag-grid-community/styles/ag-theme-quartz.css';
+
 // Custom color palette - SSMS-inspired dark theme
 $primary-palette: (
   50: #e3f2fd,
@@ -147,6 +151,16 @@ $forge-theme: mat.m2-define-dark-theme(
 
   // Monaco editor theme
   --monaco-theme: vs-dark;
+
+  // Grid/Table colors
+  --grid-row-odd: #1e1e1e;
+  --grid-row-even: #232323;
+  --grid-row-hover: #2a2d2e;
+  --grid-row-selected: rgba(33, 150, 243, 0.2);
+  --grid-range-selection: rgba(33, 150, 243, 0.3);
+  --grid-range-border: #2196f3;
+  --grid-header-bg: #252526;
+  --grid-cell-border: #2a2a2a;
 }
 
 // Light theme colors
@@ -191,6 +205,16 @@ $forge-theme: mat.m2-define-dark-theme(
 
   // Monaco editor theme
   --monaco-theme: vs;
+
+  // Grid/Table colors
+  --grid-row-odd: #ffffff;
+  --grid-row-even: #f9f9f9;
+  --grid-row-hover: #e8f4fd;
+  --grid-row-selected: rgba(0, 120, 212, 0.15);
+  --grid-range-selection: rgba(0, 120, 212, 0.2);
+  --grid-range-border: #0078d4;
+  --grid-header-bg: #f3f3f3;
+  --grid-cell-border: #e0e0e0;
 }
 
 // Apply dark theme by default (most dev tools are dark)

@@ -4,7 +4,7 @@
 
 export interface TabState {
   id: string;
-  type: 'query' | 'results' | 'object' | 'welcome';
+  type: 'query' | 'results' | 'object' | 'welcome' | 'erd';
   title: string;
   content?: string;
   databaseName?: string;

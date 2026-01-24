@@ -2,12 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { table, getBorderCharacters } from 'table';
-import {
-  getDatabases,
-  getTables,
-  isConnected,
-  formatError,
-} from '../utils/database';
+import { getDatabases, getTables, isConnected, formatError } from '../utils/database';
 import { printError, printInfo } from '../utils/output';
 
 export const listCommand = new Command('list')
@@ -65,24 +60,18 @@ async function listDatabases(spinner: ReturnType<typeof ora>): Promise<void> {
   spinner.succeed(`Found ${databases.length} databases`);
   console.log('');
 
-  const tableData = [
-    [chalk.bold.cyan('Database')],
-    ...databases.map(db => [db]),
-  ];
+  const tableData = [[chalk.bold.cyan('Database')], ...databases.map(db => [db])];
 
   console.log(
     table(tableData, {
       border: getBorderCharacters('norc'),
-      drawHorizontalLine: (lineIndex, rowCount) =>
+      drawHorizontalLine: (lineIndex: number, rowCount: number) =>
         lineIndex === 0 || lineIndex === 1 || lineIndex === rowCount,
     })
   );
 }
 
-async function listTables(
-  spinner: ReturnType<typeof ora>,
-  database?: string
-): Promise<void> {
+async function listTables(spinner: ReturnType<typeof ora>, database?: string): Promise<void> {
   const tables = await getTables(database);
   spinner.succeed(`Found ${tables.length} tables`);
   console.log('');
@@ -100,16 +89,13 @@ async function listTables(
   console.log(
     table(tableData, {
       border: getBorderCharacters('norc'),
-      drawHorizontalLine: (lineIndex, rowCount) =>
+      drawHorizontalLine: (lineIndex: number, rowCount: number) =>
         lineIndex === 0 || lineIndex === 1 || lineIndex === rowCount,
     })
   );
 }
 
-async function listViews(
-  spinner: ReturnType<typeof ora>,
-  database?: string
-): Promise<void> {
+async function listViews(spinner: ReturnType<typeof ora>, database?: string): Promise<void> {
   // Similar to tables but for views
   const db = database ? `[${database}].` : '';
 
@@ -127,10 +113,7 @@ async function listViews(
   );
 }
 
-async function listProcedures(
-  spinner: ReturnType<typeof ora>,
-  database?: string
-): Promise<void> {
+async function listProcedures(spinner: ReturnType<typeof ora>, database?: string): Promise<void> {
   const db = database ? `[${database}].` : '';
 
   spinner.succeed('Stored procedures listing');

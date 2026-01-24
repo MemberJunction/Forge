@@ -4,7 +4,7 @@ import { IpcService } from '../services/ipc.service';
 import type { TabState } from '@mj-forge/shared';
 import { firstValueFrom } from 'rxjs';
 
-export type TabType = 'query' | 'results' | 'object' | 'welcome';
+export type TabType = 'query' | 'results' | 'object' | 'welcome' | 'erd';
 
 export interface Tab {
   id: string;
@@ -176,6 +176,49 @@ export class TabStateService {
       connectionId,
       databaseName,
       metadata: { objectName, objectType },
+    });
+  }
+
+  /**
+   * Open an ERD (Entity Relationship Diagram) tab
+   * @param connectionId The connection ID
+   * @param databaseName The database name
+   * @param tableName Optional table name to focus on
+   * @param schema Optional schema name (defaults to 'dbo')
+   */
+  openErdTab(
+    connectionId: string,
+    databaseName: string,
+    tableName?: string,
+    schema?: string
+  ): string {
+    // Check if ERD tab already exists for this database/table
+    const existing = this._tabs().find(
+      t =>
+        t.type === 'erd' &&
+        t.connectionId === connectionId &&
+        t.databaseName === databaseName &&
+        t.metadata?.['tableName'] === tableName
+    );
+
+    if (existing) {
+      this._activeTabId.set(existing.id);
+      return existing.id;
+    }
+
+    const title = tableName ? `ERD: ${tableName}` : `ERD: ${databaseName}`;
+
+    return this.openTab({
+      type: 'erd',
+      title,
+      icon: 'account_tree',
+      connectionId,
+      databaseName,
+      metadata: {
+        tableName,
+        schema: schema || 'dbo',
+        focusDepth: tableName ? 2 : undefined, // Show 2 levels of relationships when focused on a table
+      },
     });
   }
 
