@@ -1,0 +1,21 @@
+{
+  "name": "@mj-forge/preload",
+  "version": "1.0.0",
+  "description": "Electron preload scripts for MJ Forge",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --external:electron --outfile=dist/index.js && tsc --emitDeclarationOnly",
+    "watch": "esbuild src/index.ts --bundle --platform=node --target=node20 --external:electron --outfile=dist/index.js --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mj-forge/shared": "*"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "esbuild": "^0.23.0",
+    "typescript": "~5.4.5"
+  }
+}

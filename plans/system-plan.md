@@ -2,7 +2,7 @@
 
 > **Version:** 1.0.0
 > **Last Updated:** January 2026
-> **Status:** Planning Phase
+> **Status:** Implementation Complete - All core features implemented, testing and documentation pending
 
 ---
 
@@ -58,12 +58,12 @@ MJ Forge is a purpose-built, Mac-native application that makes these operations 
 
 ### Quantified Impact
 
-| Friction Point | Time Lost | Frequency | Weekly Cost |
-|----------------|-----------|-----------|-------------|
-| Starting VM for SSMS | 5-10 min | 3-4x/day | 1-2 hours |
-| CLI backup/restore trial & error | 15-30 min | 2-3x/week | 30-90 min |
-| Debugging path issues in Docker | 10-20 min | 1-2x/week | 10-40 min |
-| Context switching between tools | 2-5 min | 10x/day | 2-4 hours |
+| Friction Point                   | Time Lost | Frequency | Weekly Cost |
+| -------------------------------- | --------- | --------- | ----------- |
+| Starting VM for SSMS             | 5-10 min  | 3-4x/day  | 1-2 hours   |
+| CLI backup/restore trial & error | 15-30 min | 2-3x/week | 30-90 min   |
+| Debugging path issues in Docker  | 10-20 min | 1-2x/week | 10-40 min   |
+| Context switching between tools  | 2-5 min   | 10x/day   | 2-4 hours   |
 
 **Total estimated productivity loss: 4-8 hours per developer per week**
 
@@ -170,37 +170,37 @@ This user needs Always On, profiler, maintenance plans, policy management — fe
 
 ### Feature Matrix
 
-| Feature | v1.0 | v1.1 | v2.0 |
-|---------|:----:|:----:|:----:|
-| **Connection Management** | ✅ | ✅ | ✅ |
-| - Multiple profiles | ✅ | ✅ | ✅ |
-| - Keychain storage | ✅ | ✅ | ✅ |
-| - Docker detection | ✅ | ✅ | ✅ |
-| - Connection grouping | — | ✅ | ✅ |
-| - Azure AD auth | — | — | ✅ |
-| **Database Operations** | ✅ | ✅ | ✅ |
-| - Create database | ✅ | ✅ | ✅ |
-| - Rename database | ✅ | ✅ | ✅ |
-| - Delete database (safe) | ✅ | ✅ | ✅ |
-| - Clone database | — | ✅ | ✅ |
-| **Backup & Restore** | ✅ | ✅ | ✅ |
-| - Full backup | ✅ | ✅ | ✅ |
-| - Restore with relocate | ✅ | ✅ | ✅ |
-| - Streaming progress | ✅ | ✅ | ✅ |
-| - Differential backup | — | ✅ | ✅ |
-| - Backup scheduling | — | — | ✅ |
-| **Object Explorer** | ✅ | ✅ | ✅ |
-| - Tables/Views/Procs | ✅ | ✅ | ✅ |
-| - Schema grouping | — | ✅ | ✅ |
-| - Script as CREATE | ✅ | ✅ | ✅ |
-| - Table data viewer | — | ✅ | ✅ |
-| **Query Workspace** | ✅ | ✅ | ✅ |
-| - Multi-tab editor | ✅ | ✅ | ✅ |
-| - Results grid | ✅ | ✅ | ✅ |
-| - Messages pane | ✅ | ✅ | ✅ |
-| - Syntax highlighting | ✅ | ✅ | ✅ |
-| - IntelliSense | — | — | ✅ |
-| - Query history | — | ✅ | ✅ |
+| Feature                   | v1.0 | v1.1 | v2.0 |
+| ------------------------- | :--: | :--: | :--: |
+| **Connection Management** |  ✅  |  ✅  |  ✅  |
+| - Multiple profiles       |  ✅  |  ✅  |  ✅  |
+| - Keychain storage        |  ✅  |  ✅  |  ✅  |
+| - Docker detection        |  ✅  |  ✅  |  ✅  |
+| - Connection grouping     |  —   |  ✅  |  ✅  |
+| - Azure AD auth           |  —   |  —   |  ✅  |
+| **Database Operations**   |  ✅  |  ✅  |  ✅  |
+| - Create database         |  ✅  |  ✅  |  ✅  |
+| - Rename database         |  ✅  |  ✅  |  ✅  |
+| - Delete database (safe)  |  ✅  |  ✅  |  ✅  |
+| - Clone database          |  —   |  ✅  |  ✅  |
+| **Backup & Restore**      |  ✅  |  ✅  |  ✅  |
+| - Full backup             |  ✅  |  ✅  |  ✅  |
+| - Restore with relocate   |  ✅  |  ✅  |  ✅  |
+| - Streaming progress      |  ✅  |  ✅  |  ✅  |
+| - Differential backup     |  —   |  ✅  |  ✅  |
+| - Backup scheduling       |  —   |  —   |  ✅  |
+| **Object Explorer**       |  ✅  |  ✅  |  ✅  |
+| - Tables/Views/Procs      |  ✅  |  ✅  |  ✅  |
+| - Schema grouping         |  —   |  ✅  |  ✅  |
+| - Script as CREATE        |  ✅  |  ✅  |  ✅  |
+| - Table data viewer       |  —   |  ✅  |  ✅  |
+| **Query Workspace**       |  ✅  |  ✅  |  ✅  |
+| - Multi-tab editor        |  ✅  |  ✅  |  ✅  |
+| - Results grid            |  ✅  |  ✅  |  ✅  |
+| - Messages pane           |  ✅  |  ✅  |  ✅  |
+| - Syntax highlighting     |  ✅  |  ✅  |  ✅  |
+| - IntelliSense            |  —   |  —   |  ✅  |
+| - Query history           |  —   |  ✅  |  ✅  |
 
 ---
 
@@ -254,13 +254,13 @@ This user needs Always On, profiler, maintenance plans, policy management — fe
 
 ### v2+: Potential Monetization
 
-| Tier | Price | Features |
-|------|-------|----------|
-| **Community** | Free | Core features, single connection |
-| **Pro** | $9/mo | Unlimited connections, query history, themes |
-| **Team** | $29/mo/seat | Shared connections, team snippets, audit log |
+| Tier          | Price       | Features                                     |
+| ------------- | ----------- | -------------------------------------------- |
+| **Community** | Free        | Core features, single connection             |
+| **Pro**       | $9/mo       | Unlimited connections, query history, themes |
+| **Team**      | $29/mo/seat | Shared connections, team snippets, audit log |
 
-*Note: Business model is exploratory. v1 focuses purely on value delivery.*
+_Note: Business model is exploratory. v1 focuses purely on value delivery._
 
 ---
 
@@ -298,25 +298,25 @@ This user needs Always On, profiler, maintenance plans, policy management — fe
 
 ### Competitive Advantages
 
-| Competitor | Gap MJ Forge Fills |
-|------------|-------------------|
-| **SSMS** | Windows-only. VM overhead unacceptable for quick tasks |
-| **Azure Data Studio** | No backup/restore UI. Heavy Electron app, slow startup |
-| **TablePlus** | No backup/restore. Generic multi-DB, not SQL Server optimized |
-| **VS Code + mssql** | Query-only. No database management operations |
-| **DBeaver** | Generic. Complex UI. No Docker awareness |
+| Competitor            | Gap MJ Forge Fills                                            |
+| --------------------- | ------------------------------------------------------------- |
+| **SSMS**              | Windows-only. VM overhead unacceptable for quick tasks        |
+| **Azure Data Studio** | No backup/restore UI. Heavy Electron app, slow startup        |
+| **TablePlus**         | No backup/restore. Generic multi-DB, not SQL Server optimized |
+| **VS Code + mssql**   | Query-only. No database management operations                 |
+| **DBeaver**           | Generic. Complex UI. No Docker awareness                      |
 
 ---
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| Docker path complexity confuses users | High | Medium | Intelligent detection + clear guidance UI |
-| SQL Server auth edge cases (AAD, Windows) | Medium | High | Focus v1 on SQL auth; clear "not supported" messaging |
-| Azure SQL backup/restore differences | Medium | Medium | Document limitations; separate UX path |
-| Performance with large databases | Low | Medium | Streaming UI; virtualized grids; clear progress |
-| Electron security vulnerabilities | Low | High | Context isolation; no node in renderer; regular updates |
+| Risk                                      | Likelihood | Impact | Mitigation                                              |
+| ----------------------------------------- | ---------- | ------ | ------------------------------------------------------- |
+| Docker path complexity confuses users     | High       | Medium | Intelligent detection + clear guidance UI               |
+| SQL Server auth edge cases (AAD, Windows) | Medium     | High   | Focus v1 on SQL auth; clear "not supported" messaging   |
+| Azure SQL backup/restore differences      | Medium     | Medium | Document limitations; separate UX path                  |
+| Performance with large databases          | Low        | Medium | Streaming UI; virtualized grids; clear progress         |
+| Electron security vulnerabilities         | Low        | High   | Context isolation; no node in renderer; regular updates |
 
 ---
 
@@ -326,10 +326,10 @@ MJ Forge leverages select packages from the MemberJunction ecosystem:
 
 ### Adopted Packages
 
-| Package | Usage |
-|---------|-------|
+| Package                  | Usage                                                         |
+| ------------------------ | ------------------------------------------------------------- |
 | `@memberjunction/global` | Singleton patterns, ClassFactory, ObjectCache, JSON utilities |
-| `@memberjunction/config` | Connection profile management (v1.1+) |
+| `@memberjunction/config` | Connection profile management (v1.1+)                         |
 
 ### Adopted Patterns
 
@@ -345,7 +345,8 @@ MJ Forge leverages select packages from the MemberJunction ecosystem:
 
 ---
 
-*Continue to [Part II: UX Design & Mockups →](02-ux-mockups.md)*
+_Continue to [Part II: UX Design & Mockups →](02-ux-mockups.md)_
+
 # Part II: UX Design & Mockups
 
 ## Design Philosophy
@@ -1262,27 +1263,28 @@ sequenceDiagram
 
 ## Keyboard Shortcuts
 
-| Action | Shortcut | Context |
-|--------|----------|---------|
-| New Query Tab | ⌘N | Global |
-| Run Query | ⌘↵ | Query Editor |
-| Run Selection | ⌘⇧↵ | Query Editor |
-| Save Query | ⌘S | Query Editor |
-| Close Tab | ⌘W | Any Tab |
-| Backup Database | ⌘B | Database Selected |
-| Restore Database | ⌘R | Server Selected |
-| Delete Database | ⌘⌫ | Database Selected |
-| Refresh Explorer | ⌘⇧R | Global |
-| Toggle Sidebar | ⌘\ | Global |
-| Command Palette | ⌘K | Global |
-| Switch Connection | ⌘⇧C | Global |
-| Find in Results | ⌘F | Results Grid |
-| Copy Cell | ⌘C | Results Grid |
-| Export Results | ⌘E | Results Grid |
+| Action            | Shortcut | Context           |
+| ----------------- | -------- | ----------------- |
+| New Query Tab     | ⌘N       | Global            |
+| Run Query         | ⌘↵       | Query Editor      |
+| Run Selection     | ⌘⇧↵      | Query Editor      |
+| Save Query        | ⌘S       | Query Editor      |
+| Close Tab         | ⌘W       | Any Tab           |
+| Backup Database   | ⌘B       | Database Selected |
+| Restore Database  | ⌘R       | Server Selected   |
+| Delete Database   | ⌘⌫       | Database Selected |
+| Refresh Explorer  | ⌘⇧R      | Global            |
+| Toggle Sidebar    | ⌘\       | Global            |
+| Command Palette   | ⌘K       | Global            |
+| Switch Connection | ⌘⇧C      | Global            |
+| Find in Results   | ⌘F       | Results Grid      |
+| Copy Cell         | ⌘C       | Results Grid      |
+| Export Results    | ⌘E       | Results Grid      |
 
 ---
 
-*Continue to [Part III: Interaction Design →](03-interaction-design.md)*
+_Continue to [Part III: Interaction Design →](03-interaction-design.md)_
+
 # Part III: Interaction Design
 
 ## Design System
@@ -1861,16 +1863,16 @@ flowchart TD
 
 ### Screen Reader Announcements
 
-| Action | Announcement |
-|--------|--------------|
-| Connection successful | "Connected to [server name]" |
-| Connection failed | "Connection failed: [error summary]" |
-| Database created | "Database [name] created successfully" |
-| Backup started | "Backup started for [database]" |
-| Backup progress | "[percent]% complete" (every 10%) |
-| Backup complete | "Backup complete. File saved to [path]" |
-| Query complete | "[count] rows returned in [time]" |
-| Error occurred | "Error: [message]. Press Tab to view details" |
+| Action                | Announcement                                  |
+| --------------------- | --------------------------------------------- |
+| Connection successful | "Connected to [server name]"                  |
+| Connection failed     | "Connection failed: [error summary]"          |
+| Database created      | "Database [name] created successfully"        |
+| Backup started        | "Backup started for [database]"               |
+| Backup progress       | "[percent]% complete" (every 10%)             |
+| Backup complete       | "Backup complete. File saved to [path]"       |
+| Query complete        | "[count] rows returned in [time]"             |
+| Error occurred        | "Error: [message]. Press Tab to view details" |
 
 ### Focus Management
 
@@ -1960,7 +1962,8 @@ flowchart TD
 
 ---
 
-*Continue to [Part IV: Technical Architecture →](04-architecture.md)*
+_Continue to [Part IV: Technical Architecture →](04-architecture.md)_
+
 # Part IV: Technical Architecture
 
 ## System Overview
@@ -2239,9 +2242,9 @@ export const IPC_CHANNELS = {
   BACKUP: {
     START: 'backup:start',
     CANCEL: 'backup:cancel',
-    PROGRESS: 'backup:progress',  // Main → Renderer
-    COMPLETE: 'backup:complete',  // Main → Renderer
-    ERROR: 'backup:error',        // Main → Renderer
+    PROGRESS: 'backup:progress', // Main → Renderer
+    COMPLETE: 'backup:complete', // Main → Renderer
+    ERROR: 'backup:error', // Main → Renderer
   },
 
   // Restore Operations
@@ -2251,7 +2254,7 @@ export const IPC_CHANNELS = {
     CANCEL: 'restore:cancel',
     PROGRESS: 'restore:progress', // Main → Renderer
     COMPLETE: 'restore:complete', // Main → Renderer
-    ERROR: 'restore:error',       // Main → Renderer
+    ERROR: 'restore:error', // Main → Renderer
   },
 
   // Settings
@@ -2403,7 +2406,6 @@ import {
 } from '@shared/types/database.types';
 
 export function registerDatabaseHandlers(sqlService: SqlService): void {
-
   ipcMain.handle(
     IPC_CHANNELS.DATABASE.LIST,
     async (event: IpcMainInvokeEvent, connectionId: string): Promise<DatabaseInfo[]> => {
@@ -2540,12 +2542,12 @@ export interface ForgeAPI {
 
 const api: ForgeAPI = {
   connection: {
-    test: (profile) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.TEST, profile),
-    save: (profile) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.SAVE, profile),
-    delete: (id) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.DELETE, id),
+    test: profile => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.TEST, profile),
+    save: profile => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.SAVE, profile),
+    delete: id => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.DELETE, id),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.LIST),
-    connect: (id) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.CONNECT, id),
-    disconnect: (id) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.DISCONNECT, id),
+    connect: id => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.CONNECT, id),
+    disconnect: id => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.DISCONNECT, id),
   },
   // ... rest of implementation
 };
@@ -2653,7 +2655,8 @@ export class ConnectionPoolManager extends BaseSingleton<ConnectionPoolManager> 
       const now = new Date();
       for (const [id, entry] of this.pools) {
         const idleMs = now.getTime() - entry.lastUsed.getTime();
-        if (idleMs > 300000 && entry.activeQueries === 0) { // 5 minutes
+        if (idleMs > 300000 && entry.activeQueries === 0) {
+          // 5 minutes
           this.closePool(id);
         }
       }
@@ -2667,11 +2670,7 @@ export class ConnectionPoolManager extends BaseSingleton<ConnectionPoolManager> 
 ```typescript
 // src/main/services/sql/tsql-builder.ts
 
-import {
-  CreateDatabaseOptions,
-  BackupOptions,
-  RestoreOptions,
-} from '@shared/types';
+import { CreateDatabaseOptions, BackupOptions, RestoreOptions } from '@shared/types';
 
 export class TsqlBuilder {
   /**
@@ -2835,8 +2834,8 @@ export class DockerDetector {
     const sqlContainers: DockerContainer[] = [];
 
     for (const container of containers) {
-      const isSqlServer = container.Image.includes('mssql') ||
-                          container.Image.includes('sqlserver');
+      const isSqlServer =
+        container.Image.includes('mssql') || container.Image.includes('sqlserver');
 
       if (isSqlServer) {
         const portBinding = container.Ports.find(p => p.PrivatePort === 1433);
@@ -3199,7 +3198,7 @@ export function SafeJSONParse<T>(jsonString: string, fallback: T): T {
 export function CleanJSON(jsonString: string): string {
   return jsonString
     .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
-    .replace(/,(\s*[}\]])/g, '$1')   // Remove trailing commas
+    .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
     .trim();
 }
 
@@ -3226,11 +3225,7 @@ export function CleanAndParseJSON<T>(jsonString: string, fallback: T): T {
     "output": "dist",
     "buildResources": "resources"
   },
-  "files": [
-    "dist/main/**/*",
-    "dist/renderer/**/*",
-    "dist/preload/**/*"
-  ],
+  "files": ["dist/main/**/*", "dist/renderer/**/*", "dist/preload/**/*"],
   "mac": {
     "category": "public.app-category.developer-tools",
     "icon": "resources/icon.icns",
@@ -3283,7 +3278,8 @@ export function CleanAndParseJSON<T>(jsonString: string, fallback: T): T {
 
 ---
 
-*Continue to [Part V: Implementation Task List →](05-task-list.md)*
+_Continue to [Part V: Implementation Task List →](05-task-list.md)_
+
 # Part V: Implementation Task List
 
 ## Overview
@@ -3292,12 +3288,12 @@ This section provides a comprehensive, ordered task list for implementing MJ For
 
 ### Task Priority Legend
 
-| Priority | Meaning |
-|----------|---------|
-| 🔴 P0 | Critical path - blocks other work |
-| 🟠 P1 | High priority - core functionality |
-| 🟡 P2 | Medium priority - important features |
-| 🟢 P3 | Lower priority - nice to have for v1 |
+| Priority | Meaning                              |
+| -------- | ------------------------------------ |
+| 🔴 P0    | Critical path - blocks other work    |
+| 🟠 P1    | High priority - core functionality   |
+| 🟡 P2    | Medium priority - important features |
+| 🟢 P3    | Lower priority - nice to have for v1 |
 
 ### Task Status Tracking
 
@@ -4392,18 +4388,18 @@ This section provides a comprehensive, ordered task list for implementing MJ For
 
 ## Summary: Milestone Mapping
 
-| Phase | Milestone | Priority | Dependency |
-|-------|-----------|----------|------------|
-| 0 | Project Foundation | 🔴 P0 | None |
-| 1 | Connection Management | 🔴 P0 | Phase 0 |
-| 2 | Object Explorer | 🔴 P0 | Phase 1 |
-| 3 | Query Workspace | 🔴 P0 | Phase 1 |
-| 4 | Database Operations | 🟠 P1 | Phase 2 |
-| 5 | Backup Operations | 🟠 P1 | Phase 4 |
-| 6 | Restore Operations | 🟠 P1 | Phase 5 |
-| 7 | Polish & Refinement | 🟡 P2 | Phase 6 |
-| 8 | Testing & Documentation | 🟠 P1 | Phase 7 |
-| 9 | Build & Distribution | 🟠 P1 | Phase 8 |
+| Phase | Milestone               | Priority | Dependency |
+| ----- | ----------------------- | -------- | ---------- |
+| 0     | Project Foundation      | 🔴 P0    | None       |
+| 1     | Connection Management   | 🔴 P0    | Phase 0    |
+| 2     | Object Explorer         | 🔴 P0    | Phase 1    |
+| 3     | Query Workspace         | 🔴 P0    | Phase 1    |
+| 4     | Database Operations     | 🟠 P1    | Phase 2    |
+| 5     | Backup Operations       | 🟠 P1    | Phase 4    |
+| 6     | Restore Operations      | 🟠 P1    | Phase 5    |
+| 7     | Polish & Refinement     | 🟡 P2    | Phase 6    |
+| 8     | Testing & Documentation | 🟠 P1    | Phase 7    |
+| 9     | Build & Distribution    | 🟠 P1    | Phase 8    |
 
 ---
 
@@ -4436,4 +4432,4 @@ Parallel throughout:
 
 ---
 
-*End of Implementation Task List*
+_End of Implementation Task List_
