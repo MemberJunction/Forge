@@ -36,6 +36,7 @@ import type {
   TabState,
   FileTreeNode,
   WorkspaceInfo,
+  LayoutConfig,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -226,6 +227,9 @@ interface ForgeAPI {
     setState: (partial: Partial<AppState>) => Promise<void>;
     saveTabs: (tabs: TabState[], activeTabId: string | null) => Promise<void>;
     getTabs: () => Promise<{ tabs: TabState[]; activeTabId: string | null }>;
+    // GoldenLayout persistence
+    saveLayout: (config: LayoutConfig | undefined) => Promise<void>;
+    getLayout: () => Promise<LayoutConfig | undefined>;
   };
   workspace: {
     openFolder: (path: string) => Promise<WorkspaceInfo>;
@@ -558,6 +562,15 @@ export class IpcService {
 
   getTabs(): Observable<{ tabs: TabState[]; activeTabId: string | null }> {
     return from(this.api.app.getTabs());
+  }
+
+  // GoldenLayout persistence
+  saveLayout(config: LayoutConfig | undefined): Observable<void> {
+    return from(this.api.app.saveLayout(config));
+  }
+
+  getLayout(): Observable<LayoutConfig | undefined> {
+    return from(this.api.app.getLayout());
   }
 
   // Workspace methods

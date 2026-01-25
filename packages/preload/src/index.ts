@@ -35,6 +35,7 @@ import type {
   TabState,
   FileTreeNode,
   WorkspaceInfo,
+  LayoutConfig,
 } from '@mj-forge/shared';
 
 /**
@@ -212,6 +213,9 @@ export interface ForgeAPI {
     setState: (partial: Partial<AppState>) => Promise<void>;
     saveTabs: (tabs: TabState[], activeTabId: string | null) => Promise<void>;
     getTabs: () => Promise<{ tabs: TabState[]; activeTabId: string | null }>;
+    // GoldenLayout persistence
+    saveLayout: (config: LayoutConfig | undefined) => Promise<void>;
+    getLayout: () => Promise<LayoutConfig | undefined>;
   };
 
   workspace: {
@@ -494,18 +498,25 @@ const forgeAPI: ForgeAPI = {
     // State persistence
     getState: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_STATE),
     setState: partial => ipcRenderer.invoke(IPC_CHANNELS.APP.SET_STATE, partial),
-    saveTabs: (tabs, activeTabId) => ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_TABS, tabs, activeTabId),
+    saveTabs: (tabs, activeTabId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_TABS, tabs, activeTabId),
     getTabs: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_TABS),
+    // GoldenLayout persistence
+    saveLayout: config => ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_LAYOUT, config),
+    getLayout: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_LAYOUT),
   },
 
   workspace: {
     openFolder: path => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, path),
     getFiles: path => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.GET_FILES, path),
     readFile: filePath => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.READ_FILE, filePath),
-    writeFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.WRITE_FILE, filePath, content),
-    createFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.CREATE_FILE, filePath, content),
+    writeFile: (filePath, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.WRITE_FILE, filePath, content),
+    createFile: (filePath, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.CREATE_FILE, filePath, content),
     deleteFile: filePath => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.DELETE_FILE, filePath),
-    renameFile: (oldPath, newPath) => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.RENAME_FILE, oldPath, newPath),
+    renameFile: (oldPath, newPath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.RENAME_FILE, oldPath, newPath),
     onFileChanged: callback => createEventListener(IPC_CHANNELS.WORKSPACE.FILE_CHANGED, callback),
   },
 

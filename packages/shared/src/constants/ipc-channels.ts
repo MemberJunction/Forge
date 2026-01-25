@@ -107,6 +107,9 @@ export const IPC_CHANNELS = {
     SET_STATE: 'app:set-state',
     SAVE_TABS: 'app:save-tabs',
     GET_TABS: 'app:get-tabs',
+    // GoldenLayout persistence
+    SAVE_LAYOUT: 'app:save-layout',
+    GET_LAYOUT: 'app:get-layout',
   },
 
   // Workspace (for file/folder support)

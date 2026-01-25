@@ -17,13 +17,14 @@ import {
   Type,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subscription } from 'rxjs';
+import { Subscription, firstValueFrom } from 'rxjs';
 import {
   GoldenLayoutManager,
   TabComponentState,
   TabShownEvent,
 } from '../../core/services/golden-layout-manager.service';
 import { TabStateService, Tab } from '../../core/state/tab.state';
+import { IpcService } from '../../core/services/ipc.service';
 import { WelcomeComponent } from '../../features/welcome/welcome.component';
 import { QueryComponent } from '../../features/query/query.component';
 import { ExplorerComponent } from '../../features/explorer/explorer.component';
@@ -144,12 +145,14 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   private readonly appRef = inject(ApplicationRef);
   private readonly environmentInjector = inject(EnvironmentInjector);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly ipc = inject(IpcService);
 
   private subscriptions: Subscription[] = [];
   private layoutInitRetryCount = 0;
   private readonly MAX_LAYOUT_INIT_RETRIES = 5;
   private layoutInitialized = false;
   private layoutRestorationComplete = false;
+  private layoutSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Track component references for cleanup
   private componentRefs = new Map<string, ComponentRef<unknown>>();
@@ -227,7 +230,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   /**
    * Initialize Golden Layout and load tabs
    */
-  private initializeGoldenLayout(): void {
+  private async initializeGoldenLayout(): Promise<void> {
     if (!this.glContainer?.nativeElement) {
       this.layoutInitRetryCount++;
 
@@ -256,21 +259,36 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
     this.layoutManager.Initialize(this.glContainer.nativeElement);
     this.layoutInitialized = true;
 
-    // Create tabs from current state - use bulk add for reliability
-    const tabs = this.tabState.tabs();
-    if (tabs.length > 0) {
-      // Convert all tabs to TabComponentState at once
-      const tabStates = tabs.map(tab => this.createTabState(tab));
+    // Try to load saved layout first
+    let layoutLoaded = false;
+    if (this.ipc.isAvailable) {
+      try {
+        const savedLayout = await firstValueFrom(this.ipc.getLayout());
+        if (savedLayout) {
+          layoutLoaded = this.layoutManager.LoadLayout(savedLayout);
+        }
+      } catch (error) {
+        console.warn('Failed to load saved layout:', error);
+      }
+    }
 
-      // Add all tabs at once for reliable initialization
-      this.layoutManager.AddMultipleTabs(tabStates);
+    // If no saved layout or loading failed, create tabs from current state
+    if (!layoutLoaded) {
+      const tabs = this.tabState.tabs();
+      if (tabs.length > 0) {
+        // Convert all tabs to TabComponentState at once
+        const tabStates = tabs.map(tab => this.createTabState(tab));
 
-      // Focus active tab
-      const activeTabId = this.tabState.activeTabId();
-      if (activeTabId) {
-        setTimeout(() => {
-          this.layoutManager.FocusTab(activeTabId);
-        }, 100);
+        // Add all tabs at once for reliable initialization
+        this.layoutManager.AddMultipleTabs(tabStates);
+
+        // Focus active tab
+        const activeTabId = this.tabState.activeTabId();
+        if (activeTabId) {
+          setTimeout(() => {
+            this.layoutManager.FocusTab(activeTabId);
+          }, 100);
+        }
       }
     }
 
@@ -449,11 +467,27 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   }
 
   /**
-   * Save layout state (would be called by persistence layer)
+   * Save layout state with debouncing
    */
-  private saveLayoutState(_layout: LayoutConfig): void {
-    // TODO: Implement persistence via IPC
-    // This would save to the app state file
+  private saveLayoutState(layout: LayoutConfig): void {
+    // Don't save during initial loading
+    if (!this.layoutRestorationComplete) return;
+
+    // Debounce saves to avoid excessive writes
+    if (this.layoutSaveTimeout) {
+      clearTimeout(this.layoutSaveTimeout);
+    }
+
+    this.layoutSaveTimeout = setTimeout(async () => {
+      if (this.ipc.isAvailable) {
+        try {
+          await firstValueFrom(this.ipc.saveLayout(layout));
+        } catch (error) {
+          console.error('Failed to save layout:', error);
+        }
+      }
+      this.layoutSaveTimeout = null;
+    }, 500);
   }
 
   /**

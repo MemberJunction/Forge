@@ -5,7 +5,7 @@
 
 import Store from 'electron-store';
 import { BaseSingleton } from '../../utils/singleton';
-import type { AppState, TabState } from '@mj-forge/shared';
+import type { AppState, TabState, LayoutConfig } from '@mj-forge/shared';
 
 const DEFAULT_APP_STATE: AppState = {
   lastConnectionId: null,
@@ -151,7 +151,7 @@ export class AppStateStore extends BaseSingleton {
    */
   addRecentWorkspace(workspacePath: string): void {
     const current = this.getState().recentWorkspaces;
-    const filtered = current.filter((p) => p !== workspacePath);
+    const filtered = current.filter(p => p !== workspacePath);
     const updated = [workspacePath, ...filtered].slice(0, 10); // Keep last 10
     this.setState({ recentWorkspaces: updated });
   }
@@ -178,6 +178,20 @@ export class AppStateStore extends BaseSingleton {
     if (path) {
       this.addRecentWorkspace(path);
     }
+  }
+
+  /**
+   * Get golden layout config
+   */
+  getGoldenLayoutConfig(): LayoutConfig | undefined {
+    return this.getState().goldenLayoutConfig;
+  }
+
+  /**
+   * Set golden layout config
+   */
+  setGoldenLayoutConfig(config: LayoutConfig | undefined): void {
+    this.setState({ goldenLayoutConfig: config });
   }
 
   /**

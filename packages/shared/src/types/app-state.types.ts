@@ -23,6 +23,8 @@ export interface AppState {
   activeTabId: string | null;
   recentWorkspaces: string[];
   currentWorkspacePath: string | null;
+  /** Serialized GoldenLayout configuration */
+  goldenLayoutConfig?: LayoutConfig;
 }
 
 export interface WorkspaceSettings {

@@ -517,6 +517,8 @@ pre {
   height: calc(100% - 38px) !important;
   box-sizing: border-box !important;
   position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 // When tabs are maximized, no header visible
@@ -528,8 +530,10 @@ pre {
 .lm_items > div {
   width: 100% !important;
   height: 100% !important;
+  flex: 1 !important;
   box-sizing: border-box !important;
   flex-direction: column !important;
+  min-height: 0 !important; // Critical for flex children to shrink properly
 }
 
 // Only apply flex display to the active/visible tab content div
@@ -562,9 +566,30 @@ pre {
   background: var(--bg-primary) !important;
 }
 
-// Tab content wrapper - allow scrolling
+// Tab content wrapper - ensure proper height propagation for AG-Grid
 .tab-content-wrapper {
-  overflow: auto !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important; // Critical for flex children to shrink properly
+
+  // Ensure Angular component hosts fill the container
+  > * {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
+  }
+}
+
+// Tab content container created by GoldenLayout
+.tab-content-container {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
 }
 
 // Tab header styling
