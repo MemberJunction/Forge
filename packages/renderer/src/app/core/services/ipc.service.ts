@@ -22,6 +22,8 @@ import type {
   RestoreRequest,
   BackupProgress,
   RestoreProgress,
+  BackupFileInfo,
+  BackupHistoryEntry,
   ObjectMetadata,
   ObjectType,
   ObjectDefinition,
@@ -55,6 +57,10 @@ import type {
   AnalysisResponse,
   SQLGenerationRequest,
   SQLGenerationResponse,
+  // Server file system types
+  ServerDrive,
+  ServerFileEntry,
+  ServerDefaultPaths,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -259,9 +265,19 @@ interface ForgeAPI {
     generateSQL: (request: SQLGenerationRequest) => Promise<SQLGenerationResponse>;
     cancelRequest: (requestId: string) => Promise<boolean>;
   };
+  serverFs: {
+    getDrives: (connectionId: string) => Promise<ServerDrive[]>;
+    listDirectory: (
+      connectionId: string,
+      path: string,
+      includeFiles?: boolean
+    ) => Promise<ServerFileEntry[]>;
+    getDefaultPaths: (connectionId: string) => Promise<ServerDefaultPaths>;
+  };
   backup: {
     start: (request: BackupRequest) => Promise<void>;
     cancel: (backupId: string) => Promise<void>;
+    getHistory: (connectionId: string, databaseName?: string) => Promise<BackupHistoryEntry[]>;
     onProgress: (callback: (progress: BackupProgress) => void) => () => void;
   };
   restore: {
@@ -271,6 +287,7 @@ interface ForgeAPI {
       connectionId: string,
       backupPath: string
     ) => Promise<{ logicalName: string; physicalName: string; type: string }[]>;
+    getBackupInfo: (connectionId: string, backupPath: string) => Promise<BackupFileInfo>;
     onProgress: (callback: (progress: RestoreProgress) => void) => () => void;
   };
   app: {
@@ -642,6 +659,31 @@ export class IpcService {
 
   getRestoreProgress(): Observable<RestoreProgress> {
     return this.restoreProgress$.asObservable();
+  }
+
+  getBackupInfo(connectionId: string, backupPath: string): Observable<BackupFileInfo> {
+    return from(this.api.restore.getBackupInfo(connectionId, backupPath));
+  }
+
+  getBackupHistory(connectionId: string, databaseName?: string): Observable<BackupHistoryEntry[]> {
+    return from(this.api.backup.getHistory(connectionId, databaseName));
+  }
+
+  // Server file system methods
+  getServerDrives(connectionId: string): Observable<ServerDrive[]> {
+    return from(this.api.serverFs.getDrives(connectionId));
+  }
+
+  listServerDirectory(
+    connectionId: string,
+    path: string,
+    includeFiles = true
+  ): Observable<ServerFileEntry[]> {
+    return from(this.api.serverFs.listDirectory(connectionId, path, includeFiles));
+  }
+
+  getServerDefaultPaths(connectionId: string): Observable<ServerDefaultPaths> {
+    return from(this.api.serverFs.getDefaultPaths(connectionId));
   }
 
   // App methods

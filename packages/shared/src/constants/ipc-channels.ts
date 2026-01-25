@@ -97,6 +97,13 @@ export const IPC_CHANNELS = {
     CANCEL_REQUEST: 'ai:cancel-request',
   },
 
+  // Server File System (browsing SQL Server's file system)
+  SERVER_FS: {
+    GET_DRIVES: 'server-fs:get-drives',
+    LIST_DIRECTORY: 'server-fs:list-directory',
+    GET_DEFAULT_PATHS: 'server-fs:get-default-paths',
+  },
+
   // Backup Operations
   BACKUP: {
     START: 'backup:start',
@@ -104,6 +111,7 @@ export const IPC_CHANNELS = {
     PROGRESS: 'backup:progress',
     COMPLETE: 'backup:complete',
     ERROR: 'backup:error',
+    GET_HISTORY: 'backup:get-history',
   },
 
   // Restore Operations
@@ -111,6 +119,7 @@ export const IPC_CHANNELS = {
     START: 'restore:start',
     CANCEL: 'restore:cancel',
     GET_FILE_LIST: 'restore:get-file-list',
+    GET_BACKUP_INFO: 'restore:get-backup-info',
     PROGRESS: 'restore:progress',
     COMPLETE: 'restore:complete',
     ERROR: 'restore:error',

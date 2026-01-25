@@ -145,7 +145,8 @@ export class BackupRestoreService extends BaseSingleton {
     const files = fileListResult.recordset.map(f => ({
       logicalName: f.logicalName,
       physicalName: f.physicalName,
-      type: f.type,
+      type: f.type as 'D' | 'L',
+      fileType: f.type as 'D' | 'L',
       fileGroupName: f.fileGroupName,
       sizeBytes: Number(f.sizeBytes) || 0,
     }));
@@ -157,14 +158,17 @@ export class BackupRestoreService extends BaseSingleton {
       5: 'Differential',
     };
 
+    const backupDateStr = header?.BackupFinishDate?.toISOString() || new Date().toISOString();
     return {
       databaseName: header?.DatabaseName || 'Unknown',
       backupType: backupTypeMap[header?.BackupType || 1] || 'Unknown',
-      backupDate: header?.BackupFinishDate?.toISOString() || new Date().toISOString(),
+      backupDate: backupDateStr,
+      backupFinishDate: backupDateStr,
       backupSizeBytes: Number(header?.BackupSize) || 0,
       compressedSizeBytes: Number(header?.CompressedBackupSize) || 0,
       serverVersion: '', // Would need additional query
       serverName: header?.ServerName || 'Unknown',
+      recoveryModel: header?.Collation || 'FULL', // Default to FULL if not available
       compatibilityLevel: header?.CompatibilityLevel || 150,
       collation: header?.Collation || '',
       files,
@@ -210,18 +214,24 @@ export class BackupRestoreService extends BaseSingleton {
     this.activeOperations.set(operationId, operation);
 
     // Convert file relocations to file moves
-    const fileMoves = (request.fileRelocations || []).map(r => ({
-      logicalName: r.logicalName,
-      destinationPath: r.newPath,
-    }));
+    const fileMoves = (request.fileRelocations || [])
+      .filter(r => r.physicalName || r.newPath)
+      .map(r => ({
+        logicalName: r.logicalName,
+        destinationPath: r.physicalName || r.newPath || '',
+      }));
+
+    // Determine target database name - use provided name or fall back to reading from backup
+    const targetDbName = request.targetDatabase || 'RestoredDatabase';
 
     // Generate T-SQL
     const tsql = TsqlBuilder.restore({
       sourcePath: request.backupPath,
-      targetDatabaseName: request.targetDatabase,
-      overwriteExisting: request.replaceExisting ?? false,
+      targetDatabaseName: targetDbName,
+      overwriteExisting: request.replaceExisting ?? request.withReplace ?? false,
       fileMoves,
-      recoveryState: (request.recoveryState?.toLowerCase() || 'recovery') as
+      recoveryState: (request.recoveryState?.toLowerCase() ||
+        (request.withNoRecovery ? 'norecovery' : 'recovery')) as
         | 'recovery'
         | 'norecovery'
         | 'standby',
@@ -256,7 +266,7 @@ export class BackupRestoreService extends BaseSingleton {
       const result: RestoreResult = {
         operationId,
         success: true,
-        databaseName: request.targetDatabase,
+        databaseName: request.targetDatabase || 'RestoredDatabase',
         durationMs: Date.now() - operation.startTime,
         tsql,
       };

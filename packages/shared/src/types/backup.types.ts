@@ -2,6 +2,42 @@
  * Backup and Restore type definitions
  */
 
+/**
+ * Server file system types for browsing SQL Server's file system
+ */
+export interface ServerDrive {
+  drive: string; // e.g., "C:", "D:"
+  freeSpaceMB: number;
+}
+
+export interface ServerFileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  depth: number;
+}
+
+export interface ServerDefaultPaths {
+  dataPath: string; // Default data file location
+  logPath: string; // Default log file location
+  backupPath: string; // Default backup location
+}
+
+export interface BackupHistoryEntry {
+  databaseName: string;
+  backupType: string;
+  backupStartDate: string;
+  backupFinishDate: string;
+  backupSizeBytes: number;
+  compressedSizeBytes?: number;
+  physicalDeviceName: string;
+  serverName: string;
+  recoveryModel: string;
+  userName: string;
+  firstLsn?: string;
+  lastLsn?: string;
+}
+
 export type BackupType = 'full' | 'differential' | 'log';
 
 export interface BackupRequest {
@@ -55,6 +91,7 @@ export interface BackupLogicalFile {
   logicalName: string;
   physicalName: string;
   type: 'D' | 'L'; // Data or Log
+  fileType: 'D' | 'L'; // Alias for type
   fileGroupName?: string;
   sizeBytes?: number;
 }
@@ -63,26 +100,32 @@ export interface BackupFileInfo {
   databaseName: string;
   backupType: string;
   backupDate: string;
+  backupFinishDate: string; // Alias for backupDate
   backupSizeBytes: number;
   compressedSizeBytes?: number;
   serverVersion?: string;
   serverName?: string;
+  recoveryModel?: string;
   compatibilityLevel?: number;
   collation?: string;
-  files: BackupLogicalFile[];
+  files?: BackupLogicalFile[];
 }
 
 export interface FileRelocation {
   logicalName: string;
-  newPath: string;
+  physicalName: string;
+  newPath?: string; // Alias for physicalName
 }
 
 export interface RestoreRequest {
   connectionId: string;
   backupPath: string;
-  targetDatabase: string;
+  targetDatabase?: string;
   fileRelocations?: FileRelocation[];
   replaceExisting?: boolean;
+  withReplace?: boolean; // Alias for replaceExisting
+  withRecovery?: boolean;
+  withNoRecovery?: boolean;
   recoveryState?: 'RECOVERY' | 'NORECOVERY' | 'STANDBY';
   restoreId?: string;
 }

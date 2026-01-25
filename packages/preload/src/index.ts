@@ -19,6 +19,8 @@ import type {
   ResultSet,
   BackupRequest,
   BackupProgress,
+  BackupFileInfo,
+  BackupHistoryEntry,
   RestoreRequest,
   RestoreProgress,
   DockerStatus,
@@ -54,6 +56,10 @@ import type {
   AnalysisResponse,
   SQLGenerationRequest,
   SQLGenerationResponse,
+  // Server file system types
+  ServerDrive,
+  ServerFileEntry,
+  ServerDefaultPaths,
 } from '@mj-forge/shared';
 
 /**
@@ -241,9 +247,20 @@ export interface ForgeAPI {
     cancelRequest: (requestId: string) => Promise<boolean>;
   };
 
+  serverFs: {
+    getDrives: (connectionId: string) => Promise<ServerDrive[]>;
+    listDirectory: (
+      connectionId: string,
+      path: string,
+      includeFiles?: boolean
+    ) => Promise<ServerFileEntry[]>;
+    getDefaultPaths: (connectionId: string) => Promise<ServerDefaultPaths>;
+  };
+
   backup: {
     start: (request: BackupRequest) => Promise<void>;
     cancel: (backupId: string) => Promise<void>;
+    getHistory: (connectionId: string, databaseName?: string) => Promise<BackupHistoryEntry[]>;
     onProgress: (callback: (progress: BackupProgress) => void) => () => void;
   };
 
@@ -254,6 +271,7 @@ export interface ForgeAPI {
       connectionId: string,
       backupPath: string
     ) => Promise<{ logicalName: string; physicalName: string; type: string }[]>;
+    getBackupInfo: (connectionId: string, backupPath: string) => Promise<BackupFileInfo>;
     onProgress: (callback: (progress: RestoreProgress) => void) => () => void;
   };
 
@@ -574,9 +592,19 @@ const forgeAPI: ForgeAPI = {
     cancelRequest: requestId => ipcRenderer.invoke(IPC_CHANNELS.AI.CANCEL_REQUEST, requestId),
   },
 
+  serverFs: {
+    getDrives: connectionId => ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.GET_DRIVES, connectionId),
+    listDirectory: (connectionId, path, includeFiles) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.LIST_DIRECTORY, connectionId, path, includeFiles),
+    getDefaultPaths: connectionId =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.GET_DEFAULT_PATHS, connectionId),
+  },
+
   backup: {
     start: request => ipcRenderer.invoke(IPC_CHANNELS.BACKUP.START, request),
     cancel: backupId => ipcRenderer.invoke(IPC_CHANNELS.BACKUP.CANCEL, backupId),
+    getHistory: (connectionId, databaseName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BACKUP.GET_HISTORY, connectionId, databaseName),
     onProgress: callback => createEventListener(IPC_CHANNELS.BACKUP.PROGRESS, callback),
   },
 
@@ -585,6 +613,8 @@ const forgeAPI: ForgeAPI = {
     cancel: restoreId => ipcRenderer.invoke(IPC_CHANNELS.RESTORE.CANCEL, restoreId),
     getFileList: (connectionId, backupPath) =>
       ipcRenderer.invoke(IPC_CHANNELS.RESTORE.GET_FILE_LIST, connectionId, backupPath),
+    getBackupInfo: (connectionId, backupPath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESTORE.GET_BACKUP_INFO, connectionId, backupPath),
     onProgress: callback => createEventListener(IPC_CHANNELS.RESTORE.PROGRESS, callback),
   },
 
