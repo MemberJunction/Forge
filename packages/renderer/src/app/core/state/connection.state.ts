@@ -3,6 +3,7 @@ import { toObservable } from '@angular/core/rxjs-interop';
 import type { ConnectionProfile, DatabaseInfo, AppState } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { NotificationService } from '../services/notification.service';
+import { ExplorerStateService } from './explorer.state';
 import { firstValueFrom } from 'rxjs';
 
 export interface ConnectionState {
@@ -18,6 +19,7 @@ export interface ConnectionState {
 export class ConnectionStateService {
   private readonly ipc = inject(IpcService);
   private readonly notification = inject(NotificationService);
+  private readonly explorerState = inject(ExplorerStateService);
 
   // State signals
   private readonly _profiles = signal<ConnectionProfile[]>([]);
@@ -206,10 +208,16 @@ export class ConnectionStateService {
         const profile = this._profiles().find(p => p.id === state.lastConnectionId);
         if (profile) {
           const connected = await this.connect(state.lastConnectionId);
-          if (connected && state.lastDatabase) {
-            // Wait for databases to load, then select the last one
-            if (this._databases().some(db => db.name === state.lastDatabase)) {
-              this.selectDatabase(state.lastDatabase);
+          if (connected) {
+            // Add server node to explorer and expand it
+            this.explorerState.addServerNode(state.lastConnectionId, profile.name);
+            this.explorerState.expandNode(`server-${state.lastConnectionId}`);
+
+            // Select the last database if it exists
+            if (state.lastDatabase) {
+              if (this._databases().some(db => db.name === state.lastDatabase)) {
+                this.selectDatabase(state.lastDatabase);
+              }
             }
           }
         }
