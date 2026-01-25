@@ -1,6 +1,6 @@
 /**
  * Restore Database Dialog Component
- * Modal dialog for restoring a database from a backup file with server-side file browsing
+ * Modal dialog for restoring a database from a backup file or backup history
  */
 
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
@@ -16,12 +16,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
-import { MatTableModule } from '@angular/material/table';
+import { MatTabsModule } from '@angular/material/tabs';
 import { Subscription } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
@@ -33,12 +32,13 @@ import type {
   RestoreRequest,
   RestoreProgress,
   BackupFileInfo,
+  BackupHistoryEntry,
   FileRelocation,
 } from '@mj-forge/shared';
 
 export interface RestoreDialogData {
   connectionId: string;
-  databaseName?: string; // Pre-fill if restoring to specific database
+  databaseName?: string;
 }
 
 @Component({
@@ -52,215 +52,193 @@ export interface RestoreDialogData {
     MatButtonModule,
     MatInputModule,
     MatFormFieldModule,
-    MatSelectModule,
     MatCheckboxModule,
     MatProgressBarModule,
     MatTooltipModule,
     MatExpansionModule,
-    MatTableModule,
+    MatTabsModule,
   ],
   template: `
     <div class="restore-dialog">
       <h2 mat-dialog-title>
         <mat-icon>restore</mat-icon>
-        Restore Database
+        <span>Restore Database</span>
       </h2>
 
       <mat-dialog-content>
-        <!-- Backup File Selection -->
-        <div class="section">
-          <h3>Source</h3>
-          <div class="path-row">
-            <mat-form-field appearance="outline" class="flex-1">
-              <mat-label>Backup File (on SQL Server)</mat-label>
-              <input
-                matInput
-                [(ngModel)]="formData.backupPath"
-                [disabled]="restoring()"
-                placeholder="e.g., D:\\Backups\\MyDatabase.bak"
-                (ngModelChange)="onBackupPathChange()"
-              />
-            </mat-form-field>
-            <button mat-stroked-button [disabled]="restoring()" (click)="browseBackupFile()">
-              <mat-icon>folder_open</mat-icon>
-              Browse
-            </button>
-            <button
-              mat-stroked-button
-              [disabled]="restoring() || !formData.backupPath"
-              (click)="loadBackupInfo()"
-              matTooltip="Read backup file information"
-            >
-              <mat-icon>info</mat-icon>
-              Read
-            </button>
-          </div>
-        </div>
+        <!-- Source Selection Tabs -->
+        <mat-tab-group [(selectedIndex)]="sourceTab" (selectedIndexChange)="onSourceTabChange()">
+          <mat-tab label="Browse File">
+            <div class="tab-content">
+              <div class="path-row">
+                <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
+                  <mat-label>Backup File (on SQL Server)</mat-label>
+                  <input
+                    matInput
+                    [(ngModel)]="formData.backupPath"
+                    [disabled]="restoring()"
+                    placeholder="e.g., /var/opt/mssql/backup/db.bak"
+                    (ngModelChange)="onBackupPathChange()"
+                  />
+                </mat-form-field>
+                <button
+                  mat-icon-button
+                  [disabled]="restoring()"
+                  (click)="browseBackupFile()"
+                  matTooltip="Browse server"
+                >
+                  <mat-icon>folder_open</mat-icon>
+                </button>
+                <button
+                  mat-icon-button
+                  [disabled]="restoring() || !formData.backupPath"
+                  (click)="loadBackupInfo()"
+                  matTooltip="Read backup info"
+                >
+                  <mat-icon>{{ loadingInfo() ? 'hourglass_empty' : 'info' }}</mat-icon>
+                </button>
+              </div>
+            </div>
+          </mat-tab>
+
+          <mat-tab label="Backup History">
+            <div class="tab-content">
+              @if (loadingHistory()) {
+                <div class="empty-text">Loading backup history...</div>
+              } @else if (backupHistory().length === 0) {
+                <div class="empty-text">No backup history found</div>
+              } @else {
+                <div class="history-list">
+                  @for (entry of backupHistory(); track entry.backupStartDate) {
+                    <div
+                      class="history-item"
+                      [class.selected]="selectedHistoryEntry() === entry"
+                      (click)="selectHistoryEntry(entry)"
+                    >
+                      <div class="history-main">
+                        <span class="history-db">{{ entry.databaseName }}</span>
+                        <span class="history-type">{{ entry.backupType }}</span>
+                      </div>
+                      <div class="history-details">
+                        <span class="history-date">{{
+                          entry.backupFinishDate | date: 'short'
+                        }}</span>
+                        <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
+                      </div>
+                      <div class="history-path">{{ entry.physicalDeviceName }}</div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </mat-tab>
+        </mat-tab-group>
 
         <!-- Backup Info -->
         @if (backupInfo()) {
-          <div class="backup-info-section">
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="label">Database:</span>
-                <span class="value">{{ backupInfo()!.databaseName }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Type:</span>
-                <span class="value">{{ backupInfo()!.backupType }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Backup Date:</span>
-                <span class="value">{{ backupInfo()!.backupFinishDate | date: 'medium' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Size:</span>
-                <span class="value">{{ formatBytes(backupInfo()!.backupSizeBytes) }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Server:</span>
-                <span class="value">{{ backupInfo()!.serverName }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Recovery Model:</span>
-                <span class="value">{{ backupInfo()!.recoveryModel }}</span>
-              </div>
+          <div class="backup-info">
+            <div class="info-row">
+              <span class="label">Database:</span>
+              <span class="value">{{ backupInfo()!.databaseName }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">Type:</span>
+              <span class="value">{{ backupInfo()!.backupType }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">Date:</span>
+              <span class="value">{{ backupInfo()!.backupFinishDate | date: 'medium' }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">Size:</span>
+              <span class="value">{{ formatBytes(backupInfo()!.backupSizeBytes) }}</span>
             </div>
           </div>
         }
 
-        @if (loadingInfo()) {
-          <div class="loading-info">
-            <mat-progress-bar mode="indeterminate" />
-            <span>Reading backup file information...</span>
+        <!-- Destination -->
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full-width">
+          <mat-label>Restore As Database</mat-label>
+          <input
+            matInput
+            [(ngModel)]="formData.targetDatabase"
+            [disabled]="restoring()"
+            placeholder="Leave empty for original name"
+          />
+        </mat-form-field>
+
+        <!-- Options -->
+        <div class="options-section">
+          <div class="options-row">
+            <mat-checkbox [(ngModel)]="formData.withReplace" [disabled]="restoring()">
+              Overwrite (REPLACE)
+            </mat-checkbox>
+            <mat-checkbox [(ngModel)]="formData.withRecovery" [disabled]="restoring()">
+              Recovery
+            </mat-checkbox>
+            <mat-checkbox
+              [(ngModel)]="formData.withNoRecovery"
+              [disabled]="restoring() || formData.withRecovery"
+            >
+              No Recovery
+            </mat-checkbox>
+          </div>
+        </div>
+
+        <!-- Progress -->
+        @if (restoring()) {
+          <div class="progress-section">
+            <div class="progress-header">
+              <span>{{ progress()?.currentPhase || 'Starting restore...' }}</span>
+              <span>{{ progress()?.percentComplete || 0 }}%</span>
+            </div>
+            <mat-progress-bar mode="determinate" [value]="progress()?.percentComplete || 0" />
           </div>
         }
 
-        <!-- Destination -->
-        <div class="section">
-          <h3>Destination</h3>
-          <mat-form-field appearance="outline" class="full-width">
-            <mat-label>Restore As Database</mat-label>
-            <input
-              matInput
-              [(ngModel)]="formData.targetDatabase"
-              [disabled]="restoring()"
-              placeholder="Enter target database name"
-            />
-            <mat-hint>Leave empty to use original database name from backup</mat-hint>
-          </mat-form-field>
-        </div>
-
-        <!-- File Relocations -->
-        @if (backupInfo()?.files?.length) {
-          <mat-expansion-panel class="files-panel">
-            <mat-expansion-panel-header>
-              <mat-panel-title>
-                <mat-icon>folder_copy</mat-icon>
-                File Relocations ({{ backupInfo()!.files!.length }} files)
-              </mat-panel-title>
-            </mat-expansion-panel-header>
-            <div class="files-list">
-              @for (file of backupInfo()!.files; track file.logicalName; let i = $index) {
-                <div class="file-item">
-                  <div class="file-header">
-                    <mat-icon>{{
-                      file.fileType === 'D' ? 'description' : 'receipt_long'
-                    }}</mat-icon>
-                    <span class="logical-name">{{ file.logicalName }}</span>
-                    <span class="file-type">{{ file.fileType === 'D' ? 'Data' : 'Log' }}</span>
-                  </div>
-                  <div class="file-paths">
-                    <div class="original-path">
-                      <span class="path-label">Original:</span>
-                      <span class="path-value">{{ file.physicalName }}</span>
+        <!-- Expandable panels -->
+        <mat-accordion class="panels">
+          @if (backupInfo()?.files?.length) {
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title><mat-icon>folder_copy</mat-icon>File Relocations</mat-panel-title>
+              </mat-expansion-panel-header>
+              <div class="files-list">
+                @for (file of backupInfo()!.files; track file.logicalName; let i = $index) {
+                  <div class="file-item">
+                    <div class="file-header">
+                      <span class="file-name">{{ file.logicalName }}</span>
+                      <span class="file-type">{{ file.fileType === 'D' ? 'Data' : 'Log' }}</span>
                     </div>
-                    <div class="new-path">
-                      <mat-form-field appearance="outline" class="full-width">
-                        <mat-label>Restore To</mat-label>
+                    <div class="file-path">
+                      <mat-form-field
+                        appearance="outline"
+                        subscriptSizing="dynamic"
+                        class="full-width"
+                      >
                         <input
                           matInput
                           [(ngModel)]="fileRelocations[i].newPath"
                           [disabled]="restoring()"
                         />
                       </mat-form-field>
-                      <button
-                        mat-icon-button
-                        [disabled]="restoring()"
-                        (click)="browseFilePath(i)"
-                        matTooltip="Browse for location"
-                      >
+                      <button mat-icon-button [disabled]="restoring()" (click)="browseFilePath(i)">
                         <mat-icon>folder_open</mat-icon>
                       </button>
                     </div>
                   </div>
-                </div>
-              }
-            </div>
+                }
+              </div>
+            </mat-expansion-panel>
+          }
+
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
+            </mat-expansion-panel-header>
+            <pre class="tsql-code">{{ generatedTsql() }}</pre>
           </mat-expansion-panel>
-        }
-
-        <!-- Options -->
-        <div class="section">
-          <h3>Options</h3>
-          <div class="options-row">
-            <mat-checkbox [(ngModel)]="formData.withReplace" [disabled]="restoring()">
-              WITH REPLACE
-              <mat-icon class="help-icon" matTooltip="Overwrite existing database without prompting"
-                >help_outline</mat-icon
-              >
-            </mat-checkbox>
-            <mat-checkbox [(ngModel)]="formData.withRecovery" [disabled]="restoring()">
-              WITH RECOVERY
-              <mat-icon
-                class="help-icon"
-                matTooltip="Make database operational after restore (default)"
-                >help_outline</mat-icon
-              >
-            </mat-checkbox>
-            <mat-checkbox
-              [(ngModel)]="formData.withNoRecovery"
-              [disabled]="restoring() || formData.withRecovery"
-            >
-              WITH NORECOVERY
-              <mat-icon
-                class="help-icon"
-                matTooltip="Leave database in restoring state for additional restores"
-                >help_outline</mat-icon
-              >
-            </mat-checkbox>
-          </div>
-          <div class="options-row">
-            <mat-checkbox [(ngModel)]="formData.withStats" [disabled]="restoring()">
-              Show Progress (WITH STATS)
-            </mat-checkbox>
-            <mat-checkbox [(ngModel)]="formData.withChecksum" [disabled]="restoring()">
-              Verify Checksum
-            </mat-checkbox>
-          </div>
-        </div>
-
-        <!-- T-SQL Preview -->
-        <mat-expansion-panel class="tsql-panel">
-          <mat-expansion-panel-header>
-            <mat-panel-title>
-              <mat-icon>code</mat-icon>
-              T-SQL Command
-            </mat-panel-title>
-          </mat-expansion-panel-header>
-          <pre class="tsql-code">{{ generatedTsql() }}</pre>
-        </mat-expansion-panel>
-
-        <!-- Progress -->
-        @if (restoring()) {
-          <div class="progress-section">
-            <div class="progress-header">
-              <span>{{ progress()?.currentPhase || 'Restoring...' }}</span>
-              <span>{{ progress()?.percentComplete || 0 }}%</span>
-            </div>
-            <mat-progress-bar mode="determinate" [value]="progress()?.percentComplete || 0" />
-          </div>
-        }
+        </mat-accordion>
       </mat-dialog-content>
 
       <mat-dialog-actions align="end">
@@ -271,13 +249,8 @@ export interface RestoreDialogData {
           [disabled]="!canRestore() || restoring()"
           (click)="startRestore()"
         >
-          @if (restoring()) {
-            <mat-icon class="spinning">sync</mat-icon>
-            Restoring...
-          } @else {
-            <mat-icon>restore</mat-icon>
-            Start Restore
-          }
+          <mat-icon>{{ restoring() ? 'sync' : 'restore' }}</mat-icon>
+          <span>{{ restoring() ? 'Restoring...' : 'Start Restore' }}</span>
         </button>
       </mat-dialog-actions>
     </div>
@@ -285,122 +258,161 @@ export interface RestoreDialogData {
   styles: [
     `
       .restore-dialog {
-        min-width: 600px;
-        max-width: 750px;
+        width: 560px;
       }
 
       h2[mat-dialog-title] {
         display: flex;
         align-items: center;
-        gap: var(--spacing-sm);
+        gap: 8px;
+        margin-bottom: 0;
 
         mat-icon {
           color: var(--status-warning);
         }
       }
 
-      .section {
-        margin-bottom: var(--spacing-lg);
+      mat-dialog-content {
+        padding-top: 8px;
+      }
 
-        h3 {
-          font-size: var(--font-size-sm);
-          font-weight: 500;
-          color: var(--text-secondary);
-          margin-bottom: var(--spacing-sm);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
+      .tab-content {
+        padding: 12px 0;
+      }
+
+      .path-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+
+        .flex-1 {
+          flex: 1;
+        }
+      }
+
+      .history-list {
+        max-height: 180px;
+        overflow-y: auto;
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+      }
+
+      .history-item {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-primary);
+        cursor: pointer;
+        transition: background-color 0.15s;
+
+        &:last-child {
+          border-bottom: none;
+        }
+
+        &:hover {
+          background-color: var(--bg-tertiary);
+        }
+
+        &.selected {
+          background-color: var(--status-info-bg, rgba(33, 150, 243, 0.1));
+          border-left: 3px solid var(--status-info);
+        }
+      }
+
+      .history-main {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+      }
+
+      .history-db {
+        font-weight: 500;
+      }
+
+      .history-type {
+        font-size: 11px;
+        padding: 2px 6px;
+        background-color: var(--bg-tertiary);
+        border-radius: 4px;
+      }
+
+      .history-details {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 2px;
+      }
+
+      .history-path {
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .backup-info {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px 16px;
+        padding: 12px;
+        background-color: var(--bg-tertiary);
+        border-radius: 6px;
+        border-left: 3px solid var(--status-info);
+        margin-bottom: 12px;
+
+        .info-row {
+          display: flex;
+          gap: 8px;
+
+          .label {
+            color: var(--text-secondary);
+            font-size: 12px;
+          }
+
+          .value {
+            font-weight: 500;
+            font-size: 13px;
+          }
         }
       }
 
       .full-width {
         width: 100%;
+        margin-bottom: 8px;
       }
 
-      .path-row {
-        display: flex;
-        gap: var(--spacing-sm);
-        align-items: flex-start;
-
-        .flex-1 {
-          flex: 1;
-        }
-
-        button {
-          margin-top: 4px;
-        }
-      }
-
-      .backup-info-section {
-        padding: var(--spacing-md);
-        background-color: var(--bg-tertiary);
-        border-radius: var(--radius-md);
-        margin-bottom: var(--spacing-md);
-        border-left: 3px solid var(--status-info);
-      }
-
-      .info-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: var(--spacing-sm) var(--spacing-lg);
-      }
-
-      .info-item {
-        display: flex;
-        gap: var(--spacing-sm);
-
-        .label {
-          color: var(--text-secondary);
-          font-size: var(--font-size-sm);
-        }
-
-        .value {
-          font-weight: 500;
-        }
-      }
-
-      .loading-info {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--spacing-sm);
-        padding: var(--spacing-lg);
-        color: var(--text-secondary);
-
-        mat-progress-bar {
-          width: 200px;
-        }
+      .options-section {
+        margin: 8px 0;
       }
 
       .options-row {
         display: flex;
+        gap: 16px;
         flex-wrap: wrap;
-        gap: var(--spacing-md);
-        margin-bottom: var(--spacing-sm);
+      }
 
-        mat-checkbox {
+      .progress-section {
+        margin: 12px 0;
+        padding: 12px;
+        background-color: var(--bg-tertiary);
+        border-radius: 6px;
+
+        .progress-header {
           display: flex;
-          align-items: center;
-        }
-
-        .help-icon {
-          font-size: 16px;
-          width: 16px;
-          height: 16px;
-          margin-left: 4px;
-          color: var(--text-muted);
-          cursor: help;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          font-size: 13px;
         }
       }
 
-      .files-panel,
-      .tsql-panel {
-        margin-top: var(--spacing-md);
-        background-color: var(--bg-secondary);
+      .panels {
+        margin-top: 12px;
 
         mat-panel-title {
           display: flex;
           align-items: center;
-          gap: var(--spacing-xs);
+          gap: 8px;
 
           mat-icon {
             font-size: 18px;
@@ -413,104 +425,61 @@ export interface RestoreDialogData {
       .files-list {
         display: flex;
         flex-direction: column;
-        gap: var(--spacing-md);
+        gap: 12px;
       }
 
       .file-item {
-        padding: var(--spacing-sm);
+        padding: 8px;
         background-color: var(--bg-primary);
-        border-radius: var(--radius-md);
+        border-radius: 4px;
       }
 
       .file-header {
         display: flex;
+        justify-content: space-between;
         align-items: center;
-        gap: var(--spacing-sm);
-        margin-bottom: var(--spacing-sm);
+        margin-bottom: 8px;
 
-        mat-icon {
-          color: var(--text-muted);
-        }
-
-        .logical-name {
+        .file-name {
           font-weight: 500;
-          flex: 1;
+          font-size: 13px;
         }
 
         .file-type {
-          font-size: var(--font-size-xs);
+          font-size: 11px;
           padding: 2px 6px;
           background-color: var(--bg-tertiary);
-          border-radius: var(--radius-sm);
+          border-radius: 4px;
           color: var(--text-secondary);
         }
       }
 
-      .file-paths {
-        padding-left: 28px;
-      }
-
-      .original-path {
-        font-size: var(--font-size-sm);
-        color: var(--text-muted);
-        margin-bottom: var(--spacing-xs);
-        font-family: var(--font-mono);
-
-        .path-label {
-          margin-right: var(--spacing-xs);
-        }
-      }
-
-      .new-path {
+      .file-path {
         display: flex;
-        gap: var(--spacing-xs);
-        align-items: flex-start;
-
-        mat-form-field {
-          flex: 1;
-        }
-
-        button {
-          margin-top: 4px;
-        }
+        gap: 8px;
+        align-items: center;
       }
 
       .tsql-code {
         font-family: var(--font-mono);
-        font-size: var(--font-size-sm);
-        padding: var(--spacing-md);
+        font-size: 12px;
+        padding: 12px;
         background-color: var(--bg-primary);
-        border-radius: var(--radius-md);
+        border-radius: 4px;
         overflow-x: auto;
         margin: 0;
         white-space: pre-wrap;
       }
 
-      .progress-section {
-        margin: var(--spacing-md) 0;
-        padding: var(--spacing-md);
-        background-color: var(--bg-tertiary);
-        border-radius: var(--radius-md);
-
-        .progress-header {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: var(--spacing-xs);
-          font-size: var(--font-size-sm);
-        }
+      .empty-text {
+        padding: 24px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 13px;
       }
 
-      .spinning {
-        animation: spin 1s linear infinite;
-      }
-
-      @keyframes spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
+      mat-dialog-actions button mat-icon + span {
+        margin-left: 4px;
       }
     `,
   ],
@@ -524,32 +493,33 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
 
   private progressSubscription?: Subscription;
 
+  sourceTab = 0;
+
   formData = {
     backupPath: '',
     targetDatabase: '',
     withReplace: false,
     withRecovery: true,
     withNoRecovery: false,
-    withStats: true,
-    withChecksum: true,
   };
 
   fileRelocations: { logicalName: string; newPath: string }[] = [];
 
   readonly restoring = signal(false);
   readonly loadingInfo = signal(false);
+  readonly loadingHistory = signal(false);
   readonly progress = signal<RestoreProgress | null>(null);
   readonly backupInfo = signal<BackupFileInfo | null>(null);
+  readonly backupHistory = signal<BackupHistoryEntry[]>([]);
+  readonly selectedHistoryEntry = signal<BackupHistoryEntry | null>(null);
 
   readonly generatedTsql = computed(() => {
     const path = this.formData.backupPath || '<backup_path>';
     const db = this.formData.targetDatabase || this.backupInfo()?.databaseName || '<database>';
 
     let sql = `RESTORE DATABASE [${db}]\nFROM DISK = N'${path}'`;
-
     const withOptions: string[] = [];
 
-    // File relocations
     if (this.fileRelocations.length > 0) {
       this.fileRelocations.forEach(f => {
         if (f.newPath) {
@@ -558,7 +528,6 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
       });
     }
 
-    // Recovery options
     if (this.formData.withNoRecovery) {
       withOptions.push('NORECOVERY');
     } else if (this.formData.withRecovery) {
@@ -569,13 +538,7 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
       withOptions.push('REPLACE');
     }
 
-    if (this.formData.withChecksum) {
-      withOptions.push('CHECKSUM');
-    }
-
-    if (this.formData.withStats) {
-      withOptions.push('STATS = 10');
-    }
+    withOptions.push('STATS = 10');
 
     if (withOptions.length > 0) {
       sql += '\nWITH ' + withOptions.join(',\n     ');
@@ -585,12 +548,12 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    // Pre-fill target database if provided
     if (this.data.databaseName) {
       this.formData.targetDatabase = this.data.databaseName;
     }
 
-    // Subscribe to progress updates
+    this.loadBackupHistory();
+
     this.progressSubscription = this.ipc.getRestoreProgress().subscribe(p => {
       this.progress.set(p);
       if (p.status === 'completed') {
@@ -611,10 +574,34 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     this.progressSubscription?.unsubscribe();
   }
 
-  onBackupPathChange(): void {
-    // Clear backup info when path changes
+  onSourceTabChange(): void {
     this.backupInfo.set(null);
     this.fileRelocations = [];
+    this.selectedHistoryEntry.set(null);
+  }
+
+  onBackupPathChange(): void {
+    this.backupInfo.set(null);
+    this.fileRelocations = [];
+  }
+
+  private async loadBackupHistory(): Promise<void> {
+    this.loadingHistory.set(true);
+    try {
+      const history = await this.ipc.getBackupHistory(this.data.connectionId).toPromise();
+      this.backupHistory.set(history || []);
+    } catch {
+      // Ignore errors
+    } finally {
+      this.loadingHistory.set(false);
+    }
+  }
+
+  selectHistoryEntry(entry: BackupHistoryEntry): void {
+    this.selectedHistoryEntry.set(entry);
+    this.formData.backupPath = entry.physicalDeviceName;
+    this.formData.targetDatabase = entry.databaseName;
+    this.loadBackupInfo();
   }
 
   browseBackupFile(): void {
@@ -678,15 +665,13 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
       if (info) {
         this.backupInfo.set(info);
 
-        // Initialize file relocations
         if (info.files) {
           this.fileRelocations = info.files.map(f => ({
             logicalName: f.logicalName,
-            newPath: f.physicalName, // Default to original path
+            newPath: f.physicalName,
           }));
         }
 
-        // Pre-fill target database if not already set
         if (!this.formData.targetDatabase && info.databaseName) {
           this.formData.targetDatabase = info.databaseName;
         }
@@ -702,13 +687,13 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
 
   private getDirectoryFromPath(path: string): string {
     if (!path) return '';
-    const lastSlash = path.lastIndexOf('\\');
+    const lastSlash = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
     return lastSlash > 0 ? path.substring(0, lastSlash) : path;
   }
 
   private getFileNameFromPath(path: string): string {
     if (!path) return '';
-    const lastSlash = path.lastIndexOf('\\');
+    const lastSlash = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
     return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
   }
 
@@ -726,20 +711,13 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
       percentComplete: 0,
     });
 
-    // Build file relocations for request
     const relocations: FileRelocation[] = this.fileRelocations
       .filter(
         f =>
           f.newPath !==
           this.backupInfo()?.files?.find(bf => bf.logicalName === f.logicalName)?.physicalName
       )
-      .map(
-        f =>
-          ({
-            logicalName: f.logicalName,
-            physicalName: f.newPath,
-          }) as FileRelocation
-      );
+      .map(f => ({ logicalName: f.logicalName, physicalName: f.newPath }) as FileRelocation);
 
     const request: RestoreRequest = {
       connectionId: this.data.connectionId,

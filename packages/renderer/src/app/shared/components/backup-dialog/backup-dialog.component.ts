@@ -61,130 +61,108 @@ export interface BackupDialogData {
     <div class="backup-dialog">
       <h2 mat-dialog-title>
         <mat-icon>backup</mat-icon>
-        Backup Database
+        <span>Backup Database: {{ data.databaseName }}</span>
       </h2>
 
       <mat-dialog-content>
-        <!-- Database Info -->
-        <div class="info-row">
-          <span class="label">Database:</span>
-          <span class="value">{{ data.databaseName }}</span>
-        </div>
-
-        <!-- Backup Type -->
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Backup Type</mat-label>
-          <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
-            <mat-option value="full">
-              <mat-icon>save</mat-icon>
-              Full Backup
-            </mat-option>
-            <mat-option value="differential">
-              <mat-icon>difference</mat-icon>
-              Differential Backup
-            </mat-option>
-            <mat-option value="log">
-              <mat-icon>receipt_long</mat-icon>
-              Transaction Log Backup
-            </mat-option>
-          </mat-select>
-        </mat-form-field>
-
-        <!-- Backup Path -->
-        <div class="path-row">
-          <mat-form-field appearance="outline" class="flex-1">
-            <mat-label>Backup File Path (on SQL Server)</mat-label>
-            <input
-              matInput
-              [(ngModel)]="formData.backupPath"
-              [disabled]="backing()"
-              placeholder="e.g., D:\\Backups\\MyDatabase.bak"
-            />
+        <div class="form-grid">
+          <!-- Backup Type -->
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>Backup Type</mat-label>
+            <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+              <mat-option value="full">Full Backup</mat-option>
+              <mat-option value="differential">Differential Backup</mat-option>
+              <mat-option value="log">Transaction Log Backup</mat-option>
+            </mat-select>
           </mat-form-field>
-          <button mat-stroked-button [disabled]="backing()" (click)="browseBackupPath()">
-            <mat-icon>folder_open</mat-icon>
-            Browse
-          </button>
+
+          <!-- Backup Path -->
+          <div class="path-row">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
+              <mat-label>Backup Path (on SQL Server)</mat-label>
+              <input
+                matInput
+                [(ngModel)]="formData.backupPath"
+                [disabled]="backing()"
+                placeholder="e.g., /var/opt/mssql/backup/db.bak"
+              />
+            </mat-form-field>
+            <button
+              mat-icon-button
+              [disabled]="backing()"
+              (click)="browseBackupPath()"
+              matTooltip="Browse server"
+            >
+              <mat-icon>folder_open</mat-icon>
+            </button>
+          </div>
+
+          <!-- Options -->
+          <div class="options-row">
+            <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
+              >Compression</mat-checkbox
+            >
+            <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
+              >Copy-Only</mat-checkbox
+            >
+            <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
+              >Checksum</mat-checkbox
+            >
+          </div>
+
+          <!-- Description -->
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>Description (optional)</mat-label>
+            <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
+          </mat-form-field>
         </div>
-
-        <!-- Description -->
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Description (optional)</mat-label>
-          <textarea
-            matInput
-            [(ngModel)]="formData.description"
-            [disabled]="backing()"
-            rows="2"
-            placeholder="Backup description..."
-          ></textarea>
-        </mat-form-field>
-
-        <!-- Options -->
-        <div class="options-row">
-          <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()">
-            Use Compression
-          </mat-checkbox>
-          <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()">
-            Copy-Only Backup
-          </mat-checkbox>
-          <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()">
-            Perform Checksum
-          </mat-checkbox>
-        </div>
-
-        <!-- T-SQL Preview -->
-        <mat-expansion-panel class="tsql-panel">
-          <mat-expansion-panel-header>
-            <mat-panel-title>
-              <mat-icon>code</mat-icon>
-              T-SQL Command
-            </mat-panel-title>
-          </mat-expansion-panel-header>
-          <pre class="tsql-code">{{ generatedTsql() }}</pre>
-        </mat-expansion-panel>
 
         <!-- Progress -->
         @if (backing()) {
           <div class="progress-section">
             <div class="progress-header">
-              <span>{{ progress()?.currentPhase || 'Backing up...' }}</span>
+              <span>{{ progress()?.currentPhase || 'Starting backup...' }}</span>
               <span>{{ progress()?.percentComplete || 0 }}%</span>
             </div>
             <mat-progress-bar mode="determinate" [value]="progress()?.percentComplete || 0" />
           </div>
         }
 
-        <!-- Backup History -->
-        <mat-expansion-panel class="history-panel">
-          <mat-expansion-panel-header>
-            <mat-panel-title>
-              <mat-icon>history</mat-icon>
-              Backup History
-            </mat-panel-title>
-          </mat-expansion-panel-header>
-          <div class="history-list">
-            @if (loadingHistory()) {
-              <div class="loading-text">Loading history...</div>
-            } @else if (backupHistory().length === 0) {
-              <div class="empty-text">No backup history found</div>
-            } @else {
-              @for (entry of backupHistory(); track entry.backupStartDate) {
-                <div class="history-item">
-                  <div class="history-main">
-                    <span class="history-type">{{ entry.backupType }}</span>
-                    <span class="history-date">{{ entry.backupFinishDate | date: 'short' }}</span>
+        <!-- Expandable panels -->
+        <mat-accordion class="panels">
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
+            </mat-expansion-panel-header>
+            <pre class="tsql-code">{{ generatedTsql() }}</pre>
+          </mat-expansion-panel>
+
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
+            </mat-expansion-panel-header>
+            <div class="history-list">
+              @if (loadingHistory()) {
+                <div class="empty-text">Loading...</div>
+              } @else if (backupHistory().length === 0) {
+                <div class="empty-text">No backup history</div>
+              } @else {
+                @for (entry of backupHistory(); track entry.backupStartDate) {
+                  <div class="history-item">
+                    <div class="history-main">
+                      <span class="history-type">{{ entry.backupType }}</span>
+                      <span class="history-date">{{ entry.backupFinishDate | date: 'short' }}</span>
+                    </div>
+                    <div class="history-details">
+                      <span class="history-path">{{ entry.physicalDeviceName }}</span>
+                      <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
+                    </div>
                   </div>
-                  <div class="history-details">
-                    <span class="history-path" [title]="entry.physicalDeviceName">
-                      {{ entry.physicalDeviceName }}
-                    </span>
-                    <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
-                  </div>
-                </div>
+                }
               }
-            }
-          </div>
-        </mat-expansion-panel>
+            </div>
+          </mat-expansion-panel>
+        </mat-accordion>
       </mat-dialog-content>
 
       <mat-dialog-actions align="end">
@@ -195,13 +173,8 @@ export interface BackupDialogData {
           [disabled]="!canBackup() || backing()"
           (click)="startBackup()"
         >
-          @if (backing()) {
-            <mat-icon class="spinning">sync</mat-icon>
-            Backing Up...
-          } @else {
-            <mat-icon>backup</mat-icon>
-            Start Backup
-          }
+          <mat-icon>{{ backing() ? 'sync' : 'backup' }}</mat-icon>
+          <span>{{ backing() ? 'Backing Up...' : 'Start Backup' }}</span>
         </button>
       </mat-dialog-actions>
     </div>
@@ -209,71 +182,67 @@ export interface BackupDialogData {
   styles: [
     `
       .backup-dialog {
-        min-width: 550px;
-        max-width: 650px;
+        width: 520px;
       }
 
       h2[mat-dialog-title] {
         display: flex;
         align-items: center;
-        gap: var(--spacing-sm);
+        gap: 8px;
+        margin-bottom: 0;
 
         mat-icon {
           color: var(--status-info);
         }
       }
 
-      .info-row {
-        display: flex;
-        gap: var(--spacing-md);
-        padding: var(--spacing-sm) var(--spacing-md);
-        background-color: var(--bg-tertiary);
-        border-radius: var(--radius-md);
-        margin-bottom: var(--spacing-md);
-
-        .label {
-          color: var(--text-secondary);
-        }
-
-        .value {
-          font-weight: 500;
-        }
+      mat-dialog-content {
+        padding-top: 16px;
       }
 
-      .full-width {
-        width: 100%;
+      .form-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
       }
 
       .path-row {
         display: flex;
-        gap: var(--spacing-sm);
-        align-items: flex-start;
+        gap: 8px;
+        align-items: center;
 
         .flex-1 {
           flex: 1;
-        }
-
-        button {
-          margin-top: 4px;
         }
       }
 
       .options-row {
         display: flex;
-        flex-wrap: wrap;
-        gap: var(--spacing-md);
-        margin: var(--spacing-md) 0;
+        gap: 16px;
+        padding: 4px 0;
       }
 
-      .tsql-panel,
-      .history-panel {
-        margin-top: var(--spacing-md);
-        background-color: var(--bg-secondary);
+      .progress-section {
+        margin: 16px 0;
+        padding: 12px;
+        background-color: var(--bg-tertiary);
+        border-radius: 6px;
+
+        .progress-header {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          font-size: 13px;
+        }
+      }
+
+      .panels {
+        margin-top: 16px;
 
         mat-panel-title {
           display: flex;
           align-items: center;
-          gap: var(--spacing-xs);
+          gap: 8px;
 
           mat-icon {
             font-size: 18px;
@@ -285,36 +254,22 @@ export interface BackupDialogData {
 
       .tsql-code {
         font-family: var(--font-mono);
-        font-size: var(--font-size-sm);
-        padding: var(--spacing-md);
+        font-size: 12px;
+        padding: 12px;
         background-color: var(--bg-primary);
-        border-radius: var(--radius-md);
+        border-radius: 4px;
         overflow-x: auto;
         margin: 0;
         white-space: pre-wrap;
       }
 
-      .progress-section {
-        margin: var(--spacing-md) 0;
-        padding: var(--spacing-md);
-        background-color: var(--bg-tertiary);
-        border-radius: var(--radius-md);
-
-        .progress-header {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: var(--spacing-xs);
-          font-size: var(--font-size-sm);
-        }
-      }
-
       .history-list {
-        max-height: 200px;
+        max-height: 150px;
         overflow-y: auto;
       }
 
       .history-item {
-        padding: var(--spacing-sm);
+        padding: 8px 0;
         border-bottom: 1px solid var(--border-primary);
 
         &:last-child {
@@ -325,23 +280,23 @@ export interface BackupDialogData {
       .history-main {
         display: flex;
         justify-content: space-between;
-        margin-bottom: var(--spacing-xs);
+        margin-bottom: 4px;
       }
 
       .history-type {
         font-weight: 500;
-        color: var(--status-info);
+        font-size: 13px;
       }
 
       .history-date {
-        font-size: var(--font-size-sm);
+        font-size: 12px;
         color: var(--text-secondary);
       }
 
       .history-details {
         display: flex;
         justify-content: space-between;
-        font-size: var(--font-size-xs);
+        font-size: 11px;
         color: var(--text-muted);
       }
 
@@ -353,15 +308,21 @@ export interface BackupDialogData {
         font-family: var(--font-mono);
       }
 
-      .loading-text,
       .empty-text {
-        padding: var(--spacing-md);
+        padding: 16px;
         text-align: center;
         color: var(--text-muted);
+        font-size: 13px;
       }
 
-      .spinning {
-        animation: spin 1s linear infinite;
+      button mat-icon {
+        &.spinning {
+          animation: spin 1s linear infinite;
+        }
+      }
+
+      mat-dialog-actions button mat-icon + span {
+        margin-left: 4px;
       }
 
       @keyframes spin {
@@ -432,13 +393,9 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    // Load default backup path
     this.loadDefaultPath();
-
-    // Load backup history
     this.loadBackupHistory();
 
-    // Subscribe to progress updates
     this.progressSubscription = this.ipc.getBackupProgress().subscribe(p => {
       this.progress.set(p);
       if (p.status === 'completed') {
@@ -545,7 +502,6 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
 
   cancel(): void {
     if (this.backing()) {
-      // Cancel ongoing backup
       const backupId = this.progress()?.backupId;
       if (backupId) {
         this.ipc.cancelBackup(backupId).toPromise();

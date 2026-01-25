@@ -79,11 +79,10 @@ export interface RenameDatabaseDialogData {
         >
           @if (renaming()) {
             <mat-spinner diameter="20" />
-            Renaming...
           } @else {
             <mat-icon>check</mat-icon>
-            Rename
           }
+          <span>{{ renaming() ? 'Renaming...' : 'Rename' }}</span>
         </button>
       </mat-dialog-actions>
     </div>

@@ -96,6 +96,15 @@ export class BackupRestoreService extends BaseSingleton {
       const db = databases.find(d => d.name === request.database);
       const sizeBytes = db?.sizeBytes || 0;
 
+      // Send completed progress first so dialog knows we're done
+      this.sendToRenderer(IPC_CHANNELS.BACKUP.PROGRESS, {
+        backupId: operationId,
+        status: 'completed',
+        percentComplete: 100,
+        currentPhase: 'Completed',
+        elapsedMs: Date.now() - operation.startTime,
+      } as BackupProgress);
+
       const result: BackupResult = {
         operationId,
         success: true,
@@ -108,6 +117,15 @@ export class BackupRestoreService extends BaseSingleton {
       this.sendToRenderer(IPC_CHANNELS.BACKUP.COMPLETE, result);
     } catch (error) {
       const err = error as Error;
+      // Send failed progress first
+      this.sendToRenderer(IPC_CHANNELS.BACKUP.PROGRESS, {
+        backupId: operationId,
+        status: 'failed',
+        percentComplete: 0,
+        error: err.message,
+        currentPhase: 'Failed',
+      } as BackupProgress);
+
       this.sendToRenderer(IPC_CHANNELS.BACKUP.ERROR, {
         operationId,
         error: err.message,
@@ -263,6 +281,15 @@ export class BackupRestoreService extends BaseSingleton {
       // Invalidate database cache
       this.metadataService.invalidateDatabases(request.connectionId);
 
+      // Send completed progress first so dialog knows we're done
+      this.sendToRenderer(IPC_CHANNELS.RESTORE.PROGRESS, {
+        restoreId: operationId,
+        status: 'completed',
+        percentComplete: 100,
+        currentPhase: 'Completed',
+        elapsedMs: Date.now() - operation.startTime,
+      } as RestoreProgress);
+
       const result: RestoreResult = {
         operationId,
         success: true,
@@ -274,6 +301,15 @@ export class BackupRestoreService extends BaseSingleton {
       this.sendToRenderer(IPC_CHANNELS.RESTORE.COMPLETE, result);
     } catch (error) {
       const err = error as Error;
+      // Send failed progress first
+      this.sendToRenderer(IPC_CHANNELS.RESTORE.PROGRESS, {
+        restoreId: operationId,
+        status: 'failed',
+        percentComplete: 0,
+        error: err.message,
+        currentPhase: 'Failed',
+      } as RestoreProgress);
+
       this.sendToRenderer(IPC_CHANNELS.RESTORE.ERROR, {
         operationId,
         error: err.message,
