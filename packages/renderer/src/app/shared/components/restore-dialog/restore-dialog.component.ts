@@ -103,6 +103,16 @@ export interface RestoreDialogData {
 
           <mat-tab label="Backup History">
             <div class="tab-content">
+              @if (data.databaseName) {
+                <div class="history-filter">
+                  <mat-checkbox [(ngModel)]="showAllDatabases" (ngModelChange)="onShowAllChange()">
+                    Show all databases
+                  </mat-checkbox>
+                  @if (!showAllDatabases) {
+                    <span class="filter-label">Showing: {{ data.databaseName }}</span>
+                  }
+                </div>
+              }
               @if (loadingHistory()) {
                 <div class="empty-text">Loading backup history...</div>
               } @else if (backupHistory().length === 0) {
@@ -115,17 +125,16 @@ export interface RestoreDialogData {
                       [class.selected]="selectedHistoryEntry() === entry"
                       (click)="selectHistoryEntry(entry)"
                     >
-                      <div class="history-main">
-                        <span class="history-db">{{ entry.databaseName }}</span>
-                        <span class="history-type">{{ entry.backupType }}</span>
-                      </div>
-                      <div class="history-details">
+                      <div class="history-row">
+                        @if (showAllDatabases) {
+                          <span class="history-db">{{ entry.databaseName }}</span>
+                        }
                         <span class="history-date">{{
-                          entry.backupFinishDate | date: 'short'
+                          entry.backupFinishDate | date: 'M/d/yy h:mm a'
                         }}</span>
+                        <span class="history-type">{{ entry.backupType }}</span>
                         <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
                       </div>
-                      <div class="history-path">{{ entry.physicalDeviceName }}</div>
                     </div>
                   }
                 </div>
@@ -290,15 +299,29 @@ export interface RestoreDialogData {
         }
       }
 
+      .history-filter {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-primary);
+      }
+
+      .filter-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+
       .history-list {
-        max-height: 180px;
+        max-height: 160px;
         overflow-y: auto;
         border: 1px solid var(--border-primary);
         border-radius: 6px;
       }
 
       .history-item {
-        padding: 10px 12px;
+        padding: 8px 12px;
         border-bottom: 1px solid var(--border-primary);
         cursor: pointer;
         transition: background-color 0.15s;
@@ -317,38 +340,40 @@ export interface RestoreDialogData {
         }
       }
 
-      .history-main {
+      .history-row {
         display: flex;
-        justify-content: space-between;
-        margin-bottom: 4px;
+        align-items: center;
+        gap: 12px;
       }
 
       .history-db {
         font-weight: 500;
+        font-size: 13px;
+        min-width: 100px;
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .history-date {
+        font-size: 13px;
+        flex: 1;
       }
 
       .history-type {
         font-size: 11px;
-        padding: 2px 6px;
+        padding: 2px 8px;
         background-color: var(--bg-tertiary);
         border-radius: 4px;
+        text-transform: capitalize;
       }
 
-      .history-details {
-        display: flex;
-        justify-content: space-between;
+      .history-size {
         font-size: 12px;
         color: var(--text-secondary);
-        margin-bottom: 2px;
-      }
-
-      .history-path {
-        font-size: 11px;
-        font-family: var(--font-mono);
-        color: var(--text-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        min-width: 60px;
+        text-align: right;
       }
 
       .backup-info {
@@ -379,16 +404,19 @@ export interface RestoreDialogData {
 
       .full-width {
         width: 100%;
-        margin-bottom: 8px;
+        margin-bottom: 16px;
       }
 
       .options-section {
-        margin: 8px 0;
+        margin: 16px 0;
+        padding: 12px 16px;
+        background-color: var(--bg-tertiary);
+        border-radius: 6px;
       }
 
       .options-row {
         display: flex;
-        gap: 16px;
+        gap: 24px;
         flex-wrap: wrap;
       }
 
@@ -494,6 +522,7 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
   private progressSubscription?: Subscription;
 
   sourceTab = 0;
+  showAllDatabases = false;
 
   formData = {
     backupPath: '',
@@ -585,10 +614,16 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     this.fileRelocations = [];
   }
 
+  onShowAllChange(): void {
+    this.loadBackupHistory();
+  }
+
   private async loadBackupHistory(): Promise<void> {
     this.loadingHistory.set(true);
     try {
-      const history = await this.ipc.getBackupHistory(this.data.connectionId).toPromise();
+      // Filter by database if one is provided and not showing all
+      const dbFilter = this.showAllDatabases ? undefined : this.data.databaseName;
+      const history = await this.ipc.getBackupHistory(this.data.connectionId, dbFilter).toPromise();
       this.backupHistory.set(history || []);
     } catch {
       // Ignore errors

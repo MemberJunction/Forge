@@ -42,26 +42,32 @@ interface QuickAction {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ai-analysis-panel" [class.collapsed]="collapsed()">
-      <!-- Header -->
-      <div class="panel-header" (click)="toggleCollapsed()">
-        <div class="header-left">
-          <mat-icon>auto_awesome</mat-icon>
-          <span class="header-title">AI Analysis</span>
-          @if (aiState.analyzingResults()) {
-            <mat-spinner diameter="14"></mat-spinner>
-          }
+    <div
+      class="ai-analysis-panel"
+      [class.collapsed]="collapsed() && !embedded"
+      [class.embedded]="embedded"
+    >
+      <!-- Header (only when not embedded) -->
+      @if (!embedded) {
+        <div class="panel-header" (click)="toggleCollapsed()">
+          <div class="header-left">
+            <mat-icon>auto_awesome</mat-icon>
+            <span class="header-title">AI Analysis</span>
+            @if (aiState.analyzingResults()) {
+              <mat-spinner diameter="14"></mat-spinner>
+            }
+          </div>
+          <button
+            mat-icon-button
+            class="collapse-btn"
+            (click)="$event.stopPropagation(); toggleCollapsed()"
+          >
+            <mat-icon>{{ collapsed() ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </button>
         </div>
-        <button
-          mat-icon-button
-          class="collapse-btn"
-          (click)="$event.stopPropagation(); toggleCollapsed()"
-        >
-          <mat-icon>{{ collapsed() ? 'expand_less' : 'expand_more' }}</mat-icon>
-        </button>
-      </div>
+      }
 
-      @if (!collapsed()) {
+      @if (!collapsed() || embedded) {
         <div class="panel-content">
           @if (!aiState.hasConfiguredVendors()) {
             <!-- No AI configured -->
@@ -155,6 +161,18 @@ interface QuickAction {
         &.collapsed {
           .panel-content {
             display: none;
+          }
+        }
+
+        &.embedded {
+          border: none;
+          border-radius: 0;
+          background-color: transparent;
+          height: 100%;
+
+          .panel-content {
+            flex: 1;
+            overflow-y: auto;
           }
         }
       }
@@ -396,6 +414,7 @@ export class AIAnalysisPanelComponent {
   @Input() sql: string = '';
   @Input() resultSet: ResultSet | null = null;
   @Input() databaseName: string = '';
+  @Input() embedded: boolean = false;
 
   @Output() readonly analysisRequested = new EventEmitter<string>();
 

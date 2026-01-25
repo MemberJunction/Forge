@@ -256,26 +256,53 @@ declare const monaco: { editor: MonacoEditor };
               </div>
             } @else {
               <div class="results-tabs">
-                @for (resultSet of result()?.resultSets; track $index; let i = $index) {
+                <div class="tabs-left">
+                  @for (resultSet of result()?.resultSets; track $index; let i = $index) {
+                    <button
+                      class="result-tab"
+                      [class.active]="activeTab() === 'result-' + i"
+                      (click)="setActiveTab('result-' + i)"
+                    >
+                      Result {{ i + 1 }}
+                      <span class="row-count">({{ resultSet.rows.length }} rows)</span>
+                    </button>
+                  }
                   <button
                     class="result-tab"
-                    [class.active]="activeResultIndex() === i"
-                    (click)="activeResultIndex.set(i)"
+                    [class.active]="activeTab() === 'messages'"
+                    (click)="setActiveTab('messages')"
                   >
-                    Result {{ i + 1 }}
-                    <span class="row-count">({{ resultSet.rows.length }} rows)</span>
+                    Messages
                   </button>
-                }
-                <button
-                  class="result-tab"
-                  [class.active]="activeResultIndex() === -1"
-                  (click)="activeResultIndex.set(-1)"
-                >
-                  Messages
-                </button>
+                </div>
+                <div class="tabs-right">
+                  @if (aiState.analysisEnabled()) {
+                    <button
+                      class="result-tab icon-tab"
+                      [class.active]="activeTab() === 'ai'"
+                      (click)="setActiveTab('ai')"
+                      matTooltip="AI Analysis"
+                    >
+                      <mat-icon>auto_awesome</mat-icon>
+                    </button>
+                  }
+                  @if (tabState.activeTab()?.id) {
+                    <button
+                      class="result-tab icon-tab"
+                      [class.active]="activeTab() === 'history'"
+                      (click)="setActiveTab('history')"
+                      matTooltip="Result History"
+                    >
+                      <mat-icon>history</mat-icon>
+                      @if (resultsState.snapshots().length > 0) {
+                        <span class="tab-badge">{{ resultsState.snapshots().length }}</span>
+                      }
+                    </button>
+                  }
+                </div>
               </div>
 
-              @if (activeResultIndex() >= 0 && activeResultSet()) {
+              @if (activeTab().startsWith('result-') && activeResultSet()) {
                 <div class="results-grid">
                   <app-results-grid
                     [resultSet]="activeResultSet()"
@@ -283,16 +310,7 @@ declare const monaco: { editor: MonacoEditor };
                     (exportRequested)="exportResults($event)"
                   />
                 </div>
-
-                <!-- AI Analysis Panel -->
-                @if (aiState.analysisEnabled()) {
-                  <app-ai-analysis-panel
-                    [sql]="getLastExecutedSql()"
-                    [resultSet]="activeResultSet()"
-                    [databaseName]="selectedDatabase ?? ''"
-                  />
-                }
-              } @else {
+              } @else if (activeTab() === 'messages') {
                 <div class="messages-pane">
                   <pre>{{ result()?.messages?.join('\\n') || 'Query executed successfully.' }}</pre>
                   @if (result()?.rowsAffected !== undefined) {
@@ -300,18 +318,27 @@ declare const monaco: { editor: MonacoEditor };
                   }
                   <p class="execution-time">Execution time: {{ result()?.executionTime }}ms</p>
                 </div>
+              } @else if (activeTab() === 'ai') {
+                <div class="tab-content-pane">
+                  <app-ai-analysis-panel
+                    [sql]="getLastExecutedSql()"
+                    [resultSet]="getFirstResultSet()"
+                    [databaseName]="selectedDatabase ?? ''"
+                    [embedded]="true"
+                  />
+                </div>
+              } @else if (activeTab() === 'history' && tabState.activeTab()?.id) {
+                <div class="tab-content-pane">
+                  <app-result-history-panel
+                    [tabId]="tabState.activeTab()!.id"
+                    [connectionId]="connectionState.activeConnectionId() ?? undefined"
+                    [database]="selectedDatabase ?? undefined"
+                    [embedded]="true"
+                    (viewResult)="onViewHistoryResult($event)"
+                    (compareResults)="onCompareResults($event)"
+                  />
+                </div>
               }
-            }
-
-            <!-- Result History Panel -->
-            @if (tabState.activeTab()?.id) {
-              <app-result-history-panel
-                [tabId]="tabState.activeTab()!.id"
-                [connectionId]="connectionState.activeConnectionId() ?? undefined"
-                [database]="selectedDatabase ?? undefined"
-                (viewResult)="onViewHistoryResult($event)"
-                (compareResults)="onCompareResults($event)"
-              />
             }
           </div>
         </div>
@@ -585,9 +612,15 @@ declare const monaco: { editor: MonacoEditor };
 
       .results-tabs {
         display: flex;
-        gap: 1px;
+        justify-content: space-between;
         background-color: var(--border-primary);
         border-bottom: 1px solid var(--border-primary);
+      }
+
+      .tabs-left,
+      .tabs-right {
+        display: flex;
+        gap: 1px;
       }
 
       .result-tab {
@@ -608,10 +641,40 @@ declare const monaco: { editor: MonacoEditor };
           color: var(--text-primary);
         }
 
+        &.icon-tab {
+          display: flex;
+          align-items: center;
+          gap: var(--spacing-xs);
+          padding: var(--spacing-xs) var(--spacing-sm);
+
+          mat-icon {
+            font-size: 18px;
+            width: 18px;
+            height: 18px;
+          }
+        }
+
         .row-count {
           color: var(--text-muted);
           margin-left: var(--spacing-xs);
         }
+
+        .tab-badge {
+          background-color: var(--accent-primary);
+          color: white;
+          font-size: 10px;
+          padding: 1px 5px;
+          border-radius: 8px;
+          min-width: 14px;
+          text-align: center;
+        }
+      }
+
+      .tab-content-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
       .results-grid {
@@ -660,7 +723,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   selectedDatabase: string | null = null;
   executing = signal(false);
   result = signal<QueryResult | null>(null);
-  activeResultIndex = signal(0);
+  activeTab = signal('result-0');
   editorHeight = signal(50);
   showHistory = signal(false);
   historySearchText = '';
@@ -876,7 +939,7 @@ export class QueryComponent implements OnInit, OnDestroy {
         .toPromise();
 
       this.result.set(result ?? null);
-      this.activeResultIndex.set(result?.resultSets?.length ? 0 : -1);
+      this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
 
       // Refresh history if panel is open
       if (this.showHistory()) {
@@ -1032,8 +1095,18 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   activeResultSet(): ResultSet | null {
     const r = this.result();
-    const idx = this.activeResultIndex();
+    const tab = this.activeTab();
+    if (!tab.startsWith('result-')) return null;
+    const idx = parseInt(tab.replace('result-', ''), 10);
     return r?.resultSets?.[idx] ?? null;
+  }
+
+  getFirstResultSet(): ResultSet | null {
+    return this.result()?.resultSets?.[0] ?? null;
+  }
+
+  setActiveTab(tab: string): void {
+    this.activeTab.set(tab);
   }
 
   private getSelectedOrAllText(): string {
@@ -1131,7 +1204,7 @@ export class QueryComponent implements OnInit, OnDestroy {
         executionTime: snapshot.executionTimeMs,
         error: snapshot.error,
       });
-      this.activeResultIndex.set(0);
+      this.activeTab.set('result-0');
       this.lastExecutedSql = snapshot.sql;
       this.notification.info('Viewing historical result');
     }

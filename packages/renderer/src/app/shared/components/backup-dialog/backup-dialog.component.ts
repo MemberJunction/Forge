@@ -203,7 +203,7 @@ export interface BackupDialogData {
       .form-grid {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 16px;
       }
 
       .path-row {
@@ -218,8 +218,10 @@ export interface BackupDialogData {
 
       .options-row {
         display: flex;
-        gap: 16px;
-        padding: 4px 0;
+        gap: 24px;
+        padding: 12px 16px;
+        background-color: var(--bg-tertiary);
+        border-radius: 6px;
       }
 
       .progress-section {

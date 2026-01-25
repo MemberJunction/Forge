@@ -40,38 +40,44 @@ type SortOrder = 'asc' | 'desc';
     SmartDatePipe,
   ],
   template: `
-    <div class="history-panel" [class.expanded]="expanded()">
-      <!-- Header -->
-      <div class="panel-header" (click)="toggleExpanded()">
-        <div class="header-left">
-          <mat-icon>{{ expanded() ? 'expand_less' : 'expand_more' }}</mat-icon>
-          <span class="header-title">Result History</span>
-          @if (snapshots().length > 0) {
-            <span class="count-badge">{{ snapshots().length }}</span>
-          }
-        </div>
-        <div class="header-actions" (click)="$event.stopPropagation()">
-          @if (resultsState.selectedCount() > 0) {
-            <button
-              mat-icon-button
-              matTooltip="Compare Selected"
-              [disabled]="!resultsState.canCompare()"
-              (click)="compareSelected()"
-            >
-              <mat-icon>compare_arrows</mat-icon>
+    <div
+      class="history-panel"
+      [class.expanded]="expanded() || embedded()"
+      [class.embedded]="embedded()"
+    >
+      <!-- Header (only when not embedded) -->
+      @if (!embedded()) {
+        <div class="panel-header" (click)="toggleExpanded()">
+          <div class="header-left">
+            <mat-icon>{{ expanded() ? 'expand_less' : 'expand_more' }}</mat-icon>
+            <span class="header-title">Result History</span>
+            @if (snapshots().length > 0) {
+              <span class="count-badge">{{ snapshots().length }}</span>
+            }
+          </div>
+          <div class="header-actions" (click)="$event.stopPropagation()">
+            @if (resultsState.selectedCount() > 0) {
+              <button
+                mat-icon-button
+                matTooltip="Compare Selected"
+                [disabled]="!resultsState.canCompare()"
+                (click)="compareSelected()"
+              >
+                <mat-icon>compare_arrows</mat-icon>
+              </button>
+              <button mat-icon-button matTooltip="Delete Selected" (click)="deleteSelected()">
+                <mat-icon>delete</mat-icon>
+              </button>
+            }
+            <button mat-icon-button [matMenuTriggerFor]="sortMenu" matTooltip="Sort">
+              <mat-icon>sort</mat-icon>
             </button>
-            <button mat-icon-button matTooltip="Delete Selected" (click)="deleteSelected()">
-              <mat-icon>delete</mat-icon>
+            <button mat-icon-button [matMenuTriggerFor]="moreMenu" matTooltip="More">
+              <mat-icon>more_vert</mat-icon>
             </button>
-          }
-          <button mat-icon-button [matMenuTriggerFor]="sortMenu" matTooltip="Sort">
-            <mat-icon>sort</mat-icon>
-          </button>
-          <button mat-icon-button [matMenuTriggerFor]="moreMenu" matTooltip="More">
-            <mat-icon>more_vert</mat-icon>
-          </button>
+          </div>
         </div>
-      </div>
+      }
 
       <!-- Sort Menu -->
       <mat-menu #sortMenu="matMenu">
@@ -128,8 +134,33 @@ type SortOrder = 'asc' | 'desc';
         </button>
       </mat-menu>
 
+      <!-- Embedded toolbar -->
+      @if (embedded()) {
+        <div class="embedded-toolbar">
+          @if (resultsState.selectedCount() > 0) {
+            <button
+              mat-icon-button
+              matTooltip="Compare Selected"
+              [disabled]="!resultsState.canCompare()"
+              (click)="compareSelected()"
+            >
+              <mat-icon>compare_arrows</mat-icon>
+            </button>
+            <button mat-icon-button matTooltip="Delete Selected" (click)="deleteSelected()">
+              <mat-icon>delete</mat-icon>
+            </button>
+          }
+          <button mat-icon-button [matMenuTriggerFor]="sortMenu" matTooltip="Sort">
+            <mat-icon>sort</mat-icon>
+          </button>
+          <button mat-icon-button [matMenuTriggerFor]="moreMenu" matTooltip="More">
+            <mat-icon>more_vert</mat-icon>
+          </button>
+        </div>
+      }
+
       <!-- Content -->
-      @if (expanded()) {
+      @if (expanded() || embedded()) {
         <div class="panel-content">
           @if (resultsState.loading()) {
             <div class="loading-state">
@@ -242,6 +273,34 @@ type SortOrder = 'asc' | 'desc';
 
         &.expanded {
           max-height: 300px;
+        }
+
+        &.embedded {
+          border-top: none;
+          max-height: none;
+          height: 100%;
+          background-color: transparent;
+        }
+      }
+
+      .embedded-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: var(--spacing-xs) var(--spacing-sm);
+        border-bottom: 1px solid var(--border-primary);
+        gap: var(--spacing-xs);
+
+        button {
+          width: 28px;
+          height: 28px;
+          line-height: 28px;
+
+          mat-icon {
+            font-size: 18px;
+            width: 18px;
+            height: 18px;
+          }
         }
       }
 
@@ -468,6 +527,7 @@ export class ResultHistoryPanelComponent implements OnInit, OnDestroy {
   readonly tabId = input.required<string>();
   readonly connectionId = input<string>();
   readonly database = input<string>();
+  readonly embedded = input<boolean>(false);
 
   // Outputs
   readonly viewResult = output<QueryResultSnapshot>();
