@@ -18,6 +18,8 @@ import type {
   ExportOptions,
   ExportResult,
   ResultSet,
+  FkRecordRequest,
+  FkRecordResult,
   BackupRequest,
   RestoreRequest,
   BackupProgress,
@@ -226,6 +228,7 @@ interface ForgeAPI {
     clearHistory: () => Promise<void>;
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
+    fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
   };
   queryResults: {
     saveSnapshot: (
@@ -568,6 +571,10 @@ export class IpcService {
 
   exportQueryResults(resultSet: ResultSet, options: ExportOptions): Observable<ExportResult> {
     return from(this.api.query.exportResults(resultSet, options));
+  }
+
+  fetchFkRecord(request: FkRecordRequest): Observable<FkRecordResult> {
+    return from(this.api.query.fetchFkRecord(request));
   }
 
   // Query Results Persistence methods

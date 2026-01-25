@@ -325,9 +325,12 @@ declare const monaco: { editor: MonacoEditor };
                   }
                   <app-results-grid
                     [resultSet]="activeResultSet()"
+                    [connectionId]="connectionState.activeConnectionId()"
+                    [database]="selectedDatabase"
                     [class.historical]="viewingHistoricalResult()"
                     (cellSelected)="onCellSelected($event)"
                     (exportRequested)="exportResults($event)"
+                    (openQueryRequested)="openQueryInNewTab($event)"
                   />
                 </div>
               } @else if (activeTab() === 'messages') {
@@ -368,8 +371,11 @@ declare const monaco: { editor: MonacoEditor };
       <app-row-detail-panel
         [inputData]="rowDetailData()"
         [totalRows]="activeResultSet()?.rows?.length ?? 0"
+        [connectionId]="connectionState.activeConnectionId()"
+        [database]="selectedDatabase"
         (closed)="closeRowDetail()"
         (navigateRow)="navigateRowDetail($event)"
+        (openQueryRequested)="openQueryInNewTab($event)"
       />
     </div>
   `,
@@ -1327,6 +1333,28 @@ export class QueryComponent implements OnInit, OnDestroy {
     } catch (error) {
       // Silent fail - tab renaming is non-critical
       console.debug('Auto-rename tab failed:', error);
+    }
+  }
+
+  // Open a query in a new tab (from FK navigation)
+  openQueryInNewTab(query: { sql: string; title: string }): void {
+    const connectionId = this.connectionState.activeConnectionId();
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    // Create a new query tab with the SQL and auto-execute it
+    const tabId = this.tabState.openQueryTab(
+      connectionId,
+      this.selectedDatabase ?? '',
+      query.sql,
+      true // autoExecute
+    );
+
+    // Rename the tab to use the FK table/value title
+    if (query.title) {
+      this.tabState.renameTab(tabId, query.title);
     }
   }
 }

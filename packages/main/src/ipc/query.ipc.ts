@@ -13,6 +13,8 @@ import type {
   ExportOptions,
   ExportResult,
   ResultSet,
+  FkRecordRequest,
+  FkRecordResult,
 } from '@mj-forge/shared';
 import { QueryExecutor } from '../services/sql/query-executor';
 import { QueryHistoryStore } from '../services/config/query-history';
@@ -133,6 +135,93 @@ export function registerQueryHandlers(): void {
       }
     }
   );
+
+  // Fetch foreign key referenced record
+  ipcMain.handle(
+    IPC_CHANNELS.QUERY.FETCH_FK_RECORD,
+    async (_event, request: FkRecordRequest): Promise<FkRecordResult> => {
+      try {
+        // Escape identifiers by doubling any brackets
+        const schema = request.schema.replace(/\]/g, ']]');
+        const table = request.table.replace(/\]/g, ']]');
+        const column = request.column.replace(/\]/g, ']]');
+
+        // Safely format the value based on type
+        const formattedValue = formatFkValue(request.value);
+
+        const sql = `SELECT TOP 1 * FROM [${schema}].[${table}] WHERE [${column}] = ${formattedValue}`;
+
+        const result = await queryExecutor.execute({
+          connectionId: request.connectionId,
+          database: request.database,
+          sql,
+          queryId: `fk-lookup-${Date.now()}`,
+        });
+
+        if (!result.success || !result.resultSets?.length || !result.resultSets[0].rows.length) {
+          return {
+            success: false,
+            error: result.error || 'Record not found',
+          };
+        }
+
+        return {
+          success: true,
+          record: result.resultSets[0].rows[0],
+          columns: result.resultSets[0].columns,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to fetch FK record',
+        };
+      }
+    }
+  );
+}
+
+/**
+ * Safely format a value for use in FK lookup SQL
+ * Handles SQL injection prevention for various types
+ */
+function formatFkValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'NULL';
+  }
+
+  // Numbers - safe to use directly
+  if (typeof value === 'number') {
+    if (!isFinite(value)) {
+      return 'NULL';
+    }
+    return String(value);
+  }
+
+  // Boolean
+  if (typeof value === 'boolean') {
+    return value ? '1' : '0';
+  }
+
+  // BigInt
+  if (typeof value === 'bigint') {
+    return String(value);
+  }
+
+  // Date
+  if (value instanceof Date) {
+    return `'${value.toISOString()}'`;
+  }
+
+  // UUID/GUID pattern - safe to use directly
+  const str = String(value);
+  const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (guidRegex.test(str)) {
+    return `'${str}'`;
+  }
+
+  // String - escape single quotes
+  const escaped = str.replace(/'/g, "''");
+  return `N'${escaped}'`;
 }
 
 /**

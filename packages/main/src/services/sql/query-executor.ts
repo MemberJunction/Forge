@@ -8,6 +8,12 @@ import type * as mssql from 'mssql';
 import type { QueryRequest, QueryResult, ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { ConnectionPoolManager } from './connection-pool';
+import { MetadataService } from './metadata';
+
+interface ParsedTableRef {
+  schema: string;
+  table: string;
+}
 
 interface ActiveQuery {
   queryId: string;
@@ -19,11 +25,13 @@ interface ActiveQuery {
 
 export class QueryExecutor extends BaseSingleton {
   private poolManager: ConnectionPoolManager;
+  private metadataService: MetadataService;
   private activeQueries: Map<string, ActiveQuery> = new Map();
 
   constructor() {
     super();
     this.poolManager = ConnectionPoolManager.getInstance();
+    this.metadataService = MetadataService.getInstance();
   }
 
   /**
@@ -71,11 +79,59 @@ export class QueryExecutor extends BaseSingleton {
       const resultSets: ResultSet[] = [];
       const messages: string[] = [];
 
+      // Try to parse the SQL to detect a single-table SELECT for FK enrichment
+      const parsedTable = this.parseSimpleSelect(request.sql);
+      let enrichedColumns: Map<string, ColumnMetadata> | null = null;
+
+      if (parsedTable && request.database) {
+        try {
+          const metadata = await this.metadataService.getEnrichedColumnMetadata(
+            request.connectionId,
+            request.database,
+            parsedTable.schema,
+            parsedTable.table
+          );
+          enrichedColumns = new Map(
+            metadata.map(col => [
+              col.name.toLowerCase(),
+              {
+                name: col.name,
+                type: col.type,
+                dataType: col.type,
+                nullable: col.nullable,
+                maxLength: col.maxLength ?? undefined,
+                precision: col.precision ?? undefined,
+                scale: col.scale ?? undefined,
+                isPrimaryKey: col.isPrimaryKey,
+                foreignKey: col.foreignKey ?? undefined,
+              },
+            ])
+          );
+        } catch {
+          // Ignore metadata errors - just proceed without FK info
+        }
+      }
+
       // Handle multiple result sets
       if (Array.isArray(result.recordsets)) {
         for (let i = 0; i < result.recordsets.length; i++) {
           const recordset = result.recordsets[i];
-          const columns = this.extractColumns(recordset.columns);
+          let columns = this.extractColumns(recordset.columns);
+
+          // Enrich columns with FK metadata if available
+          if (enrichedColumns) {
+            columns = columns.map(col => {
+              const enriched = enrichedColumns!.get(col.name.toLowerCase());
+              if (enriched) {
+                return {
+                  ...col,
+                  isPrimaryKey: enriched.isPrimaryKey,
+                  foreignKey: enriched.foreignKey,
+                };
+              }
+              return col;
+            });
+          }
 
           resultSets.push({
             columns,
@@ -179,5 +235,64 @@ export class QueryExecutor extends BaseSingleton {
       executionTime: Date.now() - startTime,
       error: 'Query cancelled by user',
     };
+  }
+
+  /**
+   * Parse a simple SELECT statement to extract the source table
+   * Returns schema and table name if it's a single-table SELECT, null otherwise
+   *
+   * Matches patterns like:
+   * - SELECT * FROM [schema].[table]
+   * - SELECT * FROM schema.table
+   * - SELECT * FROM [table]
+   * - SELECT TOP n * FROM ...
+   */
+  private parseSimpleSelect(sql: string): ParsedTableRef | null {
+    // Normalize whitespace and remove comments
+    const normalized = sql
+      .replace(/--.*$/gm, '') // Remove single-line comments
+      .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Match SELECT ... FROM [schema].[table] or SELECT ... FROM schema.table
+    // The regex captures the table reference after FROM
+    // Support: [schema].[table], schema.table, [table], table
+    const fromMatch = normalized.match(
+      /^\s*SELECT\s+(?:TOP\s+\d+\s+)?(?:DISTINCT\s+)?(?:\*|[\w\s,[\].*]+)\s+FROM\s+(\[?[\w]+\]?(?:\.\[?[\w]+\]?)?)/i
+    );
+
+    if (!fromMatch) {
+      return null;
+    }
+
+    // Check for JOINs or multiple tables - if found, we can't reliably determine the source
+    if (
+      /\bJOIN\b/i.test(normalized) ||
+      /,\s*\[?[\w]+\]?(?:\.\[?[\w]+\]?)?\s+(?:AS\s+)?[\w]/i.test(
+        normalized.substring(normalized.indexOf('FROM'))
+      )
+    ) {
+      return null;
+    }
+
+    const tableRef = fromMatch[1];
+
+    // Parse the table reference
+    // Patterns: [schema].[table], schema.table, [schema].table, schema.[table], [table], table
+    const parts = tableRef.split('.');
+
+    if (parts.length === 1) {
+      // Just table name, assume dbo schema
+      const table = parts[0].replace(/^\[|\]$/g, '');
+      return { schema: 'dbo', table };
+    } else if (parts.length === 2) {
+      // schema.table
+      const schema = parts[0].replace(/^\[|\]$/g, '');
+      const table = parts[1].replace(/^\[|\]$/g, '');
+      return { schema, table };
+    }
+
+    return null;
   }
 }

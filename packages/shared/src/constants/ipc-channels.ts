@@ -66,6 +66,8 @@ export const IPC_CHANNELS = {
     DELETE_HISTORY_ENTRY: 'query:delete-history-entry',
     // Export
     EXPORT_RESULTS: 'query:export-results',
+    // Foreign Key Navigation
+    FETCH_FK_RECORD: 'query:fetch-fk-record',
   },
 
   // Query Results Persistence

@@ -45,6 +45,20 @@ interface ColumnStats {
 // Register all community modules
 ModuleRegistry.registerModules([AllCommunityModule]);
 
+interface FkPreviewData {
+  value: unknown;
+  foreignKey: {
+    referencedSchema: string;
+    referencedTable: string;
+    referencedColumn: string;
+    constraintName?: string;
+  };
+  record: Record<string, unknown> | null;
+  columns: ColumnMetadata[];
+  loading: boolean;
+  error: string | null;
+}
+
 @Component({
   selector: 'app-results-grid',
   standalone: true,
@@ -233,6 +247,75 @@ ModuleRegistry.registerModules([AllCommunityModule]);
             <mat-icon>filter_alt_off</mat-icon>
             Exclude Value
           </button>
+          @if (getContextMenuFkColumn()) {
+            <div class="menu-divider"></div>
+            <button class="menu-item fk-menu-item" (click)="showFkPreview($event)">
+              <mat-icon>link</mat-icon>
+              View Referenced Record
+            </button>
+            <button class="menu-item fk-menu-item" (click)="openFkInNewTab()">
+              <mat-icon>open_in_new</mat-icon>
+              Open FK in New Tab
+            </button>
+          }
+        </div>
+      }
+
+      <!-- FK Preview Popover -->
+      @if (fkPreview()) {
+        <div
+          class="fk-preview-popover"
+          [style.top.px]="fkPreviewPosition()?.y"
+          [style.left.px]="fkPreviewPosition()?.x"
+        >
+          <div class="fk-popover-header">
+            <span class="fk-popover-title">
+              <mat-icon>table_chart</mat-icon>
+              {{ fkPreview()!.foreignKey.referencedSchema }}.{{
+                fkPreview()!.foreignKey.referencedTable
+              }}
+            </span>
+            <button class="close-btn" (click)="closeFkPreview()">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+
+          @if (fkPreview()!.loading) {
+            <div class="fk-popover-loading">
+              <div class="spinner"></div>
+              <span>Loading record...</span>
+            </div>
+          } @else if (fkPreview()!.error) {
+            <div class="fk-popover-error">
+              <mat-icon>error_outline</mat-icon>
+              <span>{{ fkPreview()!.error }}</span>
+            </div>
+          } @else if (fkPreview()!.record) {
+            <div class="fk-popover-content">
+              @for (col of fkPreview()!.columns; track col.name) {
+                <div class="fk-field-row" [class.pk-field]="col.isPrimaryKey">
+                  <span class="fk-field-name">
+                    @if (col.isPrimaryKey) {
+                      <mat-icon class="key-icon">key</mat-icon>
+                    }
+                    {{ col.name }}
+                  </span>
+                  <span
+                    class="fk-field-value"
+                    [class.null]="fkPreview()!.record![col.name] === null"
+                  >
+                    {{ formatFkFieldValue(fkPreview()!.record![col.name]) }}
+                  </span>
+                </div>
+              }
+            </div>
+            <div class="fk-popover-actions">
+              <button class="fk-action-btn primary" (click)="openFkInNewTabFromPreview()">
+                <mat-icon>open_in_new</mat-icon>
+                Open in New Tab
+              </button>
+            </div>
+          }
         </div>
       }
     </div>
@@ -599,6 +682,184 @@ ModuleRegistry.registerModules([AllCommunityModule]);
         margin: 4px 0;
       }
 
+      .fk-menu-item mat-icon {
+        color: var(--status-info);
+      }
+
+      /* FK Preview Popover */
+      .fk-preview-popover {
+        position: fixed;
+        z-index: 10001;
+        min-width: 320px;
+        max-width: 480px;
+        max-height: 400px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .fk-popover-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-primary);
+      }
+
+      .fk-popover-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        color: var(--text-primary);
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          color: var(--status-info);
+        }
+      }
+
+      .fk-popover-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 32px;
+        color: var(--text-muted);
+
+        .spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid var(--border-secondary);
+          border-top-color: var(--status-info);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .fk-popover-error {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 16px;
+        color: var(--status-error);
+
+        mat-icon {
+          font-size: 20px;
+          width: 20px;
+          height: 20px;
+        }
+      }
+
+      .fk-popover-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 0;
+      }
+
+      .fk-field-row {
+        display: flex;
+        padding: 6px 12px;
+        gap: 12px;
+
+        &:hover {
+          background: var(--bg-hover);
+        }
+
+        &.pk-field {
+          background: rgba(255, 193, 7, 0.08);
+        }
+      }
+
+      .fk-field-name {
+        flex: 0 0 120px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 12px;
+      }
+
+      .key-icon {
+        font-size: 14px !important;
+        width: 14px !important;
+        height: 14px !important;
+        color: var(--status-warning);
+      }
+
+      .fk-field-value {
+        flex: 1;
+        color: var(--text-primary);
+        word-break: break-word;
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+
+        &.null {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+      }
+
+      .fk-popover-actions {
+        display: flex;
+        justify-content: flex-end;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border-primary);
+        background: var(--bg-tertiary);
+      }
+
+      .fk-action-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: none;
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        color: var(--text-primary);
+        transition: all 0.15s ease;
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+        }
+
+        &:hover {
+          background: var(--bg-hover);
+        }
+
+        &.primary {
+          background: var(--status-info);
+          border-color: var(--status-info);
+          color: white;
+
+          &:hover {
+            filter: brightness(1.1);
+          }
+        }
+      }
+
       /* Custom ag-Grid theme overrides for dark mode */
       :host ::ng-deep .ag-theme-quartz-dark {
         --ag-background-color: var(--bg-primary);
@@ -681,6 +942,18 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
         .ag-cell.cell-date {
           color: var(--status-warning);
+        }
+
+        .ag-cell.cell-fk {
+          color: var(--status-info);
+          cursor: pointer;
+          text-decoration: underline;
+          text-decoration-style: dotted;
+          text-underline-offset: 2px;
+
+          &:hover {
+            text-decoration-style: solid;
+          }
         }
 
         /* Row number column */
@@ -843,8 +1116,11 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 export class ResultsGridComponent implements OnChanges {
   @Input() resultSet: ResultSet | null = null;
   @Input() tableName: string = 'result';
+  @Input() connectionId: string | null = null;
+  @Input() database: string | null = null;
   @Output() cellSelected = new EventEmitter<{ row: number; column: string; value: unknown }>();
   @Output() exportRequested = new EventEmitter<'csv' | 'json' | 'sql'>();
+  @Output() openQueryRequested = new EventEmitter<{ sql: string; title: string }>();
 
   private readonly notification = inject(NotificationService);
   private readonly ipc = inject(IpcService);
@@ -859,6 +1135,10 @@ export class ResultsGridComponent implements OnChanges {
   selectedCell = signal<{ column: string; type: string; value: unknown } | null>(null);
   contextMenuPosition = signal<{ x: number; y: number } | null>(null);
   private contextMenuCell: { row: Record<string, unknown>; column: string } | null = null;
+
+  // FK Preview state
+  fkPreview = signal<FkPreviewData | null>(null);
+  fkPreviewPosition = signal<{ x: number; y: number } | null>(null);
 
   readonly columnStats = computed(() => {
     if (!this.resultSet) return [];
@@ -921,10 +1201,19 @@ export class ResultsGridComponent implements OnChanges {
   }
 
   private createColumnDef(column: ColumnMetadata): ColDef {
+    // Build header tooltip
+    let headerTooltip = `${column.name} (${column.type})`;
+    if (column.foreignKey) {
+      headerTooltip += `\nFK → ${column.foreignKey.referencedSchema}.${column.foreignKey.referencedTable}.${column.foreignKey.referencedColumn}`;
+    }
+    if (column.isPrimaryKey) {
+      headerTooltip += '\nPrimary Key';
+    }
+
     const colDef: ColDef = {
       field: column.name,
-      headerName: column.name,
-      headerTooltip: `${column.name} (${column.type})`,
+      headerName: column.foreignKey ? `${column.name} 🔗` : column.name,
+      headerTooltip,
       valueFormatter: (params: ValueFormatterParams) => this.formatValue(params.value, column),
       cellClass: (params: CellClassParams) => this.getCellClass(params.value, column),
     };
@@ -990,6 +1279,11 @@ export class ResultsGridComponent implements OnChanges {
       classes.push('cell-boolean');
     } else if (this.isDateType(column.type)) {
       classes.push('cell-date');
+    }
+
+    // Add FK class for non-null FK values
+    if (column.foreignKey && value !== null && value !== undefined) {
+      classes.push('cell-fk');
     }
 
     return classes;
@@ -1371,5 +1665,157 @@ export class ResultsGridComponent implements OnChanges {
       navigator.clipboard.writeText(this.formatPreviewValue(cell.value));
       this.notification.info('Value copied to clipboard');
     }
+  }
+
+  // FK Navigation Methods
+
+  getContextMenuFkColumn(): ColumnMetadata | null {
+    if (!this.contextMenuCell || !this.resultSet) return null;
+    const column = this.resultSet.columns.find(c => c.name === this.contextMenuCell!.column);
+    if (column?.foreignKey) {
+      return column;
+    }
+    return null;
+  }
+
+  showFkPreview(event: Event): void {
+    event.stopPropagation();
+    const fkColumn = this.getContextMenuFkColumn();
+    if (!fkColumn?.foreignKey || !this.contextMenuCell || !this.connectionId || !this.database) {
+      this.closeContextMenu();
+      return;
+    }
+
+    const value = this.contextMenuCell.row[this.contextMenuCell.column];
+    if (value === null || value === undefined) {
+      this.notification.info('Cannot navigate to NULL foreign key value');
+      this.closeContextMenu();
+      return;
+    }
+
+    const pos = this.contextMenuPosition();
+    this.fkPreviewPosition.set(pos ? { x: pos.x + 20, y: pos.y } : null);
+    this.fkPreview.set({
+      value,
+      foreignKey: fkColumn.foreignKey,
+      record: null,
+      columns: [],
+      loading: true,
+      error: null,
+    });
+
+    this.closeContextMenu();
+    this.fetchFkRecord(value, fkColumn.foreignKey);
+  }
+
+  private fetchFkRecord(
+    value: unknown,
+    foreignKey: { referencedSchema: string; referencedTable: string; referencedColumn: string }
+  ): void {
+    if (!this.connectionId || !this.database) return;
+
+    this.ipc
+      .fetchFkRecord({
+        connectionId: this.connectionId,
+        database: this.database,
+        schema: foreignKey.referencedSchema,
+        table: foreignKey.referencedTable,
+        column: foreignKey.referencedColumn,
+        value,
+      })
+      .subscribe({
+        next: result => {
+          const current = this.fkPreview();
+          if (current) {
+            if (result.success && result.record) {
+              this.fkPreview.set({
+                ...current,
+                record: result.record,
+                columns: result.columns ?? [],
+                loading: false,
+                error: null,
+              });
+            } else {
+              this.fkPreview.set({
+                ...current,
+                loading: false,
+                error: result.error ?? 'Record not found',
+              });
+            }
+          }
+        },
+        error: err => {
+          const current = this.fkPreview();
+          if (current) {
+            this.fkPreview.set({
+              ...current,
+              loading: false,
+              error: err.message ?? 'Failed to fetch record',
+            });
+          }
+        },
+      });
+  }
+
+  closeFkPreview(): void {
+    this.fkPreview.set(null);
+    this.fkPreviewPosition.set(null);
+  }
+
+  openFkInNewTab(): void {
+    const fkColumn = this.getContextMenuFkColumn();
+    if (!fkColumn?.foreignKey || !this.contextMenuCell) {
+      this.closeContextMenu();
+      return;
+    }
+
+    const value = this.contextMenuCell.row[this.contextMenuCell.column];
+    this.emitFkQuery(value, fkColumn.foreignKey);
+    this.closeContextMenu();
+  }
+
+  openFkInNewTabFromPreview(): void {
+    const preview = this.fkPreview();
+    if (!preview) return;
+
+    this.emitFkQuery(preview.value, preview.foreignKey);
+    this.closeFkPreview();
+  }
+
+  private emitFkQuery(
+    value: unknown,
+    foreignKey: { referencedSchema: string; referencedTable: string; referencedColumn: string }
+  ): void {
+    const escapedValue = this.formatFkValueForSql(value);
+    const sql = `SELECT *\nFROM [${foreignKey.referencedSchema}].[${foreignKey.referencedTable}]\nWHERE [${foreignKey.referencedColumn}] = ${escapedValue}`;
+    const title = `${foreignKey.referencedTable} - ${this.formatDisplayValue(value)}`;
+    this.openQueryRequested.emit({ sql, title });
+  }
+
+  formatFkFieldValue(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'object') {
+      const str = JSON.stringify(value);
+      return str.length > 100 ? str.substring(0, 100) + '...' : str;
+    }
+    const str = String(value);
+    return str.length > 200 ? str.substring(0, 200) + '...' : str;
+  }
+
+  private formatFkValueForSql(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'boolean') return value ? '1' : '0';
+    const str = String(value);
+    const escaped = str.replace(/'/g, "''");
+    return `N'${escaped}'`;
+  }
+
+  private formatDisplayValue(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'object') return JSON.stringify(value);
+    const str = String(value);
+    return str.length > 30 ? str.substring(0, 30) + '...' : str;
   }
 }

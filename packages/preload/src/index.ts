@@ -17,6 +17,8 @@ import type {
   ExportOptions,
   ExportResult,
   ResultSet,
+  FkRecordRequest,
+  FkRecordResult,
   BackupRequest,
   BackupProgress,
   BackupFileInfo,
@@ -205,6 +207,7 @@ export interface ForgeAPI {
     clearHistory: () => Promise<void>;
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
+    fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
   };
 
   queryResults: {
@@ -550,6 +553,7 @@ const forgeAPI: ForgeAPI = {
     deleteHistoryEntry: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY.DELETE_HISTORY_ENTRY, id),
     exportResults: (resultSet, options) =>
       ipcRenderer.invoke(IPC_CHANNELS.QUERY.EXPORT_RESULTS, resultSet, options),
+    fetchFkRecord: request => ipcRenderer.invoke(IPC_CHANNELS.QUERY.FETCH_FK_RECORD, request),
   },
 
   queryResults: {
