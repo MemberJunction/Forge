@@ -9,6 +9,7 @@ export interface TabState {
   content?: string;
   databaseName?: string;
   isDirty?: boolean;
+  isPinned?: boolean;
   filePath?: string; // For workspace files
 }
 

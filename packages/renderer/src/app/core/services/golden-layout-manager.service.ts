@@ -400,6 +400,34 @@ export class GoldenLayoutManager {
   }
 
   /**
+   * Extract all tab states from a saved layout configuration
+   * This allows syncing TabStateService before loading the layout
+   */
+  ExtractTabStatesFromLayout(config: LayoutConfig): TabComponentState[] {
+    const tabStates: TabComponentState[] = [];
+    this.extractTabStatesRecursive(config.root, tabStates);
+    return tabStates;
+  }
+
+  /**
+   * Recursively extract tab states from layout nodes
+   */
+  private extractTabStatesRecursive(node: LayoutNode, tabStates: TabComponentState[]): void {
+    if (node.type === 'component' && node.componentState) {
+      const state = node.componentState as unknown as TabComponentState;
+      if (state.tabId) {
+        tabStates.push(state);
+      }
+    }
+
+    if (node.content && Array.isArray(node.content)) {
+      for (const child of node.content) {
+        this.extractTabStatesRecursive(child, tabStates);
+      }
+    }
+  }
+
+  /**
    * Bind component event listener (called by Golden Layout)
    */
   private bindComponentEventListener(

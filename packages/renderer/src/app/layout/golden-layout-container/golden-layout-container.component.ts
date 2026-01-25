@@ -53,6 +53,10 @@ import type { LayoutConfig } from '@mj-forge/shared';
     <!-- Context Menu -->
     @if (contextMenuVisible) {
       <div class="context-menu" [style.left.px]="contextMenuX" [style.top.px]="contextMenuY">
+        <div class="context-menu-item" (click)="onContextRename()">
+          <span class="material-icons">edit</span>
+          <span>Rename Tab</span>
+        </div>
         <div class="context-menu-item" (click)="onContextPin()">
           <span class="material-icons">{{ isContextTabPinned ? 'push_pin' : 'push_pin' }}</span>
           <span>{{ isContextTabPinned ? 'Unpin Tab' : 'Pin Tab' }}</span>
@@ -65,6 +69,28 @@ import type { LayoutConfig } from '@mj-forge/shared';
         <div class="context-menu-item" (click)="onContextCloseOthers()">
           <span class="material-icons">close_fullscreen</span>
           <span>Close Other Tabs</span>
+        </div>
+      </div>
+    }
+
+    <!-- Rename Dialog -->
+    @if (renameDialogVisible) {
+      <div class="rename-dialog-overlay" (click)="cancelRename()">
+        <div class="rename-dialog" (click)="$event.stopPropagation()">
+          <div class="rename-dialog-header">Rename Tab</div>
+          <input
+            #renameInput
+            type="text"
+            class="rename-input"
+            [value]="renameValue"
+            (input)="renameValue = $any($event.target).value"
+            (keydown.enter)="confirmRename()"
+            (keydown.escape)="cancelRename()"
+          />
+          <div class="rename-dialog-actions">
+            <button class="btn btn-secondary" (click)="cancelRename()">Cancel</button>
+            <button class="btn btn-primary" (click)="confirmRename()">Rename</button>
+          </div>
         </div>
       </div>
     }
@@ -132,6 +158,88 @@ import type { LayoutConfig } from '@mj-forge/shared';
         background: var(--border-primary);
         margin: 4px 0;
       }
+
+      /* Rename Dialog */
+      .rename-dialog-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10002;
+      }
+
+      .rename-dialog {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        padding: 20px;
+        min-width: 300px;
+      }
+
+      .rename-dialog-header {
+        font-size: 16px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+      }
+
+      .rename-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius-md);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-size: 14px;
+        outline: none;
+        box-sizing: border-box;
+      }
+
+      .rename-input:focus {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      }
+
+      .rename-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .btn {
+        padding: 8px 16px;
+        border-radius: var(--radius-md);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: background var(--transition-fast);
+      }
+
+      .btn-secondary {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg-hover);
+      }
+
+      .btn-primary {
+        background: var(--accent-primary);
+        color: white;
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-hover);
+      }
     `,
   ],
 })
@@ -162,6 +270,11 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   contextMenuX = 0;
   contextMenuY = 0;
   contextMenuTabId: string | null = null;
+
+  // Rename dialog state
+  renameDialogVisible = false;
+  renameValue = '';
+  private renameTabId: string | null = null;
 
   ngOnInit(): void {
     // Subscribe to tab events from Golden Layout
@@ -264,7 +377,15 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
     if (this.ipc.isAvailable) {
       try {
         const savedLayout = await firstValueFrom(this.ipc.getLayout());
-        if (savedLayout) {
+        if (savedLayout && savedLayout.root && savedLayout.root.content?.length) {
+          // Extract tab states from saved layout and sync with TabStateService
+          // This ensures all tabs the layout references exist before loading
+          const layoutTabStates = this.layoutManager.ExtractTabStatesFromLayout(savedLayout);
+          if (layoutTabStates.length > 0) {
+            this.tabState.syncTabsFromLayout(layoutTabStates);
+          }
+
+          // Now load the layout
           layoutLoaded = this.layoutManager.LoadLayout(savedLayout);
         }
       } catch (error) {
@@ -570,5 +691,53 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       this.tabState.closeOtherTabs(this.contextMenuTabId);
     }
     this.hideContextMenu();
+  }
+
+  /**
+   * Show rename dialog from context menu
+   */
+  onContextRename(): void {
+    if (this.contextMenuTabId) {
+      const tab = this.tabState.tabs().find(t => t.id === this.contextMenuTabId);
+      if (tab) {
+        this.renameTabId = this.contextMenuTabId;
+        this.renameValue = tab.title;
+        this.renameDialogVisible = true;
+        this.hideContextMenu();
+
+        // Focus the input after it renders
+        setTimeout(() => {
+          const input = document.querySelector('.rename-input') as HTMLInputElement;
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        }, 50);
+      }
+    }
+  }
+
+  /**
+   * Confirm rename and apply changes
+   */
+  confirmRename(): void {
+    if (this.renameTabId && this.renameValue.trim()) {
+      this.tabState.renameTab(this.renameTabId, this.renameValue.trim());
+      // Update the tab title in Golden Layout
+      this.layoutManager.UpdateTabStyle(this.renameTabId, {
+        title: this.renameValue.trim(),
+      });
+    }
+    this.cancelRename();
+  }
+
+  /**
+   * Cancel rename dialog
+   */
+  cancelRename(): void {
+    this.renameDialogVisible = false;
+    this.renameValue = '';
+    this.renameTabId = null;
+    this.cdr.detectChanges();
   }
 }

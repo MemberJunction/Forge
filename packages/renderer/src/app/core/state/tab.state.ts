@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
+import { v4 as uuidv4 } from 'uuid';
 import { IpcService } from '../services/ipc.service';
 import type { TabState } from '@mj-forge/shared';
 import { firstValueFrom } from 'rxjs';
@@ -51,8 +52,14 @@ export class TabStateService {
   readonly tabs$ = toObservable(this.tabs);
   readonly activeTab$ = toObservable(this.activeTab);
 
-  private tabCounter = 0;
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Generate a unique tab ID using UUID v4
+   */
+  private generateTabId(): string {
+    return `tab-${uuidv4()}`;
+  }
 
   /**
    * Schedule a debounced save of tabs
@@ -68,7 +75,7 @@ export class TabStateService {
   }
 
   openTab(tab: Omit<Tab, 'id'>): string {
-    const id = `tab-${++this.tabCounter}`;
+    const id = this.generateTabId();
     const newTab: Tab = { ...tab, id };
     this._tabs.update(tabs => [...tabs, newTab]);
     this._activeTabId.set(id);
@@ -132,6 +139,7 @@ export class TabStateService {
     const tab = this._tabs().find(t => t.id === tabId);
     if (tab) {
       this.updateTab(tabId, { isPinned: !tab.isPinned });
+      this.saveTabs();
     }
   }
 
@@ -140,6 +148,7 @@ export class TabStateService {
    */
   pinTab(tabId: string): void {
     this.updateTab(tabId, { isPinned: true });
+    this.saveTabs();
   }
 
   /**
@@ -147,6 +156,18 @@ export class TabStateService {
    */
   unpinTab(tabId: string): void {
     this.updateTab(tabId, { isPinned: false });
+    this.saveTabs();
+  }
+
+  /**
+   * Rename a tab
+   */
+  renameTab(tabId: string, newTitle: string): void {
+    const tab = this._tabs().find(t => t.id === tabId);
+    if (tab && newTitle.trim()) {
+      this.updateTab(tabId, { title: newTitle.trim() });
+      this.saveTabs();
+    }
   }
 
   openQueryTab(
@@ -320,6 +341,7 @@ export class TabStateService {
           content: t.content,
           databaseName: t.databaseName,
           isDirty: t.isDirty,
+          isPinned: t.isPinned,
         }));
 
       await firstValueFrom(this.ipc.saveTabs(persistableTabs, this._activeTabId()));
@@ -340,8 +362,9 @@ export class TabStateService {
       if (savedTabs.length === 0) return;
 
       // Convert saved tabs to full Tab objects
-      const restoredTabs: Tab[] = savedTabs.map((t, index) => ({
-        id: t.id || `restored-${index}`,
+      // Use existing IDs if valid, otherwise generate new UUIDs
+      const restoredTabs: Tab[] = savedTabs.map(t => ({
+        id: t.id || this.generateTabId(),
         type: t.type as TabType,
         title: t.title,
         icon: t.type === 'query' ? 'code' : 'description',
@@ -349,6 +372,7 @@ export class TabStateService {
         databaseName: t.databaseName,
         content: t.content,
         isDirty: t.isDirty,
+        isPinned: t.isPinned,
       }));
 
       // Add welcome tab if not present
@@ -360,19 +384,64 @@ export class TabStateService {
         this._tabs.update(tabs => [...tabs, ...restoredTabs]);
       }
 
-      // Update tab counter based on restored tabs
-      const maxTabNum = restoredTabs
-        .map(t => parseInt(t.id.replace('tab-', ''), 10))
-        .filter(n => !isNaN(n))
-        .reduce((max, n) => Math.max(max, n), this.tabCounter);
-      this.tabCounter = maxTabNum;
-
       // Restore active tab if it exists
       if (activeTabId && this._tabs().some(t => t.id === activeTabId)) {
         this._activeTabId.set(activeTabId);
       }
     } catch (error) {
       console.error('Failed to restore tabs:', error);
+    }
+  }
+
+  /**
+   * Sync tabs from GoldenLayout component states.
+   * This ensures TabStateService has all tabs that the layout references.
+   * @param layoutTabStates Tab states extracted from saved GoldenLayout config
+   */
+  syncTabsFromLayout(
+    layoutTabStates: Array<{
+      tabId: string;
+      tabType: string;
+      title: string;
+      icon: string;
+      isPinned: boolean;
+      connectionId?: string;
+      databaseName?: string;
+      configuration: Record<string, unknown>;
+    }>
+  ): void {
+    const currentTabs = this._tabs();
+    const tabsToAdd: Tab[] = [];
+
+    for (const state of layoutTabStates) {
+      // Check if tab already exists
+      const existing = currentTabs.find(t => t.id === state.tabId);
+      if (!existing) {
+        // Create tab from layout state
+        const newTab: Tab = {
+          id: state.tabId,
+          type: state.tabType as TabType,
+          title: state.title,
+          icon: state.icon,
+          connectionId: state.connectionId,
+          databaseName: state.databaseName,
+          isPinned: state.isPinned,
+          content: state.configuration?.['content'] as string | undefined,
+          autoExecute: state.configuration?.['autoExecute'] as boolean | undefined,
+          metadata: { ...state.configuration },
+        };
+        tabsToAdd.push(newTab);
+      } else {
+        // Update existing tab with layout state (especially isPinned)
+        this.updateTab(state.tabId, {
+          isPinned: state.isPinned,
+          title: state.title,
+        });
+      }
+    }
+
+    if (tabsToAdd.length > 0) {
+      this._tabs.update(tabs => [...tabs, ...tabsToAdd]);
     }
   }
 }
