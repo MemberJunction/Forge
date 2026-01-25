@@ -4,6 +4,9 @@
 @import 'ag-grid-community/styles/ag-grid.css';
 @import 'ag-grid-community/styles/ag-theme-quartz.css';
 
+/* Golden Layout base styles - required for proper layout */
+@import 'golden-layout/dist/css/goldenlayout-base.css';
+
 // Custom color palette - SSMS-inspired dark theme
 $primary-palette: (
   50: #e3f2fd,
@@ -475,4 +478,249 @@ pre {
 .mat-mdc-tooltip {
   --mdc-plain-tooltip-container-color: var(--bg-elevated);
   --mdc-plain-tooltip-supporting-text-color: var(--text-primary);
+}
+
+// ============================================
+// Golden Layout Styles
+// ============================================
+
+// Ensure GL root container fills available space
+.lm_goldenlayout {
+  width: 100% !important;
+  height: 100% !important;
+  background: var(--bg-primary) !important;
+}
+
+// Ensure the root layout item fills space
+.lm_root {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+// Ensure proper box-sizing for all GL layout elements
+.lm_item,
+.lm_content,
+.lm_stack,
+.lm_row,
+.lm_column {
+  box-sizing: border-box !important;
+}
+
+// Ensure layout items don't overflow
+.lm_item {
+  overflow: hidden !important;
+}
+
+// Fix for .lm_items - the content container inside stacks
+.lm_items {
+  width: 100% !important;
+  height: calc(100% - 38px) !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+
+// When tabs are maximized, no header visible
+.lm_stack.lm_maximised > .lm_items {
+  height: 100% !important;
+}
+
+// Target the anonymous ComponentItem div inside lm_items
+.lm_items > div {
+  width: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  flex-direction: column !important;
+}
+
+// Only apply flex display to the active/visible tab content div
+.lm_items > div:not([style*='display: none']) {
+  display: flex !important;
+}
+
+// Clearfix for float-based row layout
+.lm_row::after {
+  content: '' !important;
+  display: table !important;
+  clear: both !important;
+}
+
+// Force content children to respect parent bounds
+.lm_content > * {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+.lm_content {
+  background: var(--bg-primary) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.lm_item_container {
+  background: var(--bg-primary) !important;
+}
+
+// Tab content wrapper - allow scrolling
+.tab-content-wrapper {
+  overflow: auto !important;
+}
+
+// Tab header styling
+.lm_header {
+  height: 38px !important;
+  padding-top: 2px !important;
+  padding-left: 4px !important;
+  background: var(--bg-tertiary) !important;
+  border-bottom: 1px solid var(--border-primary) !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+}
+
+.lm_tabs {
+  height: 36px !important;
+}
+
+// Hide Golden Layout window controls
+.lm_controls {
+  display: none !important;
+}
+
+// Tab styling
+.lm_header .lm_tab {
+  padding: 0 16px !important;
+  font-size: 13px !important;
+  height: 35px !important;
+  line-height: 35px !important;
+  box-sizing: border-box !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border-primary) !important;
+  transition: all 0.15s ease !important;
+  position: relative !important;
+  z-index: 1 !important;
+  margin-right: 1px !important;
+  color: var(--text-secondary) !important;
+}
+
+// Hover state
+.lm_header .lm_tab:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.lm_header .lm_tab:hover .lm_close_tab {
+  opacity: 0.7 !important;
+}
+
+// Active tab styling
+.lm_header .lm_tab.lm_active {
+  background: var(--bg-primary) !important;
+  height: 36px !important;
+  margin-bottom: -1px !important;
+  margin-right: 0 !important;
+  border: 1px solid var(--border-primary) !important;
+  border-bottom-color: var(--bg-primary) !important;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+  z-index: 2 !important;
+  color: var(--text-primary) !important;
+}
+
+// Active tab bottom highlight
+.lm_header .lm_tab.lm_active::after {
+  content: '' !important;
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 2px !important;
+  background: var(--border-focus) !important;
+}
+
+// Tab title styling
+.lm_title {
+  cursor: pointer !important;
+  user-select: none !important;
+  color: inherit !important;
+}
+
+// Close button styling
+.lm_close_tab {
+  position: absolute !important;
+  right: 4px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 16px !important;
+  height: 16px !important;
+  cursor: pointer !important;
+  opacity: 0 !important;
+  transition: all 0.15s ease !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 10px !important;
+  color: var(--text-secondary) !important;
+}
+
+.lm_close_tab:hover {
+  opacity: 1 !important;
+  color: var(--status-error) !important;
+}
+
+// Show close button on hover (except pinned)
+.lm_header .lm_tab:hover:not(.pinned) .lm_close_tab {
+  opacity: 0.7 !important;
+}
+
+// Pinned tabs never show close button
+.lm_header .lm_tab.pinned .lm_close_tab {
+  display: none !important;
+}
+
+// Hide close button on active tab by default
+.lm_active .lm_close_tab {
+  opacity: 0 !important;
+}
+
+// Show close button when hovering active tab
+.lm_active:hover .lm_close_tab {
+  opacity: 0.7 !important;
+}
+
+// Adjust padding for close button
+.lm_header .lm_tab {
+  padding-right: 24px !important;
+}
+
+// Splitter/drag handles styling
+.lm_splitter {
+  background: var(--border-primary) !important;
+  opacity: 1 !important;
+}
+
+.lm_splitter:hover {
+  background: var(--border-focus) !important;
+}
+
+// Drag proxy styling
+.lm_dragProxy {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-focus) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+// Drop target highlight
+.lm_dropTargetIndicator {
+  background: var(--bg-active) !important;
+  border: 2px dashed var(--border-focus) !important;
+}
+
+// Tab placeholder during drag
+.lm_tabDropPlaceholder {
+  background: var(--bg-active) !important;
+  border: 1px dashed var(--border-focus) !important;
 }

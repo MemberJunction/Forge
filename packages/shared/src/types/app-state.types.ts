@@ -49,3 +49,126 @@ export interface WorkspaceInfo {
   files: FileTreeNode[];
   settings?: WorkspaceSettings;
 }
+
+/**
+ * GoldenLayout-based workspace configuration for flexible tab layouts
+ */
+export interface WorkspaceLayoutConfig {
+  /** Schema version for future migrations */
+  version: number;
+
+  /** Golden Layout state (may be undefined if cleared due to corruption) */
+  layout?: LayoutConfig;
+
+  /** ID of currently active tab */
+  activeTabId: string | null;
+
+  /** All tabs metadata */
+  tabs: WorkspaceTab[];
+}
+
+/**
+ * Layout configuration (Golden Layout serialized state)
+ */
+export interface LayoutConfig {
+  root: LayoutNode;
+  dimensions?: {
+    headerHeight: number;
+    borderWidth: number;
+  };
+}
+
+/**
+ * Node in the layout tree
+ */
+export interface LayoutNode {
+  type: 'row' | 'column' | 'stack' | 'component';
+  content?: LayoutNode[];
+  componentType?: string;
+  componentState?: Record<string, unknown>;
+  width?: number;
+  height?: number;
+  isClosable?: boolean;
+  title?: string;
+}
+
+/**
+ * Individual tab definition for GoldenLayout
+ */
+export interface WorkspaceTab {
+  /** Unique ID for this tab */
+  id: string;
+
+  /** Tab type */
+  type: 'query' | 'results' | 'object' | 'welcome' | 'erd';
+
+  /** Display title */
+  title: string;
+
+  /** Icon name (Material Icons) */
+  icon: string;
+
+  /** Connection ID for this tab */
+  connectionId?: string;
+
+  /** Database name for this tab */
+  databaseName?: string;
+
+  /** Whether tab has unsaved changes */
+  isDirty?: boolean;
+
+  /** Whether tab is pinned (permanent) */
+  isPinned?: boolean;
+
+  /** Display order */
+  sequence: number;
+
+  /** Tab-specific configuration */
+  configuration: TabConfiguration;
+}
+
+/**
+ * Tab-specific configuration (extensible)
+ */
+export interface TabConfiguration {
+  /** SQL content for query tabs */
+  content?: string;
+
+  /** Auto-execute query when tab opens */
+  autoExecute?: boolean;
+
+  /** Object name for object tabs */
+  objectName?: string;
+
+  /** Object type for object tabs */
+  objectType?: string;
+
+  /** Table name for ERD tabs */
+  tableName?: string;
+
+  /** Schema name for ERD tabs */
+  schema?: string;
+
+  /** Focus depth for ERD tabs */
+  focusDepth?: number;
+
+  /** Allow additional properties */
+  [key: string]: unknown;
+}
+
+/**
+ * Create default workspace layout configuration
+ */
+export function createDefaultLayoutConfig(): WorkspaceLayoutConfig {
+  return {
+    version: 1,
+    layout: {
+      root: {
+        type: 'row',
+        content: [],
+      },
+    },
+    activeTabId: null,
+    tabs: [],
+  };
+}

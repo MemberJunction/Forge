@@ -706,31 +706,65 @@ export class QueryComponent implements OnInit, OnDestroy {
   };
 
   private initMonaco(): void {
-    // Monaco loader - would be loaded from assets in production
-    const loadMonaco = () => {
-      if (typeof monaco !== 'undefined') {
-        this.createEditor();
-      } else {
-        // Dynamically load Monaco from assets
-        const script = document.createElement('script');
-        script.src = 'assets/monaco/vs/loader.js';
-        script.onload = () => {
-          const win = window as unknown as {
-            require?: {
-              config: (config: Record<string, unknown>) => void;
-              (modules: string[], callback: () => void): void;
-            };
-          };
-          if (win.require) {
-            win.require.config({ paths: { vs: 'assets/monaco/vs' } });
-            win.require(['vs/editor/editor.main'], () => this.createEditor());
-          }
-        };
-        document.body.appendChild(script);
-      }
+    // Monaco loader - use singleton pattern to prevent duplicate loading
+    const win = window as unknown as {
+      _monacoLoading?: Promise<void>;
+      _monacoLoaded?: boolean;
+      require?: {
+        config: (config: Record<string, unknown>) => void;
+        (modules: string[], callback: () => void): void;
+      };
     };
 
-    loadMonaco();
+    // If Monaco is already loaded, create editor immediately
+    if (typeof monaco !== 'undefined' || win._monacoLoaded) {
+      this.createEditor();
+      return;
+    }
+
+    // If Monaco is currently loading, wait for it
+    if (win._monacoLoading) {
+      win._monacoLoading.then(() => this.createEditor());
+      return;
+    }
+
+    // Start loading Monaco (singleton)
+    win._monacoLoading = new Promise<void>(resolve => {
+      // Check if loader script already exists
+      const existingScript = document.querySelector('script[src*="monaco/vs/loader.js"]');
+      if (existingScript) {
+        // Loader exists but may still be loading - check if require is available
+        const checkRequire = () => {
+          if (win.require) {
+            win.require.config({ paths: { vs: 'assets/monaco/vs' } });
+            win.require(['vs/editor/editor.main'], () => {
+              win._monacoLoaded = true;
+              resolve();
+            });
+          } else {
+            setTimeout(checkRequire, 50);
+          }
+        };
+        checkRequire();
+        return;
+      }
+
+      // Dynamically load Monaco from assets
+      const script = document.createElement('script');
+      script.src = 'assets/monaco/vs/loader.js';
+      script.onload = () => {
+        if (win.require) {
+          win.require.config({ paths: { vs: 'assets/monaco/vs' } });
+          win.require(['vs/editor/editor.main'], () => {
+            win._monacoLoaded = true;
+            resolve();
+          });
+        }
+      };
+      document.body.appendChild(script);
+    });
+
+    win._monacoLoading.then(() => this.createEditor());
   }
 
   private createEditor(): void {

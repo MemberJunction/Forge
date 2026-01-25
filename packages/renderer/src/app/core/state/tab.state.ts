@@ -15,6 +15,7 @@ export interface Tab {
   databaseName?: string;
   content?: string; // For query tabs, the SQL content
   isDirty?: boolean;
+  isPinned?: boolean; // For GoldenLayout, whether tab is pinned
   autoExecute?: boolean; // For query tabs, execute immediately when opened
   metadata?: Record<string, unknown>;
 }
@@ -122,6 +123,30 @@ export class TabStateService {
 
   setTabContent(tabId: string, content: string): void {
     this.updateTab(tabId, { content, isDirty: true });
+  }
+
+  /**
+   * Toggle pin state for a tab
+   */
+  togglePin(tabId: string): void {
+    const tab = this._tabs().find(t => t.id === tabId);
+    if (tab) {
+      this.updateTab(tabId, { isPinned: !tab.isPinned });
+    }
+  }
+
+  /**
+   * Pin a specific tab
+   */
+  pinTab(tabId: string): void {
+    this.updateTab(tabId, { isPinned: true });
+  }
+
+  /**
+   * Unpin a specific tab
+   */
+  unpinTab(tabId: string): void {
+    this.updateTab(tabId, { isPinned: false });
   }
 
   openQueryTab(

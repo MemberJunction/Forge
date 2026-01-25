@@ -30,6 +30,7 @@
     "d3": "^7.9.0",
     "electron": "^33.4.11",
     "fuse.js": "^7.1.0",
+    "golden-layout": "^2.6.0",
     "monaco-editor": "^0.52.0",
     "rxjs": "~7.8.0",
     "sql-formatter": "^15.7.0",
