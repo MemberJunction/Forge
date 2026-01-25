@@ -24,12 +24,22 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { QueryHistoryStateService } from '../../core/state/query-history.state';
+import { QueryResultsStateService } from '../../core/state/query-results.state';
+import { AIStateService } from '../../core/state/ai.state';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
   RowDetailData,
 } from '../../shared/components/row-detail-panel/row-detail-panel.component';
-import type { QueryResult, ResultSet, QueryHistoryEntry, ExportFormat } from '@mj-forge/shared';
+import { ResultHistoryPanelComponent } from '../../shared/components/result-history-panel/result-history-panel.component';
+import { AIAnalysisPanelComponent } from '../../shared/components/ai-analysis-panel/ai-analysis-panel.component';
+import type {
+  QueryResult,
+  ResultSet,
+  QueryHistoryEntry,
+  ExportFormat,
+  QueryResultSnapshot,
+} from '@mj-forge/shared';
 import { format as formatSQL } from 'sql-formatter';
 
 // Monaco editor types - loaded dynamically
@@ -73,6 +83,8 @@ declare const monaco: { editor: MonacoEditor };
     MatDividerModule,
     ResultsGridComponent,
     RowDetailPanelComponent,
+    ResultHistoryPanelComponent,
+    AIAnalysisPanelComponent,
   ],
   template: `
     <div class="query-container">
@@ -271,6 +283,15 @@ declare const monaco: { editor: MonacoEditor };
                     (exportRequested)="exportResults($event)"
                   />
                 </div>
+
+                <!-- AI Analysis Panel -->
+                @if (aiState.analysisEnabled()) {
+                  <app-ai-analysis-panel
+                    [sql]="getLastExecutedSql()"
+                    [resultSet]="activeResultSet()"
+                    [databaseName]="selectedDatabase ?? ''"
+                  />
+                }
               } @else {
                 <div class="messages-pane">
                   <pre>{{ result()?.messages?.join('\\n') || 'Query executed successfully.' }}</pre>
@@ -280,6 +301,17 @@ declare const monaco: { editor: MonacoEditor };
                   <p class="execution-time">Execution time: {{ result()?.executionTime }}ms</p>
                 </div>
               }
+            }
+
+            <!-- Result History Panel -->
+            @if (tabState.activeTab()?.id) {
+              <app-result-history-panel
+                [tabId]="tabState.activeTab()!.id"
+                [connectionId]="connectionState.activeConnectionId() ?? undefined"
+                [database]="selectedDatabase ?? undefined"
+                (viewResult)="onViewHistoryResult($event)"
+                (compareResults)="onCompareResults($event)"
+              />
             }
           </div>
         </div>
@@ -616,9 +648,11 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   private readonly ipc = inject(IpcService);
   readonly connectionState = inject(ConnectionStateService);
-  private readonly tabState = inject(TabStateService);
+  readonly tabState = inject(TabStateService);
   private readonly notification = inject(NotificationService);
   readonly historyState = inject(QueryHistoryStateService);
+  readonly resultsState = inject(QueryResultsStateService);
+  readonly aiState = inject(AIStateService);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
@@ -634,6 +668,9 @@ export class QueryComponent implements OnInit, OnDestroy {
   // Row detail panel state
   rowDetailData = signal<RowDetailData | null>(null);
   showRowDetail = signal(false);
+
+  // Track last executed SQL for AI analysis
+  private lastExecutedSql = '';
 
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -826,6 +863,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     this.executing.set(true);
     this.result.set(null);
     this.currentQueryId = `query-${Date.now()}`;
+    this.lastExecutedSql = sql;
 
     try {
       const result = await this.ipc
@@ -843,6 +881,17 @@ export class QueryComponent implements OnInit, OnDestroy {
       // Refresh history if panel is open
       if (this.showHistory()) {
         this.historyState.loadHistory();
+      }
+
+      // Auto-save result snapshot
+      const activeTab = this.tabState.activeTab();
+      if (result && activeTab && connectionId && database) {
+        this.resultsState.saveSnapshot(activeTab.id, sql, connectionId, database, result);
+      }
+
+      // Auto-rename tab using AI if enabled
+      if (result?.success && activeTab && this.aiState.autoRenameEnabled()) {
+        this.autoRenameTab(activeTab.id, sql, database ?? undefined);
       }
     } catch (error) {
       this.result.set({
@@ -1064,5 +1113,51 @@ export class QueryComponent implements OnInit, OnDestroy {
   // Show Execution Plan (placeholder for now)
   showExecutionPlan(): void {
     this.notification.info('Execution plan visualization coming soon');
+  }
+
+  // Get last executed SQL for AI analysis
+  getLastExecutedSql(): string {
+    return this.lastExecutedSql;
+  }
+
+  // View a historical result snapshot
+  onViewHistoryResult(snapshot: QueryResultSnapshot): void {
+    // Create a QueryResult from the snapshot to display
+    if (snapshot.resultSets && snapshot.resultSets.length > 0) {
+      this.result.set({
+        queryId: snapshot.id,
+        success: snapshot.success,
+        resultSets: snapshot.resultSets,
+        executionTime: snapshot.executionTimeMs,
+        error: snapshot.error,
+      });
+      this.activeResultIndex.set(0);
+      this.lastExecutedSql = snapshot.sql;
+      this.notification.info('Viewing historical result');
+    }
+  }
+
+  // Compare two result snapshots
+  onCompareResults(comparison: { base: QueryResultSnapshot; compare: QueryResultSnapshot }): void {
+    this.notification.info('Result comparison - opening diff view');
+    // TODO: Open diff viewer dialog or panel
+    this.resultsState.compareSnapshots(comparison.base.id, comparison.compare.id);
+  }
+
+  // Auto-rename tab using AI
+  private async autoRenameTab(tabId: string, sql: string, database?: string): Promise<void> {
+    try {
+      const response = await this.aiState.generateTabName({
+        sql,
+        database,
+      });
+
+      if (response?.suggestedName) {
+        this.tabState.renameTab(tabId, response.suggestedName);
+      }
+    } catch (error) {
+      // Silent fail - tab renaming is non-critical
+      console.debug('Auto-rename tab failed:', error);
+    }
   }
 }

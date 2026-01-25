@@ -1,5 +1,7 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { MatIconRegistry } from '@angular/material/icon';
+import { DomSanitizer } from '@angular/platform-browser';
 import { ShellComponent } from './layout/shell/shell.component';
 import { ContextMenuComponent } from './shared/components/context-menu/context-menu.component';
 import { SettingsPanelComponent } from './shared/components/settings-panel/settings-panel.component';
@@ -49,6 +51,16 @@ export class AppComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
   private readonly connectionState = inject(ConnectionStateService);
   private readonly tabState = inject(TabStateService);
+  private readonly iconRegistry = inject(MatIconRegistry);
+  private readonly sanitizer = inject(DomSanitizer);
+
+  constructor() {
+    // Register custom SVG icons
+    this.iconRegistry.addSvgIcon(
+      'database-cylinder',
+      this.sanitizer.bypassSecurityTrustResourceUrl('assets/icons/database-cylinder.svg')
+    );
+  }
 
   async ngOnInit(): Promise<void> {
     // Load connection profiles first

@@ -83,7 +83,7 @@ export class ExplorerStateService {
 
   private readonly iconMap: Record<string, string> = {
     server: 'dns',
-    database: 'storage',
+    database: 'database-cylinder',
     folder: 'folder',
     table: 'table_chart',
     view: 'view_list',

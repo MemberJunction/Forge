@@ -6,3 +6,6 @@ export * from './constants';
 
 // Validators
 export * from './validators';
+
+// Config
+export * from './config';

@@ -84,7 +84,7 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
             class="database-button"
             [disabled]="connectionState.loadingDatabases()"
           >
-            <mat-icon>storage</mat-icon>
+            <mat-icon svgIcon="database-cylinder"></mat-icon>
             <span class="database-name">
               {{ connectionState.selectedDatabase() || 'Select Database' }}
             </span>
@@ -97,9 +97,11 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
                 (click)="selectDatabase(db.name)"
                 [class.active]="db.name === connectionState.selectedDatabase()"
               >
-                <mat-icon>{{
-                  db.name === connectionState.selectedDatabase() ? 'check' : 'storage'
-                }}</mat-icon>
+                @if (db.name === connectionState.selectedDatabase()) {
+                  <mat-icon>check</mat-icon>
+                } @else {
+                  <mat-icon svgIcon="database-cylinder"></mat-icon>
+                }
                 <span>{{ db.name }}</span>
               </button>
             }
@@ -150,7 +152,15 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
           } @else {
             <span class="expand-placeholder"></span>
           }
-          <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
+          @if (node.icon === 'database-cylinder') {
+            <mat-icon
+              class="node-icon"
+              [class]="'icon-' + node.type"
+              svgIcon="database-cylinder"
+            ></mat-icon>
+          } @else {
+            <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
+          }
           <span class="node-name">{{ node.name }}</span>
         </div>
         @if (node.isExpanded && node.children) {
@@ -317,9 +327,11 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
         padding: 0;
+        margin-right: 4px;
         background: none;
         border: none;
         color: var(--text-secondary);
@@ -337,15 +349,19 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
       }
 
       .expand-placeholder {
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
+        margin-right: 4px;
       }
 
       .node-icon {
         font-size: 16px;
         width: 16px;
+        min-width: 16px;
         height: 16px;
         margin-right: var(--spacing-xs);
+        flex-shrink: 0;
 
         &.icon-server {
           color: var(--status-info);

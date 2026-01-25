@@ -153,19 +153,15 @@ export function createMenu(): void {
             win?.webContents.send('menu:toggle-comment');
           },
         },
-        ...(isMac
-          ? []
-          : [
-              { type: 'separator' as const },
-              {
-                label: 'Preferences...',
-                accelerator: 'Ctrl+,',
-                click: () => {
-                  const win = BrowserWindow.getFocusedWindow();
-                  win?.webContents.send('menu:open-settings');
-                },
-              },
-            ]),
+        { type: 'separator' },
+        {
+          label: isMac ? 'Settings...' : 'Preferences...',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:open-settings');
+          },
+        },
       ],
     },
 

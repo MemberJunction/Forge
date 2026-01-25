@@ -68,6 +68,35 @@ export const IPC_CHANNELS = {
     EXPORT_RESULTS: 'query:export-results',
   },
 
+  // Query Results Persistence
+  QUERY_RESULTS: {
+    SAVE_SNAPSHOT: 'query-results:save-snapshot',
+    GET_SNAPSHOTS: 'query-results:get-snapshots',
+    GET_SNAPSHOT: 'query-results:get-snapshot',
+    DELETE_SNAPSHOT: 'query-results:delete-snapshot',
+    DELETE_SNAPSHOTS: 'query-results:delete-snapshots',
+    PIN_SNAPSHOT: 'query-results:pin-snapshot',
+    UNPIN_SNAPSHOT: 'query-results:unpin-snapshot',
+    LABEL_SNAPSHOT: 'query-results:label-snapshot',
+    GET_STORAGE_STATS: 'query-results:get-storage-stats',
+    PURGE: 'query-results:purge',
+    COMPARE_SNAPSHOTS: 'query-results:compare-snapshots',
+  },
+
+  // AI Integration
+  AI: {
+    GET_VENDORS: 'ai:get-vendors',
+    GET_SETTINGS: 'ai:get-settings',
+    SET_SETTINGS: 'ai:set-settings',
+    SET_API_KEY: 'ai:set-api-key',
+    REMOVE_API_KEY: 'ai:remove-api-key',
+    VALIDATE_API_KEY: 'ai:validate-api-key',
+    GENERATE_TAB_NAME: 'ai:generate-tab-name',
+    ANALYZE_RESULTS: 'ai:analyze-results',
+    GENERATE_SQL: 'ai:generate-sql',
+    CANCEL_REQUEST: 'ai:cancel-request',
+  },
+
   // Backup Operations
   BACKUP: {
     START: 'backup:start',

@@ -36,6 +36,24 @@ import type {
   FileTreeNode,
   WorkspaceInfo,
   LayoutConfig,
+  // Query Results types
+  QueryResultSnapshot,
+  QueryResultHistoryFilter,
+  ResultHistorySortOptions,
+  PurgeOptions,
+  PurgeResult,
+  ResultStorageStats,
+  ResultDiff,
+  DiffOptions,
+  // AI types
+  AIVendor,
+  AISettings,
+  TabRenameRequest,
+  TabRenameResponse,
+  AnalysisRequest,
+  AnalysisResponse,
+  SQLGenerationRequest,
+  SQLGenerationResponse,
 } from '@mj-forge/shared';
 
 /**
@@ -181,6 +199,46 @@ export interface ForgeAPI {
     clearHistory: () => Promise<void>;
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
+  };
+
+  queryResults: {
+    saveSnapshot: (
+      tabId: string,
+      sql: string,
+      connectionId: string,
+      database: string,
+      result: QueryResult
+    ) => Promise<QueryResultSnapshot>;
+    getSnapshots: (
+      filter?: QueryResultHistoryFilter,
+      sort?: ResultHistorySortOptions
+    ) => Promise<QueryResultSnapshot[]>;
+    getSnapshot: (id: string) => Promise<QueryResultSnapshot | null>;
+    deleteSnapshot: (id: string) => Promise<boolean>;
+    deleteSnapshots: (ids: string[]) => Promise<number>;
+    pinSnapshot: (id: string) => Promise<boolean>;
+    unpinSnapshot: (id: string) => Promise<boolean>;
+    labelSnapshot: (id: string, label: string) => Promise<boolean>;
+    getStorageStats: () => Promise<ResultStorageStats>;
+    purge: (options: PurgeOptions) => Promise<PurgeResult>;
+    compareSnapshots: (
+      baseId: string,
+      compareId: string,
+      options?: DiffOptions
+    ) => Promise<ResultDiff | null>;
+  };
+
+  ai: {
+    getVendors: () => Promise<AIVendor[]>;
+    getSettings: () => Promise<AISettings>;
+    setSettings: (settings: Partial<AISettings>) => Promise<AISettings>;
+    setApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    removeApiKey: (vendorId: string) => Promise<boolean>;
+    validateApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    generateTabName: (request: TabRenameRequest) => Promise<TabRenameResponse>;
+    analyzeResults: (request: AnalysisRequest) => Promise<AnalysisResponse>;
+    generateSQL: (request: SQLGenerationRequest) => Promise<SQLGenerationResponse>;
+    cancelRequest: (requestId: string) => Promise<boolean>;
   };
 
   backup: {
@@ -474,6 +532,46 @@ const forgeAPI: ForgeAPI = {
     deleteHistoryEntry: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY.DELETE_HISTORY_ENTRY, id),
     exportResults: (resultSet, options) =>
       ipcRenderer.invoke(IPC_CHANNELS.QUERY.EXPORT_RESULTS, resultSet, options),
+  },
+
+  queryResults: {
+    saveSnapshot: (tabId, sql, connectionId, database, result) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.QUERY_RESULTS.SAVE_SNAPSHOT,
+        tabId,
+        sql,
+        connectionId,
+        database,
+        result
+      ),
+    getSnapshots: (filter, sort) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.GET_SNAPSHOTS, filter, sort),
+    getSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.GET_SNAPSHOT, id),
+    deleteSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.DELETE_SNAPSHOT, id),
+    deleteSnapshots: ids => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.DELETE_SNAPSHOTS, ids),
+    pinSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.PIN_SNAPSHOT, id),
+    unpinSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.UNPIN_SNAPSHOT, id),
+    labelSnapshot: (id, label) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.LABEL_SNAPSHOT, id, label),
+    getStorageStats: () => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.GET_STORAGE_STATS),
+    purge: options => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.PURGE, options),
+    compareSnapshots: (baseId, compareId, options) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.COMPARE_SNAPSHOTS, baseId, compareId, options),
+  },
+
+  ai: {
+    getVendors: () => ipcRenderer.invoke(IPC_CHANNELS.AI.GET_VENDORS),
+    getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.AI.GET_SETTINGS),
+    setSettings: settings => ipcRenderer.invoke(IPC_CHANNELS.AI.SET_SETTINGS, settings),
+    setApiKey: (vendorId, apiKey) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI.SET_API_KEY, vendorId, apiKey),
+    removeApiKey: vendorId => ipcRenderer.invoke(IPC_CHANNELS.AI.REMOVE_API_KEY, vendorId),
+    validateApiKey: (vendorId, apiKey) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI.VALIDATE_API_KEY, vendorId, apiKey),
+    generateTabName: request => ipcRenderer.invoke(IPC_CHANNELS.AI.GENERATE_TAB_NAME, request),
+    analyzeResults: request => ipcRenderer.invoke(IPC_CHANNELS.AI.ANALYZE_RESULTS, request),
+    generateSQL: request => ipcRenderer.invoke(IPC_CHANNELS.AI.GENERATE_SQL, request),
+    cancelRequest: requestId => ipcRenderer.invoke(IPC_CHANNELS.AI.CANCEL_REQUEST, requestId),
   },
 
   backup: {

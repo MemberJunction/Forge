@@ -1,4 +1,4 @@
-import { Component, inject, HostListener } from '@angular/core';
+import { Component, inject, HostListener, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -8,7 +8,10 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatExpansionModule } from '@angular/material/expansion';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { SettingsService } from '../../../core/services/settings.service';
+import { AIStateService } from '../../../core/state/ai.state';
 import type { ThemePreference } from '@mj-forge/shared';
 
 @Component({
@@ -24,6 +27,8 @@ import type { ThemePreference } from '@mj-forge/shared';
     MatFormFieldModule,
     MatInputModule,
     MatTooltipModule,
+    MatExpansionModule,
+    MatProgressSpinnerModule,
   ],
   template: `
     @if (settingsService.isOpen()) {
@@ -267,6 +272,146 @@ import type { ThemePreference } from '@mj-forge/shared';
               />
             </div>
           </section>
+
+          <!-- AI Integration Section -->
+          <section class="settings-section">
+            <h3>
+              <mat-icon>auto_awesome</mat-icon>
+              AI Integration
+            </h3>
+
+            <div class="setting-item ai-master-toggle">
+              <div class="setting-info">
+                <label>Enable AI Features</label>
+                <span class="setting-description">Use AI for smart features</span>
+              </div>
+              <mat-slide-toggle
+                [checked]="aiState.isEnabled()"
+                (change)="aiState.setEnabled($event.checked)"
+              />
+            </div>
+
+            @if (aiState.isEnabled()) {
+              <!-- Feature Toggles -->
+              <div class="ai-features">
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <label>Auto-Rename Tabs</label>
+                    <span class="setting-description">AI generates descriptive tab names</span>
+                  </div>
+                  <mat-slide-toggle
+                    [checked]="aiState.settings().features.autoRenameEnabled"
+                    (change)="aiState.updateFeatureSettings({ autoRenameEnabled: $event.checked })"
+                  />
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <label>Results Analysis</label>
+                    <span class="setting-description">AI insights for query results</span>
+                  </div>
+                  <mat-slide-toggle
+                    [checked]="aiState.settings().features.analysisEnabled"
+                    (change)="aiState.updateFeatureSettings({ analysisEnabled: $event.checked })"
+                  />
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <label>Query Assist</label>
+                    <span class="setting-description">Generate SQL from natural language</span>
+                  </div>
+                  <mat-slide-toggle
+                    [checked]="aiState.settings().features.queryAssistEnabled"
+                    (change)="aiState.updateFeatureSettings({ queryAssistEnabled: $event.checked })"
+                  />
+                </div>
+              </div>
+
+              <!-- Vendor Configuration -->
+              <div class="ai-vendors-header">
+                <span>AI Providers</span>
+                @if (!aiState.hasConfiguredVendors()) {
+                  <span class="vendor-warning">
+                    <mat-icon>warning</mat-icon>
+                    Configure at least one provider
+                  </span>
+                }
+              </div>
+
+              <mat-accordion class="ai-vendors-accordion" multi>
+                @for (vendor of aiState.vendors(); track vendor.id) {
+                  <mat-expansion-panel class="vendor-panel">
+                    <mat-expansion-panel-header>
+                      <mat-panel-title>
+                        <span class="vendor-name">{{ vendor.name }}</span>
+                        @if (getVendorConfigured(vendor.id)) {
+                          <mat-icon class="vendor-configured">check_circle</mat-icon>
+                        }
+                      </mat-panel-title>
+                    </mat-expansion-panel-header>
+
+                    <div class="vendor-content">
+                      <div class="setting-item">
+                        <div class="setting-info">
+                          <label>Enable {{ vendor.name }}</label>
+                        </div>
+                        <mat-slide-toggle
+                          [checked]="getVendorEnabled(vendor.id)"
+                          (change)="aiState.setVendorEnabled(vendor.id, $event.checked)"
+                        />
+                      </div>
+
+                      <div class="api-key-section">
+                        <mat-form-field appearance="outline" class="api-key-input">
+                          <mat-label>API Key</mat-label>
+                          <input
+                            matInput
+                            type="password"
+                            [value]="apiKeyInputs()[vendor.id] || ''"
+                            (input)="updateApiKeyInput(vendor.id, $any($event.target).value)"
+                            placeholder="Enter API key..."
+                          />
+                        </mat-form-field>
+
+                        <div class="api-key-actions">
+                          @if (getVendorConfigured(vendor.id)) {
+                            <button
+                              mat-stroked-button
+                              color="warn"
+                              (click)="removeApiKey(vendor.id)"
+                              [disabled]="aiState.validatingKey()"
+                            >
+                              Remove
+                            </button>
+                          }
+                          <button
+                            mat-flat-button
+                            color="primary"
+                            (click)="saveApiKey(vendor.id)"
+                            [disabled]="!apiKeyInputs()[vendor.id] || aiState.validatingKey()"
+                          >
+                            @if (aiState.validatingKey()) {
+                              <mat-spinner diameter="16"></mat-spinner>
+                            } @else {
+                              Save
+                            }
+                          </button>
+                        </div>
+                      </div>
+
+                      @if (vendor.docsUrl) {
+                        <a class="vendor-docs-link" [href]="vendor.docsUrl" target="_blank">
+                          <mat-icon>open_in_new</mat-icon>
+                          Get API Key
+                        </a>
+                      }
+                    </div>
+                  </mat-expansion-panel>
+                }
+              </mat-accordion>
+            }
+          </section>
         </div>
 
         <footer class="settings-footer">
@@ -474,18 +619,155 @@ import type { ThemePreference } from '@mj-forge/shared';
           color: var(--text-muted);
         }
       }
+
+      /* AI Section Styles */
+      .ai-master-toggle {
+        background-color: var(--bg-tertiary);
+        border: 1px solid var(--border-primary);
+      }
+
+      .ai-features {
+        margin-top: var(--spacing-sm);
+        padding-left: var(--spacing-md);
+        border-left: 2px solid var(--status-info);
+      }
+
+      .ai-vendors-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: var(--spacing-md) 0 var(--spacing-sm);
+        font-size: var(--font-size-sm);
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+
+      .vendor-warning {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-xs);
+        color: var(--status-warning);
+        font-size: var(--font-size-xs);
+
+        mat-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
+        }
+      }
+
+      .ai-vendors-accordion {
+        ::ng-deep .mat-expansion-panel {
+          background-color: var(--bg-primary);
+          border: 1px solid var(--border-primary);
+          margin-bottom: var(--spacing-xs);
+          border-radius: var(--radius-md) !important;
+
+          &:not(.mat-expanded) {
+            border-radius: var(--radius-md) !important;
+          }
+        }
+
+        ::ng-deep .mat-expansion-panel-header {
+          padding: 0 var(--spacing-md);
+          height: 48px;
+        }
+
+        ::ng-deep .mat-expansion-panel-body {
+          padding: 0 var(--spacing-md) var(--spacing-md);
+        }
+      }
+
+      .vendor-panel {
+        .vendor-name {
+          font-weight: 500;
+          color: var(--text-primary);
+        }
+
+        .vendor-configured {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+          margin-left: var(--spacing-sm);
+          color: var(--status-success);
+        }
+      }
+
+      .vendor-content {
+        .setting-item {
+          margin-bottom: var(--spacing-sm);
+        }
+      }
+
+      .api-key-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-sm);
+        margin-top: var(--spacing-sm);
+      }
+
+      .api-key-input {
+        width: 100%;
+
+        ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+          display: none;
+        }
+      }
+
+      .api-key-actions {
+        display: flex;
+        gap: var(--spacing-sm);
+        justify-content: flex-end;
+
+        button {
+          min-width: 80px;
+        }
+
+        mat-spinner {
+          margin: 0 auto;
+        }
+      }
+
+      .vendor-docs-link {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-xs);
+        margin-top: var(--spacing-sm);
+        font-size: var(--font-size-sm);
+        color: var(--status-info);
+        text-decoration: none;
+
+        &:hover {
+          text-decoration: underline;
+        }
+
+        mat-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
+        }
+      }
     `,
   ],
 })
-export class SettingsPanelComponent {
+export class SettingsPanelComponent implements OnInit {
   readonly settingsService = inject(SettingsService);
+  readonly aiState = inject(AIStateService);
   readonly settings = this.settingsService.settings;
+
+  // Track API key inputs per vendor
+  readonly apiKeyInputs = signal<Record<string, string>>({});
 
   @HostListener('document:keydown.escape')
   onEscapeKey(): void {
     if (this.settingsService.isOpen()) {
       this.close();
     }
+  }
+
+  ngOnInit(): void {
+    // Initialize AI state when panel opens
+    this.aiState.initialize();
   }
 
   close(): void {
@@ -519,5 +801,39 @@ export class SettingsPanelComponent {
 
   resetToDefaults(): void {
     this.settingsService.resetToDefaults();
+  }
+
+  // AI vendor helpers
+  getVendorEnabled(vendorId: string): boolean {
+    const vs = this.aiState.getVendorSettings(vendorId);
+    return vs?.enabled ?? false;
+  }
+
+  getVendorConfigured(vendorId: string): boolean {
+    const vs = this.aiState.getVendorSettings(vendorId);
+    return vs?.apiKeyConfigured ?? false;
+  }
+
+  updateApiKeyInput(vendorId: string, value: string): void {
+    this.apiKeyInputs.update(inputs => ({ ...inputs, [vendorId]: value }));
+  }
+
+  async saveApiKey(vendorId: string): Promise<void> {
+    const apiKey = this.apiKeyInputs()[vendorId];
+    if (!apiKey) return;
+
+    const success = await this.aiState.setApiKey(vendorId, apiKey);
+    if (success) {
+      // Clear the input after successful save
+      this.apiKeyInputs.update(inputs => {
+        const newInputs = { ...inputs };
+        delete newInputs[vendorId];
+        return newInputs;
+      });
+    }
+  }
+
+  async removeApiKey(vendorId: string): Promise<void> {
+    await this.aiState.removeApiKey(vendorId);
   }
 }

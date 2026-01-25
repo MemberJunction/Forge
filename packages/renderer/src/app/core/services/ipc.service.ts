@@ -37,6 +37,24 @@ import type {
   FileTreeNode,
   WorkspaceInfo,
   LayoutConfig,
+  // Query results persistence types
+  QueryResultSnapshot,
+  QueryResultHistoryFilter,
+  ResultHistorySortOptions,
+  PurgeOptions,
+  PurgeResult,
+  ResultStorageStats,
+  ResultDiff,
+  DiffOptions,
+  // AI types
+  AIVendor,
+  AISettings,
+  TabRenameRequest,
+  TabRenameResponse,
+  AnalysisRequest,
+  AnalysisResponse,
+  SQLGenerationRequest,
+  SQLGenerationResponse,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -202,6 +220,44 @@ interface ForgeAPI {
     clearHistory: () => Promise<void>;
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
+  };
+  queryResults: {
+    saveSnapshot: (
+      tabId: string,
+      sql: string,
+      connectionId: string,
+      database: string,
+      result: QueryResult
+    ) => Promise<QueryResultSnapshot>;
+    getSnapshots: (
+      filter?: QueryResultHistoryFilter,
+      sort?: ResultHistorySortOptions
+    ) => Promise<QueryResultSnapshot[]>;
+    getSnapshot: (id: string) => Promise<QueryResultSnapshot | null>;
+    deleteSnapshot: (id: string) => Promise<boolean>;
+    deleteSnapshots: (ids: string[]) => Promise<number>;
+    pinSnapshot: (id: string) => Promise<boolean>;
+    unpinSnapshot: (id: string) => Promise<boolean>;
+    labelSnapshot: (id: string, label: string) => Promise<boolean>;
+    getStorageStats: () => Promise<ResultStorageStats>;
+    purge: (options: PurgeOptions) => Promise<PurgeResult>;
+    compareSnapshots: (
+      baseId: string,
+      compareId: string,
+      options?: DiffOptions
+    ) => Promise<ResultDiff | null>;
+  };
+  ai: {
+    getVendors: () => Promise<AIVendor[]>;
+    getSettings: () => Promise<AISettings>;
+    setSettings: (settings: Partial<AISettings>) => Promise<AISettings>;
+    setApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    removeApiKey: (vendorId: string) => Promise<boolean>;
+    validateApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    generateTabName: (request: TabRenameRequest) => Promise<TabRenameResponse>;
+    analyzeResults: (request: AnalysisRequest) => Promise<AnalysisResponse>;
+    generateSQL: (request: SQLGenerationRequest) => Promise<SQLGenerationResponse>;
+    cancelRequest: (requestId: string) => Promise<boolean>;
   };
   backup: {
     start: (request: BackupRequest) => Promise<void>;
@@ -497,6 +553,64 @@ export class IpcService {
     return from(this.api.query.exportResults(resultSet, options));
   }
 
+  // Query Results Persistence methods
+  saveResultSnapshot(
+    tabId: string,
+    sql: string,
+    connectionId: string,
+    database: string,
+    result: QueryResult
+  ): Observable<QueryResultSnapshot> {
+    return from(this.api.queryResults.saveSnapshot(tabId, sql, connectionId, database, result));
+  }
+
+  getResultSnapshots(
+    filter?: QueryResultHistoryFilter,
+    sort?: ResultHistorySortOptions
+  ): Observable<QueryResultSnapshot[]> {
+    return from(this.api.queryResults.getSnapshots(filter, sort));
+  }
+
+  getResultSnapshot(id: string): Observable<QueryResultSnapshot | null> {
+    return from(this.api.queryResults.getSnapshot(id));
+  }
+
+  deleteResultSnapshot(id: string): Observable<boolean> {
+    return from(this.api.queryResults.deleteSnapshot(id));
+  }
+
+  deleteResultSnapshots(ids: string[]): Observable<number> {
+    return from(this.api.queryResults.deleteSnapshots(ids));
+  }
+
+  pinResultSnapshot(id: string): Observable<boolean> {
+    return from(this.api.queryResults.pinSnapshot(id));
+  }
+
+  unpinResultSnapshot(id: string): Observable<boolean> {
+    return from(this.api.queryResults.unpinSnapshot(id));
+  }
+
+  labelResultSnapshot(id: string, label: string): Observable<boolean> {
+    return from(this.api.queryResults.labelSnapshot(id, label));
+  }
+
+  getResultStorageStats(): Observable<ResultStorageStats> {
+    return from(this.api.queryResults.getStorageStats());
+  }
+
+  purgeResultSnapshots(options: PurgeOptions): Observable<PurgeResult> {
+    return from(this.api.queryResults.purge(options));
+  }
+
+  compareResultSnapshots(
+    baseId: string,
+    compareId: string,
+    options?: DiffOptions
+  ): Observable<ResultDiff | null> {
+    return from(this.api.queryResults.compareSnapshots(baseId, compareId, options));
+  }
+
   // Backup methods
   startBackup(request: BackupRequest): Observable<void> {
     return from(this.api.backup.start(request));
@@ -600,5 +714,46 @@ export class IpcService {
 
   renameWorkspaceFile(oldPath: string, newPath: string): Observable<void> {
     return from(this.api.workspace.renameFile(oldPath, newPath));
+  }
+
+  // AI methods
+  getAIVendors(): Observable<AIVendor[]> {
+    return from(this.api.ai.getVendors());
+  }
+
+  getAISettings(): Observable<AISettings> {
+    return from(this.api.ai.getSettings());
+  }
+
+  setAISettings(settings: Partial<AISettings>): Observable<AISettings> {
+    return from(this.api.ai.setSettings(settings));
+  }
+
+  setAIApiKey(vendorId: string, apiKey: string): Observable<boolean> {
+    return from(this.api.ai.setApiKey(vendorId, apiKey));
+  }
+
+  removeAIApiKey(vendorId: string): Observable<boolean> {
+    return from(this.api.ai.removeApiKey(vendorId));
+  }
+
+  validateAIApiKey(vendorId: string, apiKey: string): Observable<boolean> {
+    return from(this.api.ai.validateApiKey(vendorId, apiKey));
+  }
+
+  generateTabName(request: TabRenameRequest): Observable<TabRenameResponse> {
+    return from(this.api.ai.generateTabName(request));
+  }
+
+  analyzeResults(request: AnalysisRequest): Observable<AnalysisResponse> {
+    return from(this.api.ai.analyzeResults(request));
+  }
+
+  generateSQL(request: SQLGenerationRequest): Observable<SQLGenerationResponse> {
+    return from(this.api.ai.generateSQL(request));
+  }
+
+  cancelAIRequest(requestId: string): Observable<boolean> {
+    return from(this.api.ai.cancelRequest(requestId));
   }
 }

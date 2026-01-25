@@ -1,0 +1,140 @@
+{
+  "version": "1.0.0",
+  "vendors": [
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "baseUrl": "https://api.anthropic.com",
+      "requiresApiKey": true,
+      "docsUrl": "https://console.anthropic.com/settings/keys",
+      "models": [
+        {
+          "id": "claude-opus-4-5",
+          "name": "Claude Opus 4.5",
+          "apiName": "claude-opus-4-5-20251101",
+          "powerRank": 15,
+          "costTier": "premium",
+          "supportsStreaming": true,
+          "maxContextTokens": 200000,
+          "maxOutputTokens": 4096
+        },
+        {
+          "id": "claude-sonnet-4",
+          "name": "Claude Sonnet 4",
+          "apiName": "claude-sonnet-4-20250514",
+          "powerRank": 12,
+          "costTier": "standard",
+          "supportsStreaming": true,
+          "maxContextTokens": 200000,
+          "maxOutputTokens": 4096
+        },
+        {
+          "id": "claude-haiku-3-5",
+          "name": "Claude Haiku 3.5",
+          "apiName": "claude-3-5-haiku-20241022",
+          "powerRank": 6,
+          "costTier": "economy",
+          "supportsStreaming": true,
+          "maxContextTokens": 200000,
+          "maxOutputTokens": 4096
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "baseUrl": "https://api.openai.com",
+      "requiresApiKey": true,
+      "docsUrl": "https://platform.openai.com/api-keys",
+      "models": [
+        {
+          "id": "gpt-4o",
+          "name": "GPT-4o",
+          "apiName": "gpt-4o",
+          "powerRank": 14,
+          "costTier": "premium",
+          "supportsStreaming": true,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 4096
+        },
+        {
+          "id": "gpt-4o-mini",
+          "name": "GPT-4o Mini",
+          "apiName": "gpt-4o-mini",
+          "powerRank": 8,
+          "costTier": "economy",
+          "supportsStreaming": true,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 4096
+        }
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google AI",
+      "baseUrl": "https://generativelanguage.googleapis.com",
+      "requiresApiKey": true,
+      "docsUrl": "https://aistudio.google.com/app/apikey",
+      "models": [
+        {
+          "id": "gemini-2.0-flash",
+          "name": "Gemini 2.0 Flash",
+          "apiName": "gemini-2.0-flash",
+          "powerRank": 11,
+          "costTier": "standard",
+          "supportsStreaming": true,
+          "maxContextTokens": 1000000,
+          "maxOutputTokens": 8192
+        }
+      ]
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "baseUrl": "https://api.groq.com",
+      "requiresApiKey": true,
+      "docsUrl": "https://console.groq.com/keys",
+      "models": [
+        {
+          "id": "llama-3.3-70b",
+          "name": "Llama 3.3 70B",
+          "apiName": "llama-3.3-70b-versatile",
+          "powerRank": 10,
+          "costTier": "standard",
+          "supportsStreaming": true,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 32768
+        },
+        {
+          "id": "llama-3.1-8b",
+          "name": "Llama 3.1 8B",
+          "apiName": "llama-3.1-8b-instant",
+          "powerRank": 4,
+          "costTier": "economy",
+          "supportsStreaming": true,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192
+        }
+      ]
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "baseUrl": "https://api.cerebras.ai",
+      "requiresApiKey": true,
+      "docsUrl": "https://cloud.cerebras.ai/platform",
+      "models": [
+        {
+          "id": "llama-3.3-70b-cerebras",
+          "name": "Llama 3.3 70B",
+          "apiName": "llama-3.3-70b",
+          "powerRank": 10,
+          "costTier": "standard",
+          "supportsStreaming": true,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192
+        }
+      ]
+    }
+  ]
+}

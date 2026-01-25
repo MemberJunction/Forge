@@ -2,6 +2,8 @@
  * App State Types for persistence across sessions
  */
 
+import type { AISettings } from './ai.types';
+
 export interface TabState {
   id: string;
   type: 'query' | 'results' | 'object' | 'welcome' | 'erd';
@@ -26,6 +28,8 @@ export interface AppState {
   currentWorkspacePath: string | null;
   /** Serialized GoldenLayout configuration */
   goldenLayoutConfig?: LayoutConfig;
+  /** AI settings */
+  aiSettings?: AISettings;
 }
 
 export interface WorkspaceSettings {
