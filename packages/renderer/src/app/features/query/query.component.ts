@@ -844,8 +844,8 @@ export class QueryComponent implements OnInit, OnDestroy {
           if (activeTab.autoExecute && activeTab.content) {
             // Clear the flag first to prevent re-execution
             this.tabState.clearAutoExecute(activeTab.id);
-            // Execute after a short delay to allow editor to update
-            setTimeout(() => this.executeQuery(), 100);
+            // Execute after editor is ready with content
+            this.executeWhenEditorReady(activeTab.content);
           }
         }
       },
@@ -985,7 +985,8 @@ export class QueryComponent implements OnInit, OnDestroy {
       // Handle auto-execute for initial load
       if (activeTab.autoExecute && activeTab.content) {
         this.tabState.clearAutoExecute(activeTab.id);
-        setTimeout(() => this.executeQuery(), 100);
+        // Execute immediately since editor is ready and content is set
+        this.executeQuery();
       }
     }
   }
@@ -1199,6 +1200,31 @@ export class QueryComponent implements OnInit, OnDestroy {
       return this.editor.getModel()?.getValueInRange(selection) || '';
     }
     return this.editor.getValue();
+  }
+
+  /**
+   * Execute query when editor is ready with the expected content.
+   * Polls until editor is available and has the content loaded.
+   */
+  private executeWhenEditorReady(expectedContent: string, maxAttempts = 20): void {
+    let attempts = 0;
+    const checkAndExecute = (): void => {
+      attempts++;
+      if (this.editor && this.editor.getValue() === expectedContent) {
+        // Editor is ready with correct content - execute
+        this.executeQuery();
+      } else if (attempts < maxAttempts) {
+        // Try again after a short delay
+        setTimeout(checkAndExecute, 50);
+      } else {
+        // Give up after max attempts, try anyway
+        if (this.editor) {
+          this.executeQuery();
+        }
+      }
+    };
+    // Start checking after a brief delay
+    setTimeout(checkAndExecute, 50);
   }
 
   // Row detail panel methods
