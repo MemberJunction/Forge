@@ -19,6 +19,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { SharedGenericModule } from '@memberjunction/ng-shared-generic';
 import { AIStateService } from '../../../core/state/ai.state';
 import type { ResultSet } from '@mj-forge/shared';
 
@@ -39,6 +40,7 @@ interface QuickAction {
     MatButtonModule,
     MatTooltipModule,
     MatProgressSpinnerModule,
+    SharedGenericModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -118,8 +120,19 @@ interface QuickAction {
               </button>
             </div>
 
+            <!-- Loading State -->
+            @if (aiState.analyzingResults()) {
+              <div class="analysis-loading">
+                <mj-loading
+                  text="Analyzing results..."
+                  size="medium"
+                  animation="pulse"
+                ></mj-loading>
+              </div>
+            }
+
             <!-- Analysis Result -->
-            @if (analysisContent()) {
+            @if (analysisContent() && !aiState.analyzingResults()) {
               <div class="analysis-result">
                 <div class="result-header">
                   <span class="result-label">Analysis</span>
@@ -136,7 +149,7 @@ interface QuickAction {
               </div>
             }
 
-            @if (analysisError()) {
+            @if (analysisError() && !aiState.analyzingResults()) {
               <div class="analysis-error">
                 <mat-icon>error</mat-icon>
                 <span>{{ analysisError() }}</span>
@@ -404,6 +417,17 @@ interface QuickAction {
           width: 18px;
           height: 18px;
         }
+      }
+
+      .analysis-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--spacing-lg);
+        background-color: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border-left: 3px solid var(--status-info);
+        min-height: 100px;
       }
     `,
   ],

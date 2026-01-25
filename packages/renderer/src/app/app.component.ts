@@ -1,7 +1,9 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { MatIconRegistry } from '@angular/material/icon';
 import { DomSanitizer } from '@angular/platform-browser';
+import { SharedGenericModule } from '@memberjunction/ng-shared-generic';
 import { ShellComponent } from './layout/shell/shell.component';
 import { ContextMenuComponent } from './shared/components/context-menu/context-menu.component';
 import { SettingsPanelComponent } from './shared/components/settings-panel/settings-panel.component';
@@ -17,7 +19,9 @@ import { TabStateService } from './core/state/tab.state';
   selector: 'app-root',
   standalone: true,
   imports: [
+    CommonModule,
     RouterOutlet,
+    SharedGenericModule,
     ShellComponent,
     ContextMenuComponent,
     SettingsPanelComponent,
@@ -27,13 +31,19 @@ import { TabStateService } from './core/state/tab.state';
     ShortcutsDialogComponent,
   ],
   template: `
-    <app-shell />
-    <app-context-menu />
-    <app-settings-panel />
-    <app-table-properties-container />
-    <app-command-palette />
-    <app-object-search />
-    <app-shortcuts-dialog />
+    @if (loading()) {
+      <div class="startup-loading">
+        <mj-loading [text]="loadingMessage()" size="large" animation="pulse"></mj-loading>
+      </div>
+    } @else {
+      <app-shell />
+      <app-context-menu />
+      <app-settings-panel />
+      <app-table-properties-container />
+      <app-command-palette />
+      <app-object-search />
+      <app-shortcuts-dialog />
+    }
   `,
   styles: [
     `
@@ -42,6 +52,15 @@ import { TabStateService } from './core/state/tab.state';
         height: 100vh;
         width: 100vw;
         overflow: hidden;
+      }
+
+      .startup-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        width: 100%;
+        background-color: var(--bg-primary, #1e1e1e);
       }
     `,
   ],
@@ -54,6 +73,10 @@ export class AppComponent implements OnInit {
   private readonly iconRegistry = inject(MatIconRegistry);
   private readonly sanitizer = inject(DomSanitizer);
 
+  // Loading state
+  readonly loading = signal(true);
+  readonly loadingMessage = signal('Starting MJ Forge...');
+
   constructor() {
     // Register custom SVG icons
     this.iconRegistry.addSvgIcon(
@@ -63,13 +86,23 @@ export class AppComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
-    // Load connection profiles first
-    await this.connectionState.loadProfiles();
-    // Restore previous connection state
-    await this.connectionState.restoreState();
-    // Restore tabs if we have a connection
-    if (this.connectionState.isConnected() && this.connectionState.activeConnectionId()) {
-      await this.tabState.restoreTabs(this.connectionState.activeConnectionId()!);
+    try {
+      // Load connection profiles first
+      this.loadingMessage.set('Loading connections...');
+      await this.connectionState.loadProfiles();
+
+      // Restore previous connection state
+      this.loadingMessage.set('Restoring session...');
+      await this.connectionState.restoreState();
+
+      // Restore tabs if we have a connection
+      if (this.connectionState.isConnected() && this.connectionState.activeConnectionId()) {
+        this.loadingMessage.set('Restoring tabs...');
+        await this.tabState.restoreTabs(this.connectionState.activeConnectionId()!);
+      }
+    } finally {
+      // Always finish loading even if there's an error
+      this.loading.set(false);
     }
   }
 }

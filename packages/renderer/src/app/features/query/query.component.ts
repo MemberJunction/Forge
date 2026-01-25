@@ -304,8 +304,28 @@ declare const monaco: { editor: MonacoEditor };
 
               @if (activeTab().startsWith('result-') && activeResultSet()) {
                 <div class="results-grid">
+                  <!-- Historical Result Banner -->
+                  @if (viewingHistoricalResult()) {
+                    <div class="historical-banner">
+                      <mat-icon>history</mat-icon>
+                      <div class="banner-content">
+                        <span class="banner-label">Viewing Historical Result</span>
+                        <span class="banner-date">{{
+                          formatHistoricalDate(viewingHistoricalResult()!)
+                        }}</span>
+                      </div>
+                      <button
+                        mat-icon-button
+                        matTooltip="Return to current result"
+                        (click)="clearHistoricalResult()"
+                      >
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    </div>
+                  }
                   <app-results-grid
                     [resultSet]="activeResultSet()"
+                    [class.historical]="viewingHistoricalResult()"
                     (cellSelected)="onCellSelected($event)"
                     (exportRequested)="exportResults($event)"
                   />
@@ -674,7 +694,8 @@ declare const monaco: { editor: MonacoEditor };
         flex: 1;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        overflow: auto;
+        min-height: 0;
       }
 
       .results-grid {
@@ -682,6 +703,58 @@ declare const monaco: { editor: MonacoEditor };
         display: flex;
         flex-direction: column;
         overflow: hidden;
+      }
+
+      .historical-banner {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: var(--spacing-xs) var(--spacing-md);
+        background: linear-gradient(90deg, rgba(156, 39, 176, 0.15), rgba(103, 58, 183, 0.15));
+        border-bottom: 2px solid rgba(156, 39, 176, 0.5);
+        color: var(--text-primary);
+
+        > mat-icon {
+          color: #9c27b0;
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
+
+        .banner-content {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .banner-label {
+          font-size: var(--font-size-xs);
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #9c27b0;
+        }
+
+        .banner-date {
+          font-size: var(--font-size-sm);
+          color: var(--text-secondary);
+        }
+
+        button {
+          width: 24px;
+          height: 24px;
+
+          mat-icon {
+            font-size: 16px;
+            width: 16px;
+            height: 16px;
+          }
+        }
+      }
+
+      app-results-grid.historical {
+        border-left: 3px solid rgba(156, 39, 176, 0.5);
       }
 
       .messages-pane {
@@ -734,6 +807,9 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   // Track last executed SQL for AI analysis
   private lastExecutedSql = '';
+
+  // Track when viewing historical results (not the current execution)
+  viewingHistoricalResult = signal<QueryResultSnapshot | null>(null);
 
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -925,6 +1001,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     this.executing.set(true);
     this.result.set(null);
+    this.viewingHistoricalResult.set(null); // Clear any historical result view
     this.currentQueryId = `query-${Date.now()}`;
     this.lastExecutedSql = sql;
 
@@ -1197,6 +1274,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   onViewHistoryResult(snapshot: QueryResultSnapshot): void {
     // Create a QueryResult from the snapshot to display
     if (snapshot.resultSets && snapshot.resultSets.length > 0) {
+      this.viewingHistoricalResult.set(snapshot);
       this.result.set({
         queryId: snapshot.id,
         success: snapshot.success,
@@ -1206,15 +1284,33 @@ export class QueryComponent implements OnInit, OnDestroy {
       });
       this.activeTab.set('result-0');
       this.lastExecutedSql = snapshot.sql;
-      this.notification.info('Viewing historical result');
     }
   }
 
-  // Compare two result snapshots
-  onCompareResults(comparison: { base: QueryResultSnapshot; compare: QueryResultSnapshot }): void {
-    this.notification.info('Result comparison - opening diff view');
-    // TODO: Open diff viewer dialog or panel
-    this.resultsState.compareSnapshots(comparison.base.id, comparison.compare.id);
+  // Clear historical result and return to showing nothing
+  clearHistoricalResult(): void {
+    this.viewingHistoricalResult.set(null);
+    this.result.set(null);
+  }
+
+  // Format date for historical result banner
+  formatHistoricalDate(snapshot: QueryResultSnapshot): string {
+    const date = new Date(snapshot.executedAt);
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  }
+
+  // Compare two result snapshots (now handled inline in history panel)
+  onCompareResults(_comparison: { base: QueryResultSnapshot; compare: QueryResultSnapshot }): void {
+    // Comparison is now handled inline in the result history panel
+    // This method is kept for backward compatibility but no longer does anything
   }
 
   // Auto-rename tab using AI

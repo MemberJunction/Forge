@@ -17,7 +17,8 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatDividerModule } from '@angular/material/divider';
-import type { QueryResultSnapshot } from '@mj-forge/shared';
+import { SharedGenericModule } from '@memberjunction/ng-shared-generic';
+import type { QueryResultSnapshot, ResultDiff } from '@mj-forge/shared';
 import { QueryResultsStateService } from '../../../core/state/query-results.state';
 import { SmartDatePipe } from '../../pipes/smart-date.pipe';
 
@@ -37,6 +38,7 @@ type SortOrder = 'asc' | 'desc';
     MatCheckboxModule,
     MatBadgeModule,
     MatDividerModule,
+    SharedGenericModule,
     SmartDatePipe,
   ],
   template: `
@@ -162,6 +164,129 @@ type SortOrder = 'asc' | 'desc';
       <!-- Content -->
       @if (expanded() || embedded()) {
         <div class="panel-content">
+          <!-- Comparison View -->
+          @if (comparing()) {
+            <div class="comparison-view">
+              <div class="comparison-header">
+                <mat-icon>compare_arrows</mat-icon>
+                <span class="comparison-title">Comparison Results</span>
+                <button mat-icon-button matTooltip="Close comparison" (click)="closeComparison()">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </div>
+
+              @if (comparingInProgress()) {
+                <div class="comparison-loading">
+                  <mj-loading
+                    text="Comparing results..."
+                    size="medium"
+                    animation="pulse"
+                  ></mj-loading>
+                </div>
+              } @else if (comparisonResult()) {
+                <div class="comparison-content">
+                  <div class="comparison-snapshots">
+                    <div class="comparison-snapshot base">
+                      <span class="snapshot-label">Base</span>
+                      <span class="snapshot-date">{{ formatCompareDate(comparisonBase()) }}</span>
+                    </div>
+                    <mat-icon class="compare-arrow">arrow_forward</mat-icon>
+                    <div class="comparison-snapshot compare">
+                      <span class="snapshot-label">Compare</span>
+                      <span class="snapshot-date">{{
+                        formatCompareDate(comparisonCompare())
+                      }}</span>
+                    </div>
+                  </div>
+
+                  <div class="diff-summary">
+                    <div class="diff-section">
+                      <h4>Row Changes</h4>
+                      <div class="diff-stats">
+                        <div class="diff-stat added">
+                          <mat-icon>add_circle</mat-icon>
+                          <span class="stat-value">{{
+                            comparisonResult()!.summary.addedRows
+                          }}</span>
+                          <span class="stat-label">Added</span>
+                        </div>
+                        <div class="diff-stat removed">
+                          <mat-icon>remove_circle</mat-icon>
+                          <span class="stat-value">{{
+                            comparisonResult()!.summary.removedRows
+                          }}</span>
+                          <span class="stat-label">Removed</span>
+                        </div>
+                        <div class="diff-stat modified">
+                          <mat-icon>change_circle</mat-icon>
+                          <span class="stat-value">{{
+                            comparisonResult()!.summary.modifiedRows
+                          }}</span>
+                          <span class="stat-label">Modified</span>
+                        </div>
+                        <div class="diff-stat unchanged">
+                          <mat-icon>check_circle</mat-icon>
+                          <span class="stat-value">{{
+                            comparisonResult()!.summary.unchangedRows
+                          }}</span>
+                          <span class="stat-label">Unchanged</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    @if (hasSchemaChanges()) {
+                      <div class="diff-section">
+                        <h4>Schema Changes</h4>
+                        <div class="schema-changes">
+                          @if (comparisonResult()!.schemaDiff?.addedColumns?.length) {
+                            <div class="schema-item added">
+                              <mat-icon>add</mat-icon>
+                              <span
+                                >{{
+                                  comparisonResult()!.schemaDiff!.addedColumns!.length
+                                }}
+                                column(s) added</span
+                              >
+                            </div>
+                          }
+                          @if (comparisonResult()!.schemaDiff?.removedColumns?.length) {
+                            <div class="schema-item removed">
+                              <mat-icon>remove</mat-icon>
+                              <span
+                                >{{
+                                  comparisonResult()!.schemaDiff!.removedColumns!.length
+                                }}
+                                column(s) removed</span
+                              >
+                            </div>
+                          }
+                          @if (comparisonResult()!.schemaDiff?.modifiedColumns?.length) {
+                            <div class="schema-item modified">
+                              <mat-icon>edit</mat-icon>
+                              <span
+                                >{{
+                                  comparisonResult()!.schemaDiff!.modifiedColumns!.length
+                                }}
+                                column(s) modified</span
+                              >
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+
+                  <div class="comparison-actions">
+                    <button mat-stroked-button (click)="closeComparison()">
+                      <mat-icon>close</mat-icon>
+                      Close
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
           @if (resultsState.loading()) {
             <div class="loading-state">
               <mat-spinner diameter="24"></mat-spinner>
@@ -173,7 +298,7 @@ type SortOrder = 'asc' | 'desc';
               <p>No results saved yet</p>
               <span class="hint">Execute a query to save results</span>
             </div>
-          } @else {
+          } @else if (!comparing()) {
             <div class="snapshot-list">
               @for (snapshot of sortedSnapshots(); track snapshot.id; let i = $index) {
                 <div
@@ -517,6 +642,204 @@ type SortOrder = 'asc' | 'desc';
           }
         }
       }
+
+      /* Comparison View Styles */
+      .comparison-view {
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--spacing-md);
+        overflow: hidden;
+      }
+
+      .comparison-header {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: var(--spacing-sm) var(--spacing-md);
+        background-color: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-primary);
+
+        mat-icon {
+          color: var(--status-info);
+        }
+
+        .comparison-title {
+          flex: 1;
+          font-weight: 500;
+          font-size: var(--font-size-sm);
+        }
+      }
+
+      .comparison-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--spacing-xl);
+      }
+
+      .comparison-content {
+        padding: var(--spacing-md);
+      }
+
+      .comparison-snapshots {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--spacing-md);
+        margin-bottom: var(--spacing-md);
+        padding: var(--spacing-sm);
+        background-color: var(--bg-secondary);
+        border-radius: var(--radius-md);
+      }
+
+      .comparison-snapshot {
+        text-align: center;
+
+        .snapshot-label {
+          display: block;
+          font-size: var(--font-size-xs);
+          font-weight: 600;
+          text-transform: uppercase;
+          margin-bottom: 2px;
+        }
+
+        .snapshot-date {
+          font-size: var(--font-size-sm);
+          color: var(--text-secondary);
+        }
+
+        &.base .snapshot-label {
+          color: var(--status-info);
+        }
+
+        &.compare .snapshot-label {
+          color: var(--accent-primary);
+        }
+      }
+
+      .compare-arrow {
+        color: var(--text-muted);
+      }
+
+      .diff-summary {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+      }
+
+      .diff-section {
+        h4 {
+          margin: 0 0 var(--spacing-sm);
+          font-size: var(--font-size-sm);
+          font-weight: 500;
+          color: var(--text-secondary);
+        }
+      }
+
+      .diff-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: var(--spacing-sm);
+      }
+
+      .diff-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: var(--spacing-sm);
+        background-color: var(--bg-secondary);
+        border-radius: var(--radius-md);
+
+        mat-icon {
+          font-size: 20px;
+          width: 20px;
+          height: 20px;
+          margin-bottom: 2px;
+        }
+
+        .stat-value {
+          font-size: var(--font-size-lg);
+          font-weight: 600;
+        }
+
+        .stat-label {
+          font-size: var(--font-size-xs);
+          color: var(--text-muted);
+        }
+
+        &.added {
+          mat-icon,
+          .stat-value {
+            color: var(--status-success);
+          }
+        }
+
+        &.removed {
+          mat-icon,
+          .stat-value {
+            color: var(--status-error);
+          }
+        }
+
+        &.modified {
+          mat-icon,
+          .stat-value {
+            color: var(--status-warning);
+          }
+        }
+
+        &.unchanged {
+          mat-icon,
+          .stat-value {
+            color: var(--text-secondary);
+          }
+        }
+      }
+
+      .schema-changes {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xs);
+      }
+
+      .schema-item {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: var(--spacing-xs) var(--spacing-sm);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-sm);
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+        }
+
+        &.added {
+          background-color: rgba(76, 175, 80, 0.1);
+          color: var(--status-success);
+        }
+
+        &.removed {
+          background-color: rgba(244, 67, 54, 0.1);
+          color: var(--status-error);
+        }
+
+        &.modified {
+          background-color: rgba(255, 152, 0, 0.1);
+          color: var(--status-warning);
+        }
+      }
+
+      .comparison-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: var(--spacing-md);
+        padding-top: var(--spacing-md);
+        border-top: 1px solid var(--border-primary);
+      }
     `,
   ],
 })
@@ -538,8 +861,25 @@ export class ResultHistoryPanelComponent implements OnInit, OnDestroy {
   readonly sortField = signal<SortField>('executedAt');
   readonly sortOrder = signal<SortOrder>('desc');
 
+  // Comparison state
+  readonly comparing = signal(false);
+  readonly comparingInProgress = signal(false);
+  readonly comparisonResult = signal<ResultDiff | null>(null);
+  readonly comparisonBase = signal<QueryResultSnapshot | null>(null);
+  readonly comparisonCompare = signal<QueryResultSnapshot | null>(null);
+
   // Computed
   readonly snapshots = computed(() => this.resultsState.snapshots());
+
+  readonly hasSchemaChanges = computed(() => {
+    const result = this.comparisonResult();
+    if (!result?.schemaDiff) return false;
+    return (
+      (result.schemaDiff.addedColumns?.length ?? 0) > 0 ||
+      (result.schemaDiff.removedColumns?.length ?? 0) > 0 ||
+      (result.schemaDiff.modifiedColumns?.length ?? 0) > 0
+    );
+  });
 
   readonly sortedSnapshots = computed(() => {
     const snaps = [...this.snapshots()];
@@ -637,8 +977,34 @@ export class ResultHistoryPanelComponent implements OnInit, OnDestroy {
   async compareSelected(): Promise<void> {
     const selected = this.resultsState.selectedSnapshots();
     if (selected.length === 2) {
-      this.compareResults.emit({ base: selected[0], compare: selected[1] });
+      // Perform comparison inline instead of emitting
+      this.comparing.set(true);
+      this.comparingInProgress.set(true);
+      this.comparisonBase.set(selected[0]);
+      this.comparisonCompare.set(selected[1]);
+      this.comparisonResult.set(null);
+
+      try {
+        const diff = await this.resultsState.compareSnapshots(selected[0].id, selected[1].id);
+        this.comparisonResult.set(diff);
+      } finally {
+        this.comparingInProgress.set(false);
+      }
     }
+  }
+
+  closeComparison(): void {
+    this.comparing.set(false);
+    this.comparisonResult.set(null);
+    this.comparisonBase.set(null);
+    this.comparisonCompare.set(null);
+    this.resultsState.clearDiff();
+    this.resultsState.clearSelection();
+  }
+
+  formatCompareDate(snapshot: QueryResultSnapshot | null): string {
+    if (!snapshot) return '';
+    return new Date(snapshot.executedAt).toLocaleString();
   }
 
   async purgeOld(): Promise<void> {
