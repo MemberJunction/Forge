@@ -7,6 +7,7 @@ import { createMainWindow } from './window';
 import { createMenu } from './menu';
 import { registerAllHandlers } from './ipc';
 import { ConnectionPoolManager } from './services/sql/connection-pool';
+import { CredentialStore } from './services/keychain/credential-store';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 // This is only needed for Windows Squirrel installers
@@ -36,7 +37,11 @@ if (!gotTheLock) {
   });
 
   // App ready
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    // Preload all credentials into memory cache (single keychain access at startup)
+    const credentialStore = CredentialStore.getInstance();
+    await credentialStore.loadAllIntoCache();
+
     // Register IPC handlers
     registerAllHandlers();
 
