@@ -76,14 +76,14 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             <div class="container-list">
               @for (container of sqlContainers; track container.id) {
                 <div class="container-item">
-                  <mat-icon [class.running]="container.status === 'running'">
-                    {{ container.status === 'running' ? 'play_circle' : 'pause_circle' }}
+                  <mat-icon [class.running]="container.state === 'running'">
+                    {{ container.state === 'running' ? 'play_circle' : 'pause_circle' }}
                   </mat-icon>
                   <div class="container-info">
                     <span class="container-name">{{ container.name }}</span>
                     <span class="container-status">{{ container.status }}</span>
                   </div>
-                  @if (container.status === 'running') {
+                  @if (container.state === 'running') {
                     <button mat-stroked-button (click)="connectToContainer(container)">
                       Connect
                     </button>
