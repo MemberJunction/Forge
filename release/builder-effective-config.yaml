@@ -1,0 +1,77 @@
+directories:
+  output: release
+  buildResources: resources
+appId: com.memberjunction.mj-forge
+productName: MJ Forge
+copyright: Copyright © 2024 MemberJunction
+extends: null
+files:
+  - filter:
+      - packages/main/dist/**/*
+      - packages/main/package.json
+      - packages/preload/dist/**/*
+      - packages/preload/package.json
+      - packages/renderer/dist/browser/**/*
+      - packages/shared/dist/**/*
+      - packages/shared/package.json
+      - package.json
+      - node_modules/**/*
+      - '!node_modules/.cache'
+      - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
+      - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
+      - '!**/node_modules/.bin'
+      - '!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}'
+      - '!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}'
+      - '!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}'
+      - '!**/{appveyor.yml,.travis.yml,circle.yml}'
+      - '!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}'
+      - '!**/node_modules/@angular-devkit/**'
+      - '!**/node_modules/@angular/cli/**'
+      - '!**/node_modules/typescript/**'
+      - '!**/node_modules/karma*/**'
+      - '!**/node_modules/jasmine*/**'
+extraResources:
+  - from: resources/
+    to: resources/
+    filter:
+      - '**/*'
+      - '!*.plist'
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  darkModeSupport: true
+  extendInfo:
+    NSRequiresAquaSystemAppearance: false
+dmg:
+  artifactName: ${productName}-${version}-${arch}.dmg
+  contents:
+    - x: 130
+      'y': 220
+    - x: 410
+      'y': 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+publish: null
+npmRebuild: true
+nodeGypRebuild: false
+asar: true
+asarUnpack:
+  - '**/*.node'
+  - '**/keytar/**/*'
+electronVersion: 33.4.11
