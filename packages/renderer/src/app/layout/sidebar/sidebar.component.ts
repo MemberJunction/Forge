@@ -29,6 +29,10 @@ import {
   RenameDatabaseDialogData,
 } from '../../shared/components/rename-database-dialog/rename-database-dialog.component';
 import {
+  CreateDatabaseDialogComponent,
+  CreateDatabaseDialogData,
+} from '../../shared/components/create-database-dialog/create-database-dialog.component';
+import {
   ConnectionDialogComponent,
   ConnectionDialogData,
 } from '../../shared/components/connection-dialog/connection-dialog.component';
@@ -640,6 +644,16 @@ export class SidebarComponent {
           }
         },
       },
+      {
+        id: 'new-database',
+        label: 'New Database...',
+        icon: 'add_circle',
+        action: () => {
+          if (node.connectionId) {
+            this.openCreateDatabaseDialog(node.connectionId);
+          }
+        },
+      },
       { id: 'div1', label: '', divider: true },
       {
         id: 'refresh',
@@ -1157,7 +1171,32 @@ export class SidebarComponent {
     ];
   }
 
-  // Database rename/delete dialog methods
+  // Database create/rename/delete dialog methods
+  private openCreateDatabaseDialog(connectionId: string): void {
+    const dialogData: CreateDatabaseDialogData = {
+      connectionId,
+    };
+
+    const dialogRef = this.dialog.open(CreateDatabaseDialogComponent, {
+      data: dialogData,
+      width: '450px',
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result?.success && result.databaseName) {
+        // Refresh the database list
+        this.connectionState.loadDatabases();
+        // Refresh explorer tree
+        const serverNode = this.explorerState
+          .rootNodes()
+          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
+        if (serverNode) {
+          this.explorerState.refreshNode(serverNode.id);
+        }
+      }
+    });
+  }
+
   private openRenameDatabaseDialog(connectionId: string, databaseName: string): void {
     const dialogData: RenameDatabaseDialogData = {
       connectionId,
