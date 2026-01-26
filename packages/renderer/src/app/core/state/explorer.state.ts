@@ -15,6 +15,7 @@ import { firstValueFrom } from 'rxjs';
 export type NodeType =
   | 'server'
   | 'database'
+  | 'schema'
   | 'folder'
   | 'table'
   | 'view'
@@ -84,6 +85,7 @@ export class ExplorerStateService {
   private readonly iconMap: Record<string, string> = {
     server: 'dns',
     database: 'database-cylinder',
+    schema: 'folder_special',
     folder: 'folder',
     table: 'table_chart',
     view: 'view_list',
@@ -241,16 +243,23 @@ export class ExplorerStateService {
     }
 
     if (node.type === 'database' && node.databaseName) {
-      // Return folder nodes for database objects
-      return this.getDatabaseFolders(node.connectionId, node.databaseName);
+      // Load schemas for the database (filtered to exclude system schemas)
+      return this.loadSchemas(node);
     }
 
-    if (node.type === 'folder' && node.databaseName) {
-      // Load objects from the folder
+    if (node.type === 'schema' && node.databaseName && node.schema) {
+      // Return folder nodes for schema objects
+      return this.getSchemaFolders(node.connectionId!, node.databaseName, node.schema);
+    }
+
+    if (node.type === 'folder' && node.databaseName && node.schema) {
+      // Load objects from the folder, filtered by schema
       const objects = await firstValueFrom(
-        this.ipc.getExplorerChildren(node.connectionId, node.databaseName, node.path)
+        this.ipc.getExplorerChildren(node.connectionId!, node.databaseName, node.path)
       );
-      return objects.map(obj => this.metadataToNode(obj, node));
+      // Filter objects by schema
+      const filteredObjects = objects.filter(obj => obj.schema === node.schema);
+      return filteredObjects.map(obj => this.metadataToNode(obj, node));
     }
 
     // Table sub-folders
@@ -482,7 +491,30 @@ export class ExplorerStateService {
     return type;
   }
 
-  private getDatabaseFolders(connectionId: string, databaseName: string): TreeNode[] {
+  private async loadSchemas(node: TreeNode): Promise<TreeNode[]> {
+    if (!node.connectionId || !node.databaseName) return [];
+
+    // Use existing GET_CHILDREN handler with path='schemas'
+    const schemas = await firstValueFrom(
+      this.ipc.getExplorerChildren(node.connectionId, node.databaseName, 'schemas')
+    );
+
+    return schemas.map(schema => ({
+      id: `schema-${node.connectionId}-${node.databaseName}-${schema.name}`,
+      name: schema.name,
+      type: 'schema' as NodeType,
+      icon: this.iconMap['schema'],
+      path: schema.name,
+      hasChildren: true,
+      isExpanded: false,
+      isLoading: false,
+      connectionId: node.connectionId,
+      databaseName: node.databaseName,
+      schema: schema.name,
+    }));
+  }
+
+  private getSchemaFolders(connectionId: string, databaseName: string, schema: string): TreeNode[] {
     const folders = [
       { name: 'Tables', type: 'tables', icon: 'table_chart' },
       { name: 'Views', type: 'views', icon: 'view_list' },
@@ -491,7 +523,7 @@ export class ExplorerStateService {
     ];
 
     return folders.map(folder => ({
-      id: `folder-${connectionId}-${databaseName}-${folder.type}`,
+      id: `folder-${connectionId}-${databaseName}-${schema}-${folder.type}`,
       name: folder.name,
       type: 'folder' as const,
       icon: folder.icon,
@@ -501,6 +533,7 @@ export class ExplorerStateService {
       isLoading: false,
       connectionId,
       databaseName,
+      schema,
     }));
   }
 
@@ -511,7 +544,8 @@ export class ExplorerStateService {
 
     return {
       id: `obj-${parent.connectionId}-${parent.databaseName}-${metadata.schema}.${metadata.name}`,
-      name: metadata.schema ? `${metadata.schema}.${metadata.name}` : metadata.name,
+      // Just show the name since we're already grouped by schema
+      name: metadata.name,
       type,
       icon: this.iconMap[type] || 'description',
       path: `${parent.path}/${metadata.schema}.${metadata.name}`,

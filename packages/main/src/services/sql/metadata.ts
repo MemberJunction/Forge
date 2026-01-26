@@ -5,6 +5,7 @@
 
 import type {
   DatabaseInfo,
+  SchemaInfo,
   TableInfo,
   ViewInfo,
   ProcedureInfo,
@@ -25,6 +26,7 @@ import { ConnectionPoolManager } from './connection-pool';
 export class MetadataService extends BaseSingleton {
   private poolManager: ConnectionPoolManager;
   private databaseCache: ObjectCache<DatabaseInfo[]>;
+  private schemaCache: ObjectCache<SchemaInfo[]>;
   private tableCache: ObjectCache<TableInfo[]>;
   private viewCache: ObjectCache<ViewInfo[]>;
   private procedureCache: ObjectCache<ProcedureInfo[]>;
@@ -35,6 +37,7 @@ export class MetadataService extends BaseSingleton {
 
     // Caches with 1 minute TTL
     this.databaseCache = new ObjectCache({ ttlMs: 60000 });
+    this.schemaCache = new ObjectCache({ ttlMs: 60000 });
     this.tableCache = new ObjectCache({ ttlMs: 60000 });
     this.viewCache = new ObjectCache({ ttlMs: 60000 });
     this.procedureCache = new ObjectCache({ ttlMs: 60000 });
@@ -66,6 +69,35 @@ export class MetadataService extends BaseSingleton {
 
     this.databaseCache.set(cacheKey, databases);
     return databases;
+  }
+
+  /**
+   * List schemas in a database (excluding system schemas)
+   */
+  async listSchemas(
+    connectionId: string,
+    database: string,
+    forceRefresh = false
+  ): Promise<SchemaInfo[]> {
+    const cacheKey = `schemas:${connectionId}:${database}`;
+
+    if (!forceRefresh) {
+      const cached = this.schemaCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    const sql = TsqlBuilder.listSchemas(database);
+    const result = await this.poolManager.query<SchemaInfo>(connectionId, sql);
+
+    const schemas = result.recordset.map(row => ({
+      ...row,
+      isSystem: Boolean(row.isSystem),
+    }));
+
+    this.schemaCache.set(cacheKey, schemas);
+    return schemas;
   }
 
   /**

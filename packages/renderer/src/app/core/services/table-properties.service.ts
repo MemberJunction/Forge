@@ -11,6 +11,7 @@ export interface TablePropertiesRequest {
   databaseName: string;
   schema: string;
   tableName: string;
+  objectType?: 'table' | 'view' | 'procedure' | 'function';
 }
 
 @Injectable({ providedIn: 'root' })

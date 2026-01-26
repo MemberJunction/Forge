@@ -59,6 +59,12 @@ export type CreateDatabaseResult = DatabaseOperationResult;
 export type RenameDatabaseResult = DatabaseOperationResult;
 export type DeleteDatabaseResult = DatabaseOperationResult;
 
+export interface SchemaInfo {
+  name: string;
+  owner?: string;
+  isSystem: boolean;
+}
+
 export interface TableInfo {
   schema: string;
   name: string;

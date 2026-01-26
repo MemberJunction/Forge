@@ -4,6 +4,7 @@ import type {
   ConnectionProfile,
   TestConnectionResult,
   DatabaseInfo,
+  SchemaInfo,
   CreateDatabaseOptions,
   RenameDatabaseOptions,
   DeleteDatabaseOptions,
@@ -103,6 +104,7 @@ export interface ForgeAPI {
   };
 
   explorer: {
+    listSchemas: (connectionId: string, databaseName: string) => Promise<SchemaInfo[]>;
     getChildren: (
       connectionId: string,
       databaseName: string,
@@ -445,6 +447,8 @@ const forgeAPI: ForgeAPI = {
   },
 
   explorer: {
+    listSchemas: (connectionId, databaseName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.EXPLORER.LIST_SCHEMAS, connectionId, databaseName),
     getChildren: (connectionId, databaseName, parentPath) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.EXPLORER.GET_CHILDREN,
