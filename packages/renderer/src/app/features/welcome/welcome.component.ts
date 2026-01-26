@@ -1,12 +1,16 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService } from '../../core/state/explorer.state';
 import { IpcService } from '../../core/services/ipc.service';
+import {
+  ConnectionDialogComponent,
+  ConnectionDialogData,
+} from '../../shared/components/connection-dialog/connection-dialog.component';
 import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
 
 @Component({
@@ -369,7 +373,7 @@ export class WelcomeComponent implements OnInit {
   readonly connectionState = inject(ConnectionStateService);
   private readonly explorerState = inject(ExplorerStateService);
   private readonly ipc = inject(IpcService);
-  private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
 
   dockerStatus: DockerStatus | null = null;
   sqlContainers: DockerContainer[] = [];
@@ -405,7 +409,10 @@ export class WelcomeComponent implements OnInit {
   }
 
   newConnection(): void {
-    this.router.navigate(['/connections']);
+    this.dialog.open(ConnectionDialogComponent, {
+      data: {} as ConnectionDialogData,
+      width: '540px',
+    });
   }
 
   reconnect(): void {
@@ -431,12 +438,13 @@ export class WelcomeComponent implements OnInit {
   }
 
   connectToContainer(container: DockerContainer): void {
-    // Navigate to connections with container info pre-filled
-    this.router.navigate(['/connections'], {
-      queryParams: {
+    // Open connection dialog with container info pre-filled
+    this.dialog.open(ConnectionDialogComponent, {
+      data: {
         server: 'localhost',
         port: container.ports?.[0]?.external || 1433,
-      },
+      } as ConnectionDialogData,
+      width: '540px',
     });
   }
 
