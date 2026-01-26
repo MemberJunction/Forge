@@ -1,7 +1,11 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
+import { v4 as uuidv4 } from 'uuid';
+import { IpcService } from '../services/ipc.service';
+import type { TabState } from '@mj-forge/shared';
+import { firstValueFrom } from 'rxjs';
 
-export type TabType = 'query' | 'results' | 'object' | 'welcome';
+export type TabType = 'query' | 'results' | 'object' | 'welcome' | 'erd';
 
 export interface Tab {
   id: string;
@@ -12,12 +16,15 @@ export interface Tab {
   databaseName?: string;
   content?: string; // For query tabs, the SQL content
   isDirty?: boolean;
+  isPinned?: boolean; // For GoldenLayout, whether tab is pinned
   autoExecute?: boolean; // For query tabs, execute immediately when opened
   metadata?: Record<string, unknown>;
 }
 
 @Injectable({ providedIn: 'root' })
 export class TabStateService {
+  private readonly ipc = inject(IpcService);
+
   private readonly _tabs = signal<Tab[]>([
     {
       id: 'welcome',
@@ -45,13 +52,35 @@ export class TabStateService {
   readonly tabs$ = toObservable(this.tabs);
   readonly activeTab$ = toObservable(this.activeTab);
 
-  private tabCounter = 0;
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Generate a unique tab ID using UUID v4
+   */
+  private generateTabId(): string {
+    return `tab-${uuidv4()}`;
+  }
+
+  /**
+   * Schedule a debounced save of tabs
+   */
+  private scheduleSave(): void {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+    }
+    this.saveTimeout = setTimeout(() => {
+      this.saveTabs();
+      this.saveTimeout = null;
+    }, 500);
+  }
 
   openTab(tab: Omit<Tab, 'id'>): string {
-    const id = `tab-${++this.tabCounter}`;
+    const id = this.generateTabId();
     const newTab: Tab = { ...tab, id };
     this._tabs.update(tabs => [...tabs, newTab]);
     this._activeTabId.set(id);
+    // Auto-save tabs
+    this.saveTabs();
     return id;
   }
 
@@ -76,6 +105,8 @@ export class TabStateService {
         this._activeTabId.set(newTabs[newIndex].id);
       }
     }
+    // Auto-save tabs
+    this.saveTabs();
   }
 
   activateTab(tabId: string): void {
@@ -87,6 +118,10 @@ export class TabStateService {
 
   updateTab(tabId: string, updates: Partial<Tab>): void {
     this._tabs.update(tabs => tabs.map(t => (t.id === tabId ? { ...t, ...updates } : t)));
+    // Debounced save for content updates
+    if (updates.content !== undefined) {
+      this.scheduleSave();
+    }
   }
 
   setTabDirty(tabId: string, isDirty: boolean): void {
@@ -95,6 +130,44 @@ export class TabStateService {
 
   setTabContent(tabId: string, content: string): void {
     this.updateTab(tabId, { content, isDirty: true });
+  }
+
+  /**
+   * Toggle pin state for a tab
+   */
+  togglePin(tabId: string): void {
+    const tab = this._tabs().find(t => t.id === tabId);
+    if (tab) {
+      this.updateTab(tabId, { isPinned: !tab.isPinned });
+      this.saveTabs();
+    }
+  }
+
+  /**
+   * Pin a specific tab
+   */
+  pinTab(tabId: string): void {
+    this.updateTab(tabId, { isPinned: true });
+    this.saveTabs();
+  }
+
+  /**
+   * Unpin a specific tab
+   */
+  unpinTab(tabId: string): void {
+    this.updateTab(tabId, { isPinned: false });
+    this.saveTabs();
+  }
+
+  /**
+   * Rename a tab
+   */
+  renameTab(tabId: string, newTitle: string): void {
+    const tab = this._tabs().find(t => t.id === tabId);
+    if (tab && newTitle.trim()) {
+      this.updateTab(tabId, { title: newTitle.trim() });
+      this.saveTabs();
+    }
   }
 
   openQueryTab(
@@ -152,6 +225,49 @@ export class TabStateService {
     });
   }
 
+  /**
+   * Open an ERD (Entity Relationship Diagram) tab
+   * @param connectionId The connection ID
+   * @param databaseName The database name
+   * @param tableName Optional table name to focus on
+   * @param schema Optional schema name (defaults to 'dbo')
+   */
+  openErdTab(
+    connectionId: string,
+    databaseName: string,
+    tableName?: string,
+    schema?: string
+  ): string {
+    // Check if ERD tab already exists for this database/table
+    const existing = this._tabs().find(
+      t =>
+        t.type === 'erd' &&
+        t.connectionId === connectionId &&
+        t.databaseName === databaseName &&
+        t.metadata?.['tableName'] === tableName
+    );
+
+    if (existing) {
+      this._activeTabId.set(existing.id);
+      return existing.id;
+    }
+
+    const title = tableName ? `ERD: ${tableName}` : `ERD: ${databaseName}`;
+
+    return this.openTab({
+      type: 'erd',
+      title,
+      icon: 'account_tree',
+      connectionId,
+      databaseName,
+      metadata: {
+        tableName,
+        schema: schema || 'dbo',
+        focusDepth: tableName ? 2 : undefined, // Show 2 levels of relationships when focused on a table
+      },
+    });
+  }
+
   getDirtyTabs(): Tab[] {
     return this._tabs().filter(t => t.isDirty);
   }
@@ -205,5 +321,127 @@ export class TabStateService {
       constraint: 'link',
     };
     return iconMap[objectType.toLowerCase()] || 'description';
+  }
+
+  /**
+   * Save tabs to persistent storage
+   */
+  async saveTabs(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    try {
+      const tabs = this._tabs();
+      // Only save query tabs (not results, objects, or welcome)
+      const persistableTabs: TabState[] = tabs
+        .filter(t => t.type === 'query')
+        .map(t => ({
+          id: t.id,
+          type: t.type,
+          title: t.title,
+          content: t.content,
+          databaseName: t.databaseName,
+          isDirty: t.isDirty,
+          isPinned: t.isPinned,
+        }));
+
+      await firstValueFrom(this.ipc.saveTabs(persistableTabs, this._activeTabId()));
+    } catch (error) {
+      console.error('Failed to save tabs:', error);
+    }
+  }
+
+  /**
+   * Restore tabs from persistent storage
+   */
+  async restoreTabs(connectionId: string): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    try {
+      const { tabs: savedTabs, activeTabId } = await firstValueFrom(this.ipc.getTabs());
+
+      if (savedTabs.length === 0) return;
+
+      // Convert saved tabs to full Tab objects
+      // Use existing IDs if valid, otherwise generate new UUIDs
+      const restoredTabs: Tab[] = savedTabs.map(t => ({
+        id: t.id || this.generateTabId(),
+        type: t.type as TabType,
+        title: t.title,
+        icon: t.type === 'query' ? 'code' : 'description',
+        connectionId,
+        databaseName: t.databaseName,
+        content: t.content,
+        isDirty: t.isDirty,
+        isPinned: t.isPinned,
+      }));
+
+      // Add welcome tab if not present
+      const hasWelcome = this._tabs().some(t => t.type === 'welcome');
+      if (hasWelcome) {
+        const welcomeTab = this._tabs().find(t => t.type === 'welcome')!;
+        this._tabs.set([welcomeTab, ...restoredTabs]);
+      } else {
+        this._tabs.update(tabs => [...tabs, ...restoredTabs]);
+      }
+
+      // Restore active tab if it exists
+      if (activeTabId && this._tabs().some(t => t.id === activeTabId)) {
+        this._activeTabId.set(activeTabId);
+      }
+    } catch (error) {
+      console.error('Failed to restore tabs:', error);
+    }
+  }
+
+  /**
+   * Sync tabs from GoldenLayout component states.
+   * This ensures TabStateService has all tabs that the layout references.
+   * @param layoutTabStates Tab states extracted from saved GoldenLayout config
+   */
+  syncTabsFromLayout(
+    layoutTabStates: Array<{
+      tabId: string;
+      tabType: string;
+      title: string;
+      icon: string;
+      isPinned: boolean;
+      connectionId?: string;
+      databaseName?: string;
+      configuration: Record<string, unknown>;
+    }>
+  ): void {
+    const currentTabs = this._tabs();
+    const tabsToAdd: Tab[] = [];
+
+    for (const state of layoutTabStates) {
+      // Check if tab already exists
+      const existing = currentTabs.find(t => t.id === state.tabId);
+      if (!existing) {
+        // Create tab from layout state
+        const newTab: Tab = {
+          id: state.tabId,
+          type: state.tabType as TabType,
+          title: state.title,
+          icon: state.icon,
+          connectionId: state.connectionId,
+          databaseName: state.databaseName,
+          isPinned: state.isPinned,
+          content: state.configuration?.['content'] as string | undefined,
+          autoExecute: state.configuration?.['autoExecute'] as boolean | undefined,
+          metadata: { ...state.configuration },
+        };
+        tabsToAdd.push(newTab);
+      } else {
+        // Update existing tab with layout state (especially isPinned)
+        this.updateTab(state.tabId, {
+          isPinned: state.isPinned,
+          title: state.title,
+        });
+      }
+    }
+
+    if (tabsToAdd.length > 0) {
+      this._tabs.update(tabs => [...tabs, ...tabsToAdd]);
+    }
   }
 }

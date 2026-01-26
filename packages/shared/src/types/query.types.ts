@@ -126,3 +126,25 @@ export interface ExportResult {
   error?: string;
   rowsExported?: number;
 }
+
+/**
+ * Request to fetch a foreign key referenced record
+ */
+export interface FkRecordRequest {
+  connectionId: string;
+  database: string;
+  schema: string;
+  table: string;
+  column: string;
+  value: unknown;
+}
+
+/**
+ * Result of fetching a foreign key referenced record
+ */
+export interface FkRecordResult {
+  success: boolean;
+  record?: Record<string, unknown>;
+  columns?: ColumnMetadata[];
+  error?: string;
+}

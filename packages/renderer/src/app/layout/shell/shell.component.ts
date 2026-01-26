@@ -1,9 +1,8 @@
 import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterOutlet } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { SidebarComponent } from '../sidebar/sidebar.component';
-import { TabBarComponent } from '../tab-bar/tab-bar.component';
+import { GoldenLayoutContainerComponent } from '../golden-layout-container/golden-layout-container.component';
 import { StatusBarComponent } from '../status-bar/status-bar.component';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { MenuService } from '../../core/services/menu.service';
@@ -11,17 +10,14 @@ import { MenuService } from '../../core/services/menu.service';
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, SidebarComponent, TabBarComponent, StatusBarComponent],
+  imports: [CommonModule, SidebarComponent, GoldenLayoutContainerComponent, StatusBarComponent],
   template: `
     <div class="shell">
       @if (!sidebarHidden()) {
         <app-sidebar class="sidebar" />
       }
       <div class="main-area">
-        <app-tab-bar class="tab-bar" />
-        <div class="content-area">
-          <router-outlet />
-        </div>
+        <app-golden-layout-container class="content-area" />
         <app-status-bar class="status-bar" />
       </div>
     </div>
@@ -53,16 +49,9 @@ import { MenuService } from '../../core/services/menu.service';
         height: 100%;
       }
 
-      .tab-bar {
-        flex-shrink: 0;
-        height: var(--tab-height);
-        border-bottom: 1px solid var(--border-primary);
-        background-color: var(--bg-tertiary);
-      }
-
       .content-area {
         flex: 1;
-        overflow: auto;
+        overflow: hidden;
         background-color: var(--bg-primary);
       }
 

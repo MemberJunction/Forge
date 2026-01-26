@@ -17,8 +17,12 @@ import type {
   ExportOptions,
   ExportResult,
   ResultSet,
+  FkRecordRequest,
+  FkRecordResult,
   BackupRequest,
   BackupProgress,
+  BackupFileInfo,
+  BackupHistoryEntry,
   RestoreRequest,
   RestoreProgress,
   DockerStatus,
@@ -31,6 +35,33 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  AppState,
+  TabState,
+  FileTreeNode,
+  WorkspaceInfo,
+  LayoutConfig,
+  // Query Results types
+  QueryResultSnapshot,
+  QueryResultHistoryFilter,
+  ResultHistorySortOptions,
+  PurgeOptions,
+  PurgeResult,
+  ResultStorageStats,
+  ResultDiff,
+  DiffOptions,
+  // AI types
+  AIVendor,
+  AISettings,
+  TabRenameRequest,
+  TabRenameResponse,
+  AnalysisRequest,
+  AnalysisResponse,
+  SQLGenerationRequest,
+  SQLGenerationResponse,
+  // Server file system types
+  ServerDrive,
+  ServerFileEntry,
+  ServerDefaultPaths,
 } from '@mj-forge/shared';
 
 /**
@@ -176,11 +207,63 @@ export interface ForgeAPI {
     clearHistory: () => Promise<void>;
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
+    fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
+  };
+
+  queryResults: {
+    saveSnapshot: (
+      tabId: string,
+      sql: string,
+      connectionId: string,
+      database: string,
+      result: QueryResult
+    ) => Promise<QueryResultSnapshot>;
+    getSnapshots: (
+      filter?: QueryResultHistoryFilter,
+      sort?: ResultHistorySortOptions
+    ) => Promise<QueryResultSnapshot[]>;
+    getSnapshot: (id: string) => Promise<QueryResultSnapshot | null>;
+    deleteSnapshot: (id: string) => Promise<boolean>;
+    deleteSnapshots: (ids: string[]) => Promise<number>;
+    pinSnapshot: (id: string) => Promise<boolean>;
+    unpinSnapshot: (id: string) => Promise<boolean>;
+    labelSnapshot: (id: string, label: string) => Promise<boolean>;
+    getStorageStats: () => Promise<ResultStorageStats>;
+    purge: (options: PurgeOptions) => Promise<PurgeResult>;
+    compareSnapshots: (
+      baseId: string,
+      compareId: string,
+      options?: DiffOptions
+    ) => Promise<ResultDiff | null>;
+  };
+
+  ai: {
+    getVendors: () => Promise<AIVendor[]>;
+    getSettings: () => Promise<AISettings>;
+    setSettings: (settings: Partial<AISettings>) => Promise<AISettings>;
+    setApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    removeApiKey: (vendorId: string) => Promise<boolean>;
+    validateApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    generateTabName: (request: TabRenameRequest) => Promise<TabRenameResponse>;
+    analyzeResults: (request: AnalysisRequest) => Promise<AnalysisResponse>;
+    generateSQL: (request: SQLGenerationRequest) => Promise<SQLGenerationResponse>;
+    cancelRequest: (requestId: string) => Promise<boolean>;
+  };
+
+  serverFs: {
+    getDrives: (connectionId: string) => Promise<ServerDrive[]>;
+    listDirectory: (
+      connectionId: string,
+      path: string,
+      includeFiles?: boolean
+    ) => Promise<ServerFileEntry[]>;
+    getDefaultPaths: (connectionId: string) => Promise<ServerDefaultPaths>;
   };
 
   backup: {
     start: (request: BackupRequest) => Promise<void>;
     cancel: (backupId: string) => Promise<void>;
+    getHistory: (connectionId: string, databaseName?: string) => Promise<BackupHistoryEntry[]>;
     onProgress: (callback: (progress: BackupProgress) => void) => () => void;
   };
 
@@ -191,6 +274,7 @@ export interface ForgeAPI {
       connectionId: string,
       backupPath: string
     ) => Promise<{ logicalName: string; physicalName: string; type: string }[]>;
+    getBackupInfo: (connectionId: string, backupPath: string) => Promise<BackupFileInfo>;
     onProgress: (callback: (progress: RestoreProgress) => void) => () => void;
   };
 
@@ -203,6 +287,25 @@ export interface ForgeAPI {
     showSaveDialog: (
       options: Electron.SaveDialogOptions
     ) => Promise<Electron.SaveDialogReturnValue>;
+    // State persistence
+    getState: () => Promise<AppState>;
+    setState: (partial: Partial<AppState>) => Promise<void>;
+    saveTabs: (tabs: TabState[], activeTabId: string | null) => Promise<void>;
+    getTabs: () => Promise<{ tabs: TabState[]; activeTabId: string | null }>;
+    // GoldenLayout persistence
+    saveLayout: (config: LayoutConfig | undefined) => Promise<void>;
+    getLayout: () => Promise<LayoutConfig | undefined>;
+  };
+
+  workspace: {
+    openFolder: (path: string) => Promise<WorkspaceInfo>;
+    getFiles: (path: string) => Promise<FileTreeNode[]>;
+    readFile: (filePath: string) => Promise<string>;
+    writeFile: (filePath: string, content: string) => Promise<void>;
+    createFile: (filePath: string, content?: string) => Promise<void>;
+    deleteFile: (filePath: string) => Promise<void>;
+    renameFile: (oldPath: string, newPath: string) => Promise<void>;
+    onFileChanged: (callback: (event: { filePath: string; type: string }) => void) => () => void;
   };
 
   menu: {
@@ -450,11 +553,62 @@ const forgeAPI: ForgeAPI = {
     deleteHistoryEntry: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY.DELETE_HISTORY_ENTRY, id),
     exportResults: (resultSet, options) =>
       ipcRenderer.invoke(IPC_CHANNELS.QUERY.EXPORT_RESULTS, resultSet, options),
+    fetchFkRecord: request => ipcRenderer.invoke(IPC_CHANNELS.QUERY.FETCH_FK_RECORD, request),
+  },
+
+  queryResults: {
+    saveSnapshot: (tabId, sql, connectionId, database, result) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.QUERY_RESULTS.SAVE_SNAPSHOT,
+        tabId,
+        sql,
+        connectionId,
+        database,
+        result
+      ),
+    getSnapshots: (filter, sort) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.GET_SNAPSHOTS, filter, sort),
+    getSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.GET_SNAPSHOT, id),
+    deleteSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.DELETE_SNAPSHOT, id),
+    deleteSnapshots: ids => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.DELETE_SNAPSHOTS, ids),
+    pinSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.PIN_SNAPSHOT, id),
+    unpinSnapshot: id => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.UNPIN_SNAPSHOT, id),
+    labelSnapshot: (id, label) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.LABEL_SNAPSHOT, id, label),
+    getStorageStats: () => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.GET_STORAGE_STATS),
+    purge: options => ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.PURGE, options),
+    compareSnapshots: (baseId, compareId, options) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY_RESULTS.COMPARE_SNAPSHOTS, baseId, compareId, options),
+  },
+
+  ai: {
+    getVendors: () => ipcRenderer.invoke(IPC_CHANNELS.AI.GET_VENDORS),
+    getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.AI.GET_SETTINGS),
+    setSettings: settings => ipcRenderer.invoke(IPC_CHANNELS.AI.SET_SETTINGS, settings),
+    setApiKey: (vendorId, apiKey) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI.SET_API_KEY, vendorId, apiKey),
+    removeApiKey: vendorId => ipcRenderer.invoke(IPC_CHANNELS.AI.REMOVE_API_KEY, vendorId),
+    validateApiKey: (vendorId, apiKey) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI.VALIDATE_API_KEY, vendorId, apiKey),
+    generateTabName: request => ipcRenderer.invoke(IPC_CHANNELS.AI.GENERATE_TAB_NAME, request),
+    analyzeResults: request => ipcRenderer.invoke(IPC_CHANNELS.AI.ANALYZE_RESULTS, request),
+    generateSQL: request => ipcRenderer.invoke(IPC_CHANNELS.AI.GENERATE_SQL, request),
+    cancelRequest: requestId => ipcRenderer.invoke(IPC_CHANNELS.AI.CANCEL_REQUEST, requestId),
+  },
+
+  serverFs: {
+    getDrives: connectionId => ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.GET_DRIVES, connectionId),
+    listDirectory: (connectionId, path, includeFiles) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.LIST_DIRECTORY, connectionId, path, includeFiles),
+    getDefaultPaths: connectionId =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.GET_DEFAULT_PATHS, connectionId),
   },
 
   backup: {
     start: request => ipcRenderer.invoke(IPC_CHANNELS.BACKUP.START, request),
     cancel: backupId => ipcRenderer.invoke(IPC_CHANNELS.BACKUP.CANCEL, backupId),
+    getHistory: (connectionId, databaseName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BACKUP.GET_HISTORY, connectionId, databaseName),
     onProgress: callback => createEventListener(IPC_CHANNELS.BACKUP.PROGRESS, callback),
   },
 
@@ -463,6 +617,8 @@ const forgeAPI: ForgeAPI = {
     cancel: restoreId => ipcRenderer.invoke(IPC_CHANNELS.RESTORE.CANCEL, restoreId),
     getFileList: (connectionId, backupPath) =>
       ipcRenderer.invoke(IPC_CHANNELS.RESTORE.GET_FILE_LIST, connectionId, backupPath),
+    getBackupInfo: (connectionId, backupPath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESTORE.GET_BACKUP_INFO, connectionId, backupPath),
     onProgress: callback => createEventListener(IPC_CHANNELS.RESTORE.PROGRESS, callback),
   },
 
@@ -471,6 +627,29 @@ const forgeAPI: ForgeAPI = {
     openExternal: url => ipcRenderer.invoke(IPC_CHANNELS.APP.OPEN_EXTERNAL, url),
     showOpenDialog: options => ipcRenderer.invoke(IPC_CHANNELS.APP.SHOW_OPEN_DIALOG, options),
     showSaveDialog: options => ipcRenderer.invoke(IPC_CHANNELS.APP.SHOW_SAVE_DIALOG, options),
+    // State persistence
+    getState: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_STATE),
+    setState: partial => ipcRenderer.invoke(IPC_CHANNELS.APP.SET_STATE, partial),
+    saveTabs: (tabs, activeTabId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_TABS, tabs, activeTabId),
+    getTabs: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_TABS),
+    // GoldenLayout persistence
+    saveLayout: config => ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_LAYOUT, config),
+    getLayout: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_LAYOUT),
+  },
+
+  workspace: {
+    openFolder: path => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, path),
+    getFiles: path => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.GET_FILES, path),
+    readFile: filePath => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.READ_FILE, filePath),
+    writeFile: (filePath, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.WRITE_FILE, filePath, content),
+    createFile: (filePath, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.CREATE_FILE, filePath, content),
+    deleteFile: filePath => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.DELETE_FILE, filePath),
+    renameFile: (oldPath, newPath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.RENAME_FILE, oldPath, newPath),
+    onFileChanged: callback => createEventListener(IPC_CHANNELS.WORKSPACE.FILE_CHANGED, callback),
   },
 
   menu: {

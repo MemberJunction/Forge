@@ -6,6 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatDialog } from '@angular/material/dialog';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state';
 import { TabStateService } from '../../core/state/tab.state';
@@ -15,6 +16,18 @@ import { TablePropertiesService } from '../../core/services/table-properties.ser
 import { IpcService } from '../../core/services/ipc.service';
 import { ConfirmDialogComponent } from '../../shared/components/dialog/confirm-dialog.component';
 import { InputDialogComponent } from '../../shared/components/dialog/input-dialog.component';
+import {
+  BackupDialogComponent,
+  BackupDialogData,
+} from '../../shared/components/backup-dialog/backup-dialog.component';
+import {
+  RestoreDialogComponent,
+  RestoreDialogData,
+} from '../../shared/components/restore-dialog/restore-dialog.component';
+import {
+  RenameDatabaseDialogComponent,
+  RenameDatabaseDialogData,
+} from '../../shared/components/rename-database-dialog/rename-database-dialog.component';
 
 @Component({
   selector: 'app-sidebar',
@@ -84,7 +97,7 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
             class="database-button"
             [disabled]="connectionState.loadingDatabases()"
           >
-            <mat-icon>storage</mat-icon>
+            <mat-icon svgIcon="database-cylinder"></mat-icon>
             <span class="database-name">
               {{ connectionState.selectedDatabase() || 'Select Database' }}
             </span>
@@ -97,9 +110,11 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
                 (click)="selectDatabase(db.name)"
                 [class.active]="db.name === connectionState.selectedDatabase()"
               >
-                <mat-icon>{{
-                  db.name === connectionState.selectedDatabase() ? 'check' : 'storage'
-                }}</mat-icon>
+                @if (db.name === connectionState.selectedDatabase()) {
+                  <mat-icon>check</mat-icon>
+                } @else {
+                  <mat-icon svgIcon="database-cylinder"></mat-icon>
+                }
                 <span>{{ db.name }}</span>
               </button>
             }
@@ -150,7 +165,15 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
           } @else {
             <span class="expand-placeholder"></span>
           }
-          <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
+          @if (node.icon === 'database-cylinder') {
+            <mat-icon
+              class="node-icon"
+              [class]="'icon-' + node.type"
+              svgIcon="database-cylinder"
+            ></mat-icon>
+          } @else {
+            <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
+          }
           <span class="node-name">{{ node.name }}</span>
         </div>
         @if (node.isExpanded && node.children) {
@@ -317,9 +340,11 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
         padding: 0;
+        margin-right: 4px;
         background: none;
         border: none;
         color: var(--text-secondary);
@@ -337,15 +362,19 @@ import { InputDialogComponent } from '../../shared/components/dialog/input-dialo
       }
 
       .expand-placeholder {
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
+        margin-right: 4px;
       }
 
       .node-icon {
         font-size: 16px;
         width: 16px;
+        min-width: 16px;
         height: 16px;
         margin-right: var(--spacing-xs);
+        flex-shrink: 0;
 
         &.icon-server {
           color: var(--status-info);
@@ -398,6 +427,7 @@ export class SidebarComponent {
   private readonly notification = inject(NotificationService);
   private readonly tableProperties = inject(TablePropertiesService);
   private readonly ipc = inject(IpcService);
+  private readonly dialog = inject(MatDialog);
 
   // State for pending database operations
   private pendingDeleteDatabase: string | null = null;
@@ -467,12 +497,70 @@ export class SidebarComponent {
     }
   }
 
-  openBackup(): void {
-    this.router.navigate(['/backup']);
+  openBackup(databaseName?: string): void {
+    const connectionId = this.connectionState.activeConnectionId();
+    const dbName = databaseName || this.connectionState.selectedDatabase();
+
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    if (!dbName) {
+      this.notification.error('Please select a database first');
+      return;
+    }
+
+    const dialogData: BackupDialogData = {
+      connectionId,
+      databaseName: dbName,
+    };
+
+    const dialogRef = this.dialog.open(BackupDialogComponent, {
+      data: dialogData,
+      width: '650px',
+      disableClose: true,
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result?.success) {
+        // Optionally refresh or show additional notification
+      }
+    });
   }
 
-  openRestore(): void {
-    this.router.navigate(['/restore']);
+  openRestore(databaseName?: string): void {
+    const connectionId = this.connectionState.activeConnectionId();
+
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    const dialogData: RestoreDialogData = {
+      connectionId,
+      databaseName,
+    };
+
+    const dialogRef = this.dialog.open(RestoreDialogComponent, {
+      data: dialogData,
+      width: '750px',
+      disableClose: true,
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result?.success) {
+        // Refresh the database list after restore
+        this.connectionState.loadDatabases();
+        // Refresh explorer tree
+        const serverNode = this.explorerState
+          .rootNodes()
+          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
+        if (serverNode) {
+          this.explorerState.refreshNode(serverNode.id);
+        }
+      }
+    });
   }
 
   onNodeRightClick(node: TreeNode, event: MouseEvent): void {
@@ -563,8 +651,7 @@ export class SidebarComponent {
         icon: 'backup',
         action: () => {
           if (node.databaseName) {
-            this.connectionState.selectDatabase(node.databaseName);
-            this.router.navigate(['/backup']);
+            this.openBackup(node.databaseName);
           }
         },
       },
@@ -573,7 +660,7 @@ export class SidebarComponent {
         label: 'Restore Database...',
         icon: 'restore',
         action: () => {
-          this.router.navigate(['/restore']);
+          this.openRestore(node.databaseName);
         },
       },
       { id: 'div2', label: '', divider: true },
@@ -594,8 +681,8 @@ export class SidebarComponent {
           node.databaseName === 'model' ||
           node.databaseName === 'tempdb',
         action: () => {
-          if (node.databaseName) {
-            this.openRenameDialog(node.databaseName);
+          if (node.databaseName && node.connectionId) {
+            this.openRenameDatabaseDialog(node.connectionId, node.databaseName);
           }
         },
       },
@@ -715,6 +802,24 @@ export class SidebarComponent {
         },
       },
       { id: 'div2', label: '', divider: true },
+      {
+        id: 'show-relationships',
+        label: 'Show Relationships',
+        icon: 'account_tree',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openErdTab(
+              node.connectionId,
+              node.databaseName,
+              node.metadata.name,
+              schema
+            );
+            this.router.navigate(['/erd']);
+          }
+        },
+      },
       {
         id: 'properties',
         label: 'Properties...',
@@ -893,6 +998,36 @@ export class SidebarComponent {
   }
 
   // Database rename/delete dialog methods
+  private openRenameDatabaseDialog(connectionId: string, databaseName: string): void {
+    const dialogData: RenameDatabaseDialogData = {
+      connectionId,
+      databaseName,
+    };
+
+    const dialogRef = this.dialog.open(RenameDatabaseDialogComponent, {
+      data: dialogData,
+      width: '450px',
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result?.success && result.newName) {
+        // Refresh the database list
+        this.connectionState.loadDatabases();
+        // If the renamed database was selected, update selection
+        if (this.connectionState.selectedDatabase() === databaseName) {
+          this.connectionState.selectDatabase(result.newName);
+        }
+        // Refresh explorer tree
+        const serverNode = this.explorerState
+          .rootNodes()
+          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
+        if (serverNode) {
+          this.explorerState.refreshNode(serverNode.id);
+        }
+      }
+    });
+  }
+
   private openRenameDialog(databaseName: string): void {
     this.pendingRenameDatabase = databaseName;
     this.renameDialog.open({

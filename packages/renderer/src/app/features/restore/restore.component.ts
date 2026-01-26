@@ -645,7 +645,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
       .filter(f => f.newPath !== f.physicalName)
       .map(f => ({
         logicalName: f.logicalName,
-        newPath: f.newPath,
+        physicalName: f.newPath,
       }));
 
     const request: RestoreRequest = {

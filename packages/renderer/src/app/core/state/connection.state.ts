@@ -1,8 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
-import type { ConnectionProfile, DatabaseInfo } from '@mj-forge/shared';
+import type { ConnectionProfile, DatabaseInfo, AppState } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { NotificationService } from '../services/notification.service';
+import { ExplorerStateService } from './explorer.state';
 import { firstValueFrom } from 'rxjs';
 
 export interface ConnectionState {
@@ -18,6 +19,7 @@ export interface ConnectionState {
 export class ConnectionStateService {
   private readonly ipc = inject(IpcService);
   private readonly notification = inject(NotificationService);
+  private readonly explorerState = inject(ExplorerStateService);
 
   // State signals
   private readonly _profiles = signal<ConnectionProfile[]>([]);
@@ -126,6 +128,8 @@ export class ConnectionStateService {
       this._activeConnectionId.set(profileId);
       this.notification.success(`Connected to ${profile.name}`);
       await this.loadDatabases();
+      // Save connection state for persistence
+      this.saveState();
       return true;
     } catch (error) {
       this.notification.error('Failed to connect');
@@ -146,6 +150,8 @@ export class ConnectionStateService {
       this._databases.set([]);
       this._selectedDatabase.set(null);
       this.notification.info('Disconnected');
+      // Clear saved connection state
+      this.saveState();
     } catch (error) {
       console.error('Error disconnecting:', error);
       // Still clear state even if disconnect fails
@@ -173,9 +179,68 @@ export class ConnectionStateService {
 
   selectDatabase(name: string | null): void {
     this._selectedDatabase.set(name);
+    // Save database selection for persistence
+    this.saveState();
   }
 
   getProfile(id: string): ConnectionProfile | undefined {
     return this._profiles().find(p => p.id === id);
+  }
+
+  /**
+   * Initialize state from saved app state
+   * Should be called on app startup
+   */
+  async restoreState(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    try {
+      const state = await firstValueFrom(this.ipc.getAppState());
+
+      // Restore connection if there was one
+      if (state.lastConnectionId) {
+        // First ensure profiles are loaded
+        if (this._profiles().length === 0) {
+          await this.loadProfiles();
+        }
+
+        // Check if the profile still exists
+        const profile = this._profiles().find(p => p.id === state.lastConnectionId);
+        if (profile) {
+          const connected = await this.connect(state.lastConnectionId);
+          if (connected) {
+            // Add server node to explorer and expand it
+            this.explorerState.addServerNode(state.lastConnectionId, profile.name);
+            this.explorerState.expandNode(`server-${state.lastConnectionId}`);
+
+            // Select the last database if it exists
+            if (state.lastDatabase) {
+              if (this._databases().some(db => db.name === state.lastDatabase)) {
+                this.selectDatabase(state.lastDatabase);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to restore connection state:', error);
+    }
+  }
+
+  /**
+   * Save current connection state
+   */
+  async saveState(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    try {
+      const stateUpdate: Partial<AppState> = {
+        lastConnectionId: this._activeConnectionId(),
+        lastDatabase: this._selectedDatabase(),
+      };
+      await firstValueFrom(this.ipc.setAppState(stateUpdate));
+    } catch (error) {
+      console.error('Failed to save connection state:', error);
+    }
   }
 }

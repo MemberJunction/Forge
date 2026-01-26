@@ -6,9 +6,11 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { BackupRequest, BackupFileInfo, RestoreRequest } from '@mj-forge/shared';
 import { BackupRestoreService } from '../services/sql/backup-restore';
+import { ServerFilesystemService } from '../services/sql/server-filesystem';
 
 export function registerBackupHandlers(): void {
   const backupService = BackupRestoreService.getInstance();
+  const serverFs = new ServerFilesystemService();
 
   // Start backup
   ipcMain.handle(
@@ -56,6 +58,22 @@ export function registerBackupHandlers(): void {
     IPC_CHANNELS.RESTORE.CANCEL,
     async (_event, operationId: string): Promise<void> => {
       await backupService.cancel(operationId);
+    }
+  );
+
+  // Get backup history
+  ipcMain.handle(
+    IPC_CHANNELS.BACKUP.GET_HISTORY,
+    async (_event, connectionId: string, databaseName?: string) => {
+      return serverFs.getBackupHistory(connectionId, databaseName);
+    }
+  );
+
+  // Get backup info (header info from backup file)
+  ipcMain.handle(
+    IPC_CHANNELS.RESTORE.GET_BACKUP_INFO,
+    async (_event, connectionId: string, backupPath: string): Promise<BackupFileInfo> => {
+      return backupService.readBackupInfo(connectionId, backupPath);
     }
   );
 }

@@ -18,10 +18,14 @@ import type {
   ExportOptions,
   ExportResult,
   ResultSet,
+  FkRecordRequest,
+  FkRecordResult,
   BackupRequest,
   RestoreRequest,
   BackupProgress,
   RestoreProgress,
+  BackupFileInfo,
+  BackupHistoryEntry,
   ObjectMetadata,
   ObjectType,
   ObjectDefinition,
@@ -32,6 +36,33 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  AppState,
+  TabState,
+  FileTreeNode,
+  WorkspaceInfo,
+  LayoutConfig,
+  // Query results persistence types
+  QueryResultSnapshot,
+  QueryResultHistoryFilter,
+  ResultHistorySortOptions,
+  PurgeOptions,
+  PurgeResult,
+  ResultStorageStats,
+  ResultDiff,
+  DiffOptions,
+  // AI types
+  AIVendor,
+  AISettings,
+  TabRenameRequest,
+  TabRenameResponse,
+  AnalysisRequest,
+  AnalysisResponse,
+  SQLGenerationRequest,
+  SQLGenerationResponse,
+  // Server file system types
+  ServerDrive,
+  ServerFileEntry,
+  ServerDefaultPaths,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -197,10 +228,59 @@ interface ForgeAPI {
     clearHistory: () => Promise<void>;
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
+    fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
+  };
+  queryResults: {
+    saveSnapshot: (
+      tabId: string,
+      sql: string,
+      connectionId: string,
+      database: string,
+      result: QueryResult
+    ) => Promise<QueryResultSnapshot>;
+    getSnapshots: (
+      filter?: QueryResultHistoryFilter,
+      sort?: ResultHistorySortOptions
+    ) => Promise<QueryResultSnapshot[]>;
+    getSnapshot: (id: string) => Promise<QueryResultSnapshot | null>;
+    deleteSnapshot: (id: string) => Promise<boolean>;
+    deleteSnapshots: (ids: string[]) => Promise<number>;
+    pinSnapshot: (id: string) => Promise<boolean>;
+    unpinSnapshot: (id: string) => Promise<boolean>;
+    labelSnapshot: (id: string, label: string) => Promise<boolean>;
+    getStorageStats: () => Promise<ResultStorageStats>;
+    purge: (options: PurgeOptions) => Promise<PurgeResult>;
+    compareSnapshots: (
+      baseId: string,
+      compareId: string,
+      options?: DiffOptions
+    ) => Promise<ResultDiff | null>;
+  };
+  ai: {
+    getVendors: () => Promise<AIVendor[]>;
+    getSettings: () => Promise<AISettings>;
+    setSettings: (settings: Partial<AISettings>) => Promise<AISettings>;
+    setApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    removeApiKey: (vendorId: string) => Promise<boolean>;
+    validateApiKey: (vendorId: string, apiKey: string) => Promise<boolean>;
+    generateTabName: (request: TabRenameRequest) => Promise<TabRenameResponse>;
+    analyzeResults: (request: AnalysisRequest) => Promise<AnalysisResponse>;
+    generateSQL: (request: SQLGenerationRequest) => Promise<SQLGenerationResponse>;
+    cancelRequest: (requestId: string) => Promise<boolean>;
+  };
+  serverFs: {
+    getDrives: (connectionId: string) => Promise<ServerDrive[]>;
+    listDirectory: (
+      connectionId: string,
+      path: string,
+      includeFiles?: boolean
+    ) => Promise<ServerFileEntry[]>;
+    getDefaultPaths: (connectionId: string) => Promise<ServerDefaultPaths>;
   };
   backup: {
     start: (request: BackupRequest) => Promise<void>;
     cancel: (backupId: string) => Promise<void>;
+    getHistory: (connectionId: string, databaseName?: string) => Promise<BackupHistoryEntry[]>;
     onProgress: (callback: (progress: BackupProgress) => void) => () => void;
   };
   restore: {
@@ -210,6 +290,7 @@ interface ForgeAPI {
       connectionId: string,
       backupPath: string
     ) => Promise<{ logicalName: string; physicalName: string; type: string }[]>;
+    getBackupInfo: (connectionId: string, backupPath: string) => Promise<BackupFileInfo>;
     onProgress: (callback: (progress: RestoreProgress) => void) => () => void;
   };
   app: {
@@ -217,6 +298,24 @@ interface ForgeAPI {
     openExternal: (url: string) => Promise<void>;
     showOpenDialog: (options: OpenDialogOptions) => Promise<OpenDialogReturnValue>;
     showSaveDialog: (options: SaveDialogOptions) => Promise<SaveDialogReturnValue>;
+    // State persistence
+    getState: () => Promise<AppState>;
+    setState: (partial: Partial<AppState>) => Promise<void>;
+    saveTabs: (tabs: TabState[], activeTabId: string | null) => Promise<void>;
+    getTabs: () => Promise<{ tabs: TabState[]; activeTabId: string | null }>;
+    // GoldenLayout persistence
+    saveLayout: (config: LayoutConfig | undefined) => Promise<void>;
+    getLayout: () => Promise<LayoutConfig | undefined>;
+  };
+  workspace: {
+    openFolder: (path: string) => Promise<WorkspaceInfo>;
+    getFiles: (path: string) => Promise<FileTreeNode[]>;
+    readFile: (filePath: string) => Promise<string>;
+    writeFile: (filePath: string, content: string) => Promise<void>;
+    createFile: (filePath: string, content?: string) => Promise<void>;
+    deleteFile: (filePath: string) => Promise<void>;
+    renameFile: (oldPath: string, newPath: string) => Promise<void>;
+    onFileChanged: (callback: (event: { filePath: string; type: string }) => void) => () => void;
   };
   menu: {
     onNewConnection: (callback: () => void) => () => void;
@@ -474,6 +573,68 @@ export class IpcService {
     return from(this.api.query.exportResults(resultSet, options));
   }
 
+  fetchFkRecord(request: FkRecordRequest): Observable<FkRecordResult> {
+    return from(this.api.query.fetchFkRecord(request));
+  }
+
+  // Query Results Persistence methods
+  saveResultSnapshot(
+    tabId: string,
+    sql: string,
+    connectionId: string,
+    database: string,
+    result: QueryResult
+  ): Observable<QueryResultSnapshot> {
+    return from(this.api.queryResults.saveSnapshot(tabId, sql, connectionId, database, result));
+  }
+
+  getResultSnapshots(
+    filter?: QueryResultHistoryFilter,
+    sort?: ResultHistorySortOptions
+  ): Observable<QueryResultSnapshot[]> {
+    return from(this.api.queryResults.getSnapshots(filter, sort));
+  }
+
+  getResultSnapshot(id: string): Observable<QueryResultSnapshot | null> {
+    return from(this.api.queryResults.getSnapshot(id));
+  }
+
+  deleteResultSnapshot(id: string): Observable<boolean> {
+    return from(this.api.queryResults.deleteSnapshot(id));
+  }
+
+  deleteResultSnapshots(ids: string[]): Observable<number> {
+    return from(this.api.queryResults.deleteSnapshots(ids));
+  }
+
+  pinResultSnapshot(id: string): Observable<boolean> {
+    return from(this.api.queryResults.pinSnapshot(id));
+  }
+
+  unpinResultSnapshot(id: string): Observable<boolean> {
+    return from(this.api.queryResults.unpinSnapshot(id));
+  }
+
+  labelResultSnapshot(id: string, label: string): Observable<boolean> {
+    return from(this.api.queryResults.labelSnapshot(id, label));
+  }
+
+  getResultStorageStats(): Observable<ResultStorageStats> {
+    return from(this.api.queryResults.getStorageStats());
+  }
+
+  purgeResultSnapshots(options: PurgeOptions): Observable<PurgeResult> {
+    return from(this.api.queryResults.purge(options));
+  }
+
+  compareResultSnapshots(
+    baseId: string,
+    compareId: string,
+    options?: DiffOptions
+  ): Observable<ResultDiff | null> {
+    return from(this.api.queryResults.compareSnapshots(baseId, compareId, options));
+  }
+
   // Backup methods
   startBackup(request: BackupRequest): Observable<void> {
     return from(this.api.backup.start(request));
@@ -507,6 +668,31 @@ export class IpcService {
     return this.restoreProgress$.asObservable();
   }
 
+  getBackupInfo(connectionId: string, backupPath: string): Observable<BackupFileInfo> {
+    return from(this.api.restore.getBackupInfo(connectionId, backupPath));
+  }
+
+  getBackupHistory(connectionId: string, databaseName?: string): Observable<BackupHistoryEntry[]> {
+    return from(this.api.backup.getHistory(connectionId, databaseName));
+  }
+
+  // Server file system methods
+  getServerDrives(connectionId: string): Observable<ServerDrive[]> {
+    return from(this.api.serverFs.getDrives(connectionId));
+  }
+
+  listServerDirectory(
+    connectionId: string,
+    path: string,
+    includeFiles = true
+  ): Observable<ServerFileEntry[]> {
+    return from(this.api.serverFs.listDirectory(connectionId, path, includeFiles));
+  }
+
+  getServerDefaultPaths(connectionId: string): Observable<ServerDefaultPaths> {
+    return from(this.api.serverFs.getDefaultPaths(connectionId));
+  }
+
   // App methods
   getAppVersion(): Observable<string> {
     return from(this.api.app.getVersion());
@@ -522,5 +708,101 @@ export class IpcService {
 
   showSaveDialog(options: SaveDialogOptions): Observable<SaveDialogReturnValue> {
     return from(this.api.app.showSaveDialog(options));
+  }
+
+  // State persistence methods
+  getAppState(): Observable<AppState> {
+    return from(this.api.app.getState());
+  }
+
+  setAppState(partial: Partial<AppState>): Observable<void> {
+    return from(this.api.app.setState(partial));
+  }
+
+  saveTabs(tabs: TabState[], activeTabId: string | null): Observable<void> {
+    return from(this.api.app.saveTabs(tabs, activeTabId));
+  }
+
+  getTabs(): Observable<{ tabs: TabState[]; activeTabId: string | null }> {
+    return from(this.api.app.getTabs());
+  }
+
+  // GoldenLayout persistence
+  saveLayout(config: LayoutConfig | undefined): Observable<void> {
+    return from(this.api.app.saveLayout(config));
+  }
+
+  getLayout(): Observable<LayoutConfig | undefined> {
+    return from(this.api.app.getLayout());
+  }
+
+  // Workspace methods
+  openWorkspaceFolder(path: string): Observable<WorkspaceInfo> {
+    return from(this.api.workspace.openFolder(path));
+  }
+
+  getWorkspaceFiles(path: string): Observable<FileTreeNode[]> {
+    return from(this.api.workspace.getFiles(path));
+  }
+
+  readWorkspaceFile(filePath: string): Observable<string> {
+    return from(this.api.workspace.readFile(filePath));
+  }
+
+  writeWorkspaceFile(filePath: string, content: string): Observable<void> {
+    return from(this.api.workspace.writeFile(filePath, content));
+  }
+
+  createWorkspaceFile(filePath: string, content?: string): Observable<void> {
+    return from(this.api.workspace.createFile(filePath, content));
+  }
+
+  deleteWorkspaceFile(filePath: string): Observable<void> {
+    return from(this.api.workspace.deleteFile(filePath));
+  }
+
+  renameWorkspaceFile(oldPath: string, newPath: string): Observable<void> {
+    return from(this.api.workspace.renameFile(oldPath, newPath));
+  }
+
+  // AI methods
+  getAIVendors(): Observable<AIVendor[]> {
+    return from(this.api.ai.getVendors());
+  }
+
+  getAISettings(): Observable<AISettings> {
+    return from(this.api.ai.getSettings());
+  }
+
+  setAISettings(settings: Partial<AISettings>): Observable<AISettings> {
+    return from(this.api.ai.setSettings(settings));
+  }
+
+  setAIApiKey(vendorId: string, apiKey: string): Observable<boolean> {
+    return from(this.api.ai.setApiKey(vendorId, apiKey));
+  }
+
+  removeAIApiKey(vendorId: string): Observable<boolean> {
+    return from(this.api.ai.removeApiKey(vendorId));
+  }
+
+  validateAIApiKey(vendorId: string, apiKey: string): Observable<boolean> {
+    return from(this.api.ai.validateApiKey(vendorId, apiKey));
+  }
+
+  generateTabName(request: TabRenameRequest): Observable<TabRenameResponse> {
+    return from(this.api.ai.generateTabName(request));
+  }
+
+  analyzeResults(request: AnalysisRequest): Observable<AnalysisResponse> {
+    return from(this.api.ai.analyzeResults(request));
+  }
+
+  generateSQL(request: SQLGenerationRequest): Observable<SQLGenerationResponse> {
+    return from(this.api.ai.generateSQL(request));
+  }
+
+  cancelAIRequest(requestId: string): Observable<boolean> {
+    return from(this.api.ai.cancelRequest(requestId));
   }
 }

@@ -1,26 +1,49 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
+import { MatIconRegistry } from '@angular/material/icon';
+import { DomSanitizer } from '@angular/platform-browser';
+import { SharedGenericModule } from '@memberjunction/ng-shared-generic';
 import { ShellComponent } from './layout/shell/shell.component';
 import { ContextMenuComponent } from './shared/components/context-menu/context-menu.component';
 import { SettingsPanelComponent } from './shared/components/settings-panel/settings-panel.component';
 import { TablePropertiesContainerComponent } from './shared/components/table-properties-panel/table-properties-container.component';
+import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
+import { ObjectSearchComponent } from './shared/components/object-search/object-search.component';
+import { ShortcutsDialogComponent } from './shared/components/shortcuts-dialog/shortcuts-dialog.component';
 import { SettingsService } from './core/services/settings.service';
+import { ConnectionStateService } from './core/state/connection.state';
+import { TabStateService } from './core/state/tab.state';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
+    CommonModule,
     RouterOutlet,
+    SharedGenericModule,
     ShellComponent,
     ContextMenuComponent,
     SettingsPanelComponent,
     TablePropertiesContainerComponent,
+    CommandPaletteComponent,
+    ObjectSearchComponent,
+    ShortcutsDialogComponent,
   ],
   template: `
-    <app-shell />
-    <app-context-menu />
-    <app-settings-panel />
-    <app-table-properties-container />
+    @if (loading()) {
+      <div class="startup-loading">
+        <mj-loading [text]="loadingMessage()" size="large" animation="pulse"></mj-loading>
+      </div>
+    } @else {
+      <app-shell />
+      <app-context-menu />
+      <app-settings-panel />
+      <app-table-properties-container />
+      <app-command-palette />
+      <app-object-search />
+      <app-shortcuts-dialog />
+    }
   `,
   styles: [
     `
@@ -30,10 +53,56 @@ import { SettingsService } from './core/services/settings.service';
         width: 100vw;
         overflow: hidden;
       }
+
+      .startup-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        width: 100%;
+        background-color: var(--bg-primary, #1e1e1e);
+      }
     `,
   ],
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   // Inject settings service to ensure it's initialized early
   private readonly settingsService = inject(SettingsService);
+  private readonly connectionState = inject(ConnectionStateService);
+  private readonly tabState = inject(TabStateService);
+  private readonly iconRegistry = inject(MatIconRegistry);
+  private readonly sanitizer = inject(DomSanitizer);
+
+  // Loading state
+  readonly loading = signal(true);
+  readonly loadingMessage = signal('Starting MJ Forge...');
+
+  constructor() {
+    // Register custom SVG icons
+    this.iconRegistry.addSvgIcon(
+      'database-cylinder',
+      this.sanitizer.bypassSecurityTrustResourceUrl('assets/icons/database-cylinder.svg')
+    );
+  }
+
+  async ngOnInit(): Promise<void> {
+    try {
+      // Load connection profiles first
+      this.loadingMessage.set('Loading connections...');
+      await this.connectionState.loadProfiles();
+
+      // Restore previous connection state
+      this.loadingMessage.set('Restoring session...');
+      await this.connectionState.restoreState();
+
+      // Restore tabs if we have a connection
+      if (this.connectionState.isConnected() && this.connectionState.activeConnectionId()) {
+        this.loadingMessage.set('Restoring tabs...');
+        await this.tabState.restoreTabs(this.connectionState.activeConnectionId()!);
+      }
+    } finally {
+      // Always finish loading even if there's an error
+      this.loading.set(false);
+    }
+  }
 }

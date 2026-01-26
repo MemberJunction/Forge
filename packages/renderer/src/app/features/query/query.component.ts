@@ -24,12 +24,23 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { QueryHistoryStateService } from '../../core/state/query-history.state';
+import { QueryResultsStateService } from '../../core/state/query-results.state';
+import { AIStateService } from '../../core/state/ai.state';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
   RowDetailData,
 } from '../../shared/components/row-detail-panel/row-detail-panel.component';
-import type { QueryResult, ResultSet, QueryHistoryEntry, ExportFormat } from '@mj-forge/shared';
+import { ResultHistoryPanelComponent } from '../../shared/components/result-history-panel/result-history-panel.component';
+import { AIAnalysisPanelComponent } from '../../shared/components/ai-analysis-panel/ai-analysis-panel.component';
+import type {
+  QueryResult,
+  ResultSet,
+  QueryHistoryEntry,
+  ExportFormat,
+  QueryResultSnapshot,
+} from '@mj-forge/shared';
+import { format as formatSQL } from 'sql-formatter';
 
 // Monaco editor types - loaded dynamically
 interface MonacoEditor {
@@ -72,6 +83,8 @@ declare const monaco: { editor: MonacoEditor };
     MatDividerModule,
     ResultsGridComponent,
     RowDetailPanelComponent,
+    ResultHistoryPanelComponent,
+    AIAnalysisPanelComponent,
   ],
   template: `
     <div class="query-container">
@@ -116,10 +129,10 @@ declare const monaco: { editor: MonacoEditor };
         <button mat-icon-button matTooltip="Query History" (click)="toggleHistory()">
           <mat-icon>history</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Format SQL">
+        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" (click)="formatSql()">
           <mat-icon>auto_fix_high</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Show Execution Plan">
+        <button mat-icon-button matTooltip="Show Execution Plan" (click)="showExecutionPlan()">
           <mat-icon>account_tree</mat-icon>
         </button>
 
@@ -243,40 +256,110 @@ declare const monaco: { editor: MonacoEditor };
               </div>
             } @else {
               <div class="results-tabs">
-                @for (resultSet of result()?.resultSets; track $index; let i = $index) {
+                <div class="tabs-left">
+                  @for (resultSet of result()?.resultSets; track $index; let i = $index) {
+                    <button
+                      class="result-tab"
+                      [class.active]="activeTab() === 'result-' + i"
+                      (click)="setActiveTab('result-' + i)"
+                    >
+                      Result {{ i + 1 }}
+                      <span class="row-count">({{ resultSet.rows.length }} rows)</span>
+                    </button>
+                  }
                   <button
                     class="result-tab"
-                    [class.active]="activeResultIndex() === i"
-                    (click)="activeResultIndex.set(i)"
+                    [class.active]="activeTab() === 'messages'"
+                    (click)="setActiveTab('messages')"
                   >
-                    Result {{ i + 1 }}
-                    <span class="row-count">({{ resultSet.rows.length }} rows)</span>
+                    Messages
                   </button>
-                }
-                <button
-                  class="result-tab"
-                  [class.active]="activeResultIndex() === -1"
-                  (click)="activeResultIndex.set(-1)"
-                >
-                  Messages
-                </button>
+                </div>
+                <div class="tabs-right">
+                  @if (aiState.analysisEnabled()) {
+                    <button
+                      class="result-tab icon-tab"
+                      [class.active]="activeTab() === 'ai'"
+                      (click)="setActiveTab('ai')"
+                      matTooltip="AI Analysis"
+                    >
+                      <mat-icon>auto_awesome</mat-icon>
+                    </button>
+                  }
+                  @if (tabState.activeTab()?.id) {
+                    <button
+                      class="result-tab icon-tab"
+                      [class.active]="activeTab() === 'history'"
+                      (click)="setActiveTab('history')"
+                      matTooltip="Result History"
+                    >
+                      <mat-icon>history</mat-icon>
+                      @if (resultsState.snapshots().length > 0) {
+                        <span class="tab-badge">{{ resultsState.snapshots().length }}</span>
+                      }
+                    </button>
+                  }
+                </div>
               </div>
 
-              @if (activeResultIndex() >= 0 && activeResultSet()) {
+              @if (activeTab().startsWith('result-') && activeResultSet()) {
                 <div class="results-grid">
+                  <!-- Historical Result Banner -->
+                  @if (viewingHistoricalResult()) {
+                    <div class="historical-banner">
+                      <mat-icon>history</mat-icon>
+                      <div class="banner-content">
+                        <span class="banner-label">Viewing Historical Result</span>
+                        <span class="banner-date">{{
+                          formatHistoricalDate(viewingHistoricalResult()!)
+                        }}</span>
+                      </div>
+                      <button
+                        mat-icon-button
+                        matTooltip="Return to current result"
+                        (click)="clearHistoricalResult()"
+                      >
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    </div>
+                  }
                   <app-results-grid
                     [resultSet]="activeResultSet()"
+                    [connectionId]="connectionState.activeConnectionId()"
+                    [database]="selectedDatabase"
+                    [class.historical]="viewingHistoricalResult()"
                     (cellSelected)="onCellSelected($event)"
                     (exportRequested)="exportResults($event)"
+                    (openQueryRequested)="openQueryInNewTab($event)"
                   />
                 </div>
-              } @else {
+              } @else if (activeTab() === 'messages') {
                 <div class="messages-pane">
                   <pre>{{ result()?.messages?.join('\\n') || 'Query executed successfully.' }}</pre>
                   @if (result()?.rowsAffected !== undefined) {
                     <p class="rows-affected">({{ result()?.rowsAffected }} rows affected)</p>
                   }
                   <p class="execution-time">Execution time: {{ result()?.executionTime }}ms</p>
+                </div>
+              } @else if (activeTab() === 'ai') {
+                <div class="tab-content-pane">
+                  <app-ai-analysis-panel
+                    [sql]="getLastExecutedSql()"
+                    [resultSet]="getFirstResultSet()"
+                    [databaseName]="selectedDatabase ?? ''"
+                    [embedded]="true"
+                  />
+                </div>
+              } @else if (activeTab() === 'history' && tabState.activeTab()?.id) {
+                <div class="tab-content-pane">
+                  <app-result-history-panel
+                    [tabId]="tabState.activeTab()!.id"
+                    [connectionId]="connectionState.activeConnectionId() ?? undefined"
+                    [database]="selectedDatabase ?? undefined"
+                    [embedded]="true"
+                    (viewResult)="onViewHistoryResult($event)"
+                    (compareResults)="onCompareResults($event)"
+                  />
                 </div>
               }
             }
@@ -288,8 +371,11 @@ declare const monaco: { editor: MonacoEditor };
       <app-row-detail-panel
         [inputData]="rowDetailData()"
         [totalRows]="activeResultSet()?.rows?.length ?? 0"
+        [connectionId]="connectionState.activeConnectionId()"
+        [database]="selectedDatabase"
         (closed)="closeRowDetail()"
         (navigateRow)="navigateRowDetail($event)"
+        (openQueryRequested)="openQueryInNewTab($event)"
       />
     </div>
   `,
@@ -552,9 +638,15 @@ declare const monaco: { editor: MonacoEditor };
 
       .results-tabs {
         display: flex;
-        gap: 1px;
+        justify-content: space-between;
         background-color: var(--border-primary);
         border-bottom: 1px solid var(--border-primary);
+      }
+
+      .tabs-left,
+      .tabs-right {
+        display: flex;
+        gap: 1px;
       }
 
       .result-tab {
@@ -575,10 +667,41 @@ declare const monaco: { editor: MonacoEditor };
           color: var(--text-primary);
         }
 
+        &.icon-tab {
+          display: flex;
+          align-items: center;
+          gap: var(--spacing-xs);
+          padding: var(--spacing-xs) var(--spacing-sm);
+
+          mat-icon {
+            font-size: 18px;
+            width: 18px;
+            height: 18px;
+          }
+        }
+
         .row-count {
           color: var(--text-muted);
           margin-left: var(--spacing-xs);
         }
+
+        .tab-badge {
+          background-color: var(--accent-primary);
+          color: white;
+          font-size: 10px;
+          padding: 1px 5px;
+          border-radius: 8px;
+          min-width: 14px;
+          text-align: center;
+        }
+      }
+
+      .tab-content-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+        min-height: 0;
       }
 
       .results-grid {
@@ -586,6 +709,58 @@ declare const monaco: { editor: MonacoEditor };
         display: flex;
         flex-direction: column;
         overflow: hidden;
+      }
+
+      .historical-banner {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: var(--spacing-xs) var(--spacing-md);
+        background: linear-gradient(90deg, rgba(156, 39, 176, 0.15), rgba(103, 58, 183, 0.15));
+        border-bottom: 2px solid rgba(156, 39, 176, 0.5);
+        color: var(--text-primary);
+
+        > mat-icon {
+          color: #9c27b0;
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
+
+        .banner-content {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .banner-label {
+          font-size: var(--font-size-xs);
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #9c27b0;
+        }
+
+        .banner-date {
+          font-size: var(--font-size-sm);
+          color: var(--text-secondary);
+        }
+
+        button {
+          width: 24px;
+          height: 24px;
+
+          mat-icon {
+            font-size: 16px;
+            width: 16px;
+            height: 16px;
+          }
+        }
+      }
+
+      app-results-grid.historical {
+        border-left: 3px solid rgba(156, 39, 176, 0.5);
       }
 
       .messages-pane {
@@ -615,9 +790,11 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   private readonly ipc = inject(IpcService);
   readonly connectionState = inject(ConnectionStateService);
-  private readonly tabState = inject(TabStateService);
+  readonly tabState = inject(TabStateService);
   private readonly notification = inject(NotificationService);
   readonly historyState = inject(QueryHistoryStateService);
+  readonly resultsState = inject(QueryResultsStateService);
+  readonly aiState = inject(AIStateService);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
@@ -625,7 +802,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   selectedDatabase: string | null = null;
   executing = signal(false);
   result = signal<QueryResult | null>(null);
-  activeResultIndex = signal(0);
+  activeTab = signal('result-0');
   editorHeight = signal(50);
   showHistory = signal(false);
   historySearchText = '';
@@ -633,6 +810,12 @@ export class QueryComponent implements OnInit, OnDestroy {
   // Row detail panel state
   rowDetailData = signal<RowDetailData | null>(null);
   showRowDetail = signal(false);
+
+  // Track last executed SQL for AI analysis
+  private lastExecutedSql = '';
+
+  // Track when viewing historical results (not the current execution)
+  viewingHistoricalResult = signal<QueryResultSnapshot | null>(null);
 
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -661,8 +844,8 @@ export class QueryComponent implements OnInit, OnDestroy {
           if (activeTab.autoExecute && activeTab.content) {
             // Clear the flag first to prevent re-execution
             this.tabState.clearAutoExecute(activeTab.id);
-            // Execute after a short delay to allow editor to update
-            setTimeout(() => this.executeQuery(), 100);
+            // Execute after editor is ready with content
+            this.executeWhenEditorReady(activeTab.content);
           }
         }
       },
@@ -687,38 +870,83 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   private handleKeydown = (event: KeyboardEvent): void => {
+    // F5 - Execute query
     if (event.key === 'F5') {
+      event.preventDefault();
+      this.executeQuery();
+    }
+    // Cmd+Shift+F - Format SQL
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'f') {
+      event.preventDefault();
+      this.formatSql();
+    }
+    // Cmd+Enter - Execute query (alternative)
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault();
       this.executeQuery();
     }
   };
 
   private initMonaco(): void {
-    // Monaco loader - would be loaded from assets in production
-    const loadMonaco = () => {
-      if (typeof monaco !== 'undefined') {
-        this.createEditor();
-      } else {
-        // Dynamically load Monaco from assets
-        const script = document.createElement('script');
-        script.src = 'assets/monaco/vs/loader.js';
-        script.onload = () => {
-          const win = window as unknown as {
-            require?: {
-              config: (config: Record<string, unknown>) => void;
-              (modules: string[], callback: () => void): void;
-            };
-          };
-          if (win.require) {
-            win.require.config({ paths: { vs: 'assets/monaco/vs' } });
-            win.require(['vs/editor/editor.main'], () => this.createEditor());
-          }
-        };
-        document.body.appendChild(script);
-      }
+    // Monaco loader - use singleton pattern to prevent duplicate loading
+    const win = window as unknown as {
+      _monacoLoading?: Promise<void>;
+      _monacoLoaded?: boolean;
+      require?: {
+        config: (config: Record<string, unknown>) => void;
+        (modules: string[], callback: () => void): void;
+      };
     };
 
-    loadMonaco();
+    // If Monaco is already loaded, create editor immediately
+    if (typeof monaco !== 'undefined' || win._monacoLoaded) {
+      this.createEditor();
+      return;
+    }
+
+    // If Monaco is currently loading, wait for it
+    if (win._monacoLoading) {
+      win._monacoLoading.then(() => this.createEditor());
+      return;
+    }
+
+    // Start loading Monaco (singleton)
+    win._monacoLoading = new Promise<void>(resolve => {
+      // Check if loader script already exists
+      const existingScript = document.querySelector('script[src*="monaco/vs/loader.js"]');
+      if (existingScript) {
+        // Loader exists but may still be loading - check if require is available
+        const checkRequire = () => {
+          if (win.require) {
+            win.require.config({ paths: { vs: 'assets/monaco/vs' } });
+            win.require(['vs/editor/editor.main'], () => {
+              win._monacoLoaded = true;
+              resolve();
+            });
+          } else {
+            setTimeout(checkRequire, 50);
+          }
+        };
+        checkRequire();
+        return;
+      }
+
+      // Dynamically load Monaco from assets
+      const script = document.createElement('script');
+      script.src = 'assets/monaco/vs/loader.js';
+      script.onload = () => {
+        if (win.require) {
+          win.require.config({ paths: { vs: 'assets/monaco/vs' } });
+          win.require(['vs/editor/editor.main'], () => {
+            win._monacoLoaded = true;
+            resolve();
+          });
+        }
+      };
+      document.body.appendChild(script);
+    });
+
+    win._monacoLoading.then(() => this.createEditor());
   }
 
   private createEditor(): void {
@@ -757,7 +985,8 @@ export class QueryComponent implements OnInit, OnDestroy {
       // Handle auto-execute for initial load
       if (activeTab.autoExecute && activeTab.content) {
         this.tabState.clearAutoExecute(activeTab.id);
-        setTimeout(() => this.executeQuery(), 100);
+        // Execute immediately since editor is ready and content is set
+        this.executeQuery();
       }
     }
   }
@@ -779,7 +1008,9 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     this.executing.set(true);
     this.result.set(null);
+    this.viewingHistoricalResult.set(null); // Clear any historical result view
     this.currentQueryId = `query-${Date.now()}`;
+    this.lastExecutedSql = sql;
 
     try {
       const result = await this.ipc
@@ -792,11 +1023,22 @@ export class QueryComponent implements OnInit, OnDestroy {
         .toPromise();
 
       this.result.set(result ?? null);
-      this.activeResultIndex.set(result?.resultSets?.length ? 0 : -1);
+      this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
 
       // Refresh history if panel is open
       if (this.showHistory()) {
         this.historyState.loadHistory();
+      }
+
+      // Auto-save result snapshot
+      const activeTab = this.tabState.activeTab();
+      if (result && activeTab && connectionId && database) {
+        this.resultsState.saveSnapshot(activeTab.id, sql, connectionId, database, result);
+      }
+
+      // Auto-rename tab using AI if enabled
+      if (result?.success && activeTab && this.aiState.autoRenameEnabled()) {
+        this.autoRenameTab(activeTab.id, sql, database ?? undefined);
       }
     } catch (error) {
       this.result.set({
@@ -937,8 +1179,18 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   activeResultSet(): ResultSet | null {
     const r = this.result();
-    const idx = this.activeResultIndex();
+    const tab = this.activeTab();
+    if (!tab.startsWith('result-')) return null;
+    const idx = parseInt(tab.replace('result-', ''), 10);
     return r?.resultSets?.[idx] ?? null;
+  }
+
+  getFirstResultSet(): ResultSet | null {
+    return this.result()?.resultSets?.[0] ?? null;
+  }
+
+  setActiveTab(tab: string): void {
+    this.activeTab.set(tab);
   }
 
   private getSelectedOrAllText(): string {
@@ -948,6 +1200,31 @@ export class QueryComponent implements OnInit, OnDestroy {
       return this.editor.getModel()?.getValueInRange(selection) || '';
     }
     return this.editor.getValue();
+  }
+
+  /**
+   * Execute query when editor is ready with the expected content.
+   * Polls until editor is available and has the content loaded.
+   */
+  private executeWhenEditorReady(expectedContent: string, maxAttempts = 20): void {
+    let attempts = 0;
+    const checkAndExecute = (): void => {
+      attempts++;
+      if (this.editor && this.editor.getValue() === expectedContent) {
+        // Editor is ready with correct content - execute
+        this.executeQuery();
+      } else if (attempts < maxAttempts) {
+        // Try again after a short delay
+        setTimeout(checkAndExecute, 50);
+      } else {
+        // Give up after max attempts, try anyway
+        if (this.editor) {
+          this.executeQuery();
+        }
+      }
+    };
+    // Start checking after a brief delay
+    setTimeout(checkAndExecute, 50);
   }
 
   // Row detail panel methods
@@ -981,6 +1258,129 @@ export class QueryComponent implements OnInit, OnDestroy {
         row: resultSet.rows[newIndex],
         columns: resultSet.columns,
       });
+    }
+  }
+
+  // SQL Formatting
+  formatSql(): void {
+    if (!this.editor) {
+      this.notification.warning('Editor not ready');
+      return;
+    }
+
+    const sql = this.editor.getValue();
+    if (!sql.trim()) {
+      this.notification.warning('No SQL to format');
+      return;
+    }
+
+    try {
+      const formatted = formatSQL(sql, {
+        language: 'tsql',
+        tabWidth: 2,
+        useTabs: false,
+        keywordCase: 'upper',
+        dataTypeCase: 'upper',
+        functionCase: 'upper',
+        linesBetweenQueries: 2,
+      });
+      this.editor.setValue(formatted);
+      this.notification.success('SQL formatted');
+    } catch (error) {
+      this.notification.error('Failed to format SQL');
+      console.error('SQL formatting error:', error);
+    }
+  }
+
+  // Show Execution Plan (placeholder for now)
+  showExecutionPlan(): void {
+    this.notification.info('Execution plan visualization coming soon');
+  }
+
+  // Get last executed SQL for AI analysis
+  getLastExecutedSql(): string {
+    return this.lastExecutedSql;
+  }
+
+  // View a historical result snapshot
+  onViewHistoryResult(snapshot: QueryResultSnapshot): void {
+    // Create a QueryResult from the snapshot to display
+    if (snapshot.resultSets && snapshot.resultSets.length > 0) {
+      this.viewingHistoricalResult.set(snapshot);
+      this.result.set({
+        queryId: snapshot.id,
+        success: snapshot.success,
+        resultSets: snapshot.resultSets,
+        executionTime: snapshot.executionTimeMs,
+        error: snapshot.error,
+      });
+      this.activeTab.set('result-0');
+      this.lastExecutedSql = snapshot.sql;
+    }
+  }
+
+  // Clear historical result and return to showing nothing
+  clearHistoricalResult(): void {
+    this.viewingHistoricalResult.set(null);
+    this.result.set(null);
+  }
+
+  // Format date for historical result banner
+  formatHistoricalDate(snapshot: QueryResultSnapshot): string {
+    const date = new Date(snapshot.executedAt);
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  }
+
+  // Compare two result snapshots (now handled inline in history panel)
+  onCompareResults(_comparison: { base: QueryResultSnapshot; compare: QueryResultSnapshot }): void {
+    // Comparison is now handled inline in the result history panel
+    // This method is kept for backward compatibility but no longer does anything
+  }
+
+  // Auto-rename tab using AI
+  private async autoRenameTab(tabId: string, sql: string, database?: string): Promise<void> {
+    try {
+      const response = await this.aiState.generateTabName({
+        sql,
+        database,
+      });
+
+      if (response?.suggestedName) {
+        this.tabState.renameTab(tabId, response.suggestedName);
+      }
+    } catch (error) {
+      // Silent fail - tab renaming is non-critical
+      console.debug('Auto-rename tab failed:', error);
+    }
+  }
+
+  // Open a query in a new tab (from FK navigation)
+  openQueryInNewTab(query: { sql: string; title: string }): void {
+    const connectionId = this.connectionState.activeConnectionId();
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    // Create a new query tab with the SQL and auto-execute it
+    const tabId = this.tabState.openQueryTab(
+      connectionId,
+      this.selectedDatabase ?? '',
+      query.sql,
+      true // autoExecute
+    );
+
+    // Rename the tab to use the FK table/value title
+    if (query.title) {
+      this.tabState.renameTab(tabId, query.title);
     }
   }
 }

@@ -6,13 +6,29 @@ import {
   HostListener,
   computed,
   signal,
+  inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatTabsModule } from '@angular/material/tabs';
-import type { ColumnMetadata } from '@mj-forge/shared';
+import type { ColumnMetadata, FkRecordRequest } from '@mj-forge/shared';
+import { IpcService } from '../../../core/services/ipc.service';
+
+interface FkPreviewState {
+  columnName: string;
+  foreignKey: {
+    referencedSchema: string;
+    referencedTable: string;
+    referencedColumn: string;
+  };
+  value: unknown;
+  record: Record<string, unknown> | null;
+  columns: ColumnMetadata[];
+  loading: boolean;
+  error: string | null;
+}
 
 export interface RowDetailData {
   rowIndex: number;
@@ -52,15 +68,39 @@ export interface RowDetailData {
                     <div
                       class="column-item"
                       [class.selected]="selectedColumn() === col.name"
+                      [class.fk-column]="col.foreignKey && !col.isNull"
                       (click)="selectColumn(col.name)"
                     >
                       <div class="column-header">
-                        <span class="column-name">{{ col.name }}</span>
+                        <span class="column-name">
+                          @if (col.isPrimaryKey) {
+                            <span class="key-badge pk" title="Primary Key">PK</span>
+                          }
+                          @if (col.foreignKey) {
+                            <span
+                              class="key-badge fk"
+                              title="FK to {{ col.foreignKey.referencedSchema }}.{{
+                                col.foreignKey.referencedTable
+                              }}"
+                              >FK</span
+                            >
+                          }
+                          {{ col.name }}
+                        </span>
                         <span class="column-type">{{ col.type }}</span>
                       </div>
-                      <div class="column-value" [class.null-value]="col.isNull">
+                      <div
+                        class="column-value"
+                        [class.null-value]="col.isNull"
+                        [class.fk-value]="col.foreignKey && !col.isNull"
+                      >
                         @if (col.isNull) {
                           <span class="null-indicator">NULL</span>
+                        } @else if (col.foreignKey) {
+                          <button class="fk-link-btn" (click)="showFkPreview(col, $event)">
+                            <span class="value-text">{{ col.displayValue }}</span>
+                            <mat-icon class="fk-link-icon">link</mat-icon>
+                          </button>
                         } @else if (col.isTruncated) {
                           <span class="value-text">{{ col.displayValue }}</span>
                           <span class="truncated-indicator">...</span>
@@ -69,6 +109,16 @@ export interface RowDetailData {
                         }
                       </div>
                       <div class="column-actions">
+                        @if (col.foreignKey && !col.isNull) {
+                          <button
+                            mat-icon-button
+                            class="small-btn"
+                            (click)="openFkInNewTab(col, $event)"
+                            matTooltip="Open in new tab"
+                          >
+                            <mat-icon>open_in_new</mat-icon>
+                          </button>
+                        }
                         <button
                           mat-icon-button
                           class="small-btn"
@@ -175,6 +225,60 @@ export interface RowDetailData {
               </div>
             </mat-tab>
           </mat-tab-group>
+
+          <!-- FK Preview Popover -->
+          @if (fkPreview()) {
+            <div class="fk-preview-popover">
+              <div class="fk-preview-header">
+                <span class="fk-preview-title">
+                  <mat-icon>table_chart</mat-icon>
+                  {{ fkPreview()!.foreignKey.referencedSchema }}.{{
+                    fkPreview()!.foreignKey.referencedTable
+                  }}
+                </span>
+                <button class="fk-close-btn" (click)="closeFkPreview()">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </div>
+
+              @if (fkPreview()!.loading) {
+                <div class="fk-preview-loading">
+                  <div class="spinner"></div>
+                  <span>Loading record...</span>
+                </div>
+              } @else if (fkPreview()!.error) {
+                <div class="fk-preview-error">
+                  <mat-icon>error_outline</mat-icon>
+                  <span>{{ fkPreview()!.error }}</span>
+                </div>
+              } @else if (fkPreview()!.record) {
+                <div class="fk-preview-content">
+                  @for (col of fkPreview()!.columns; track col.name) {
+                    <div class="fk-field-row" [class.pk-field]="col.isPrimaryKey">
+                      <span class="fk-field-name">
+                        @if (col.isPrimaryKey) {
+                          <mat-icon class="key-icon">key</mat-icon>
+                        }
+                        {{ col.name }}
+                      </span>
+                      <span
+                        class="fk-field-value"
+                        [class.null]="fkPreview()!.record![col.name] === null"
+                      >
+                        {{ formatFkFieldValue(fkPreview()!.record![col.name]) }}
+                      </span>
+                    </div>
+                  }
+                </div>
+                <div class="fk-preview-actions">
+                  <button class="fk-action-btn primary" (click)="openFkFromPreview()">
+                    <mat-icon>open_in_new</mat-icon>
+                    Open in New Tab
+                  </button>
+                </div>
+              }
+            </div>
+          }
         </div>
 
         <footer class="panel-footer">
@@ -634,6 +738,271 @@ export interface RowDetailData {
           }
         }
       }
+
+      /* FK Column Styles */
+      .column-item.fk-column {
+        border-color: rgba(33, 150, 243, 0.3);
+
+        &:hover {
+          border-color: rgba(33, 150, 243, 0.5);
+        }
+      }
+
+      .column-header .key-badge {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        padding: 2px 5px;
+        border-radius: 3px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-right: 4px;
+
+        &.pk {
+          background-color: rgba(255, 193, 7, 0.2);
+          color: #ffc107;
+          border: 1px solid rgba(255, 193, 7, 0.4);
+        }
+
+        &.fk {
+          background-color: rgba(33, 150, 243, 0.2);
+          color: #2196f3;
+          border: 1px solid rgba(33, 150, 243, 0.4);
+        }
+      }
+
+      .column-value.fk-value {
+        color: var(--status-info);
+      }
+
+      .fk-link-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        font: inherit;
+        color: var(--status-info);
+        text-decoration: underline;
+        text-decoration-style: dotted;
+        text-underline-offset: 2px;
+
+        &:hover {
+          text-decoration-style: solid;
+        }
+
+        .fk-link-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
+          opacity: 0.7;
+        }
+      }
+
+      /* FK Preview Popover */
+      .fk-preview-popover {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 100;
+        min-width: 320px;
+        max-width: 420px;
+        max-height: 400px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .fk-preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-primary);
+      }
+
+      .fk-preview-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        color: var(--text-primary);
+        font-size: 13px;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          color: var(--status-info);
+        }
+      }
+
+      .fk-close-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        background: none;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-muted);
+
+        &:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
+      }
+
+      .fk-preview-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 32px;
+        color: var(--text-muted);
+
+        .spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid var(--border-secondary);
+          border-top-color: var(--status-info);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .fk-preview-error {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 16px;
+        color: var(--status-error);
+
+        mat-icon {
+          font-size: 20px;
+          width: 20px;
+          height: 20px;
+        }
+      }
+
+      .fk-preview-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 0;
+      }
+
+      .fk-field-row {
+        display: flex;
+        padding: 6px 12px;
+        gap: 12px;
+
+        &:hover {
+          background: var(--bg-hover);
+        }
+
+        &.pk-field {
+          background: rgba(255, 193, 7, 0.08);
+        }
+      }
+
+      .fk-field-name {
+        flex: 0 0 110px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 12px;
+
+        .key-icon {
+          font-size: 14px !important;
+          width: 14px !important;
+          height: 14px !important;
+          color: var(--status-warning);
+        }
+      }
+
+      .fk-field-value {
+        flex: 1;
+        color: var(--text-primary);
+        word-break: break-word;
+        font-size: 12px;
+        font-family: var(--font-mono);
+
+        &.null {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+      }
+
+      .fk-preview-actions {
+        display: flex;
+        justify-content: flex-end;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border-primary);
+        background: var(--bg-tertiary);
+      }
+
+      .fk-action-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: none;
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        color: var(--text-primary);
+        transition: all 0.15s ease;
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+        }
+
+        &:hover {
+          background: var(--bg-hover);
+        }
+
+        &.primary {
+          background: var(--status-info);
+          border-color: var(--status-info);
+          color: white;
+
+          &:hover {
+            filter: brightness(1.1);
+          }
+        }
+      }
     `,
   ],
 })
@@ -651,11 +1020,16 @@ export class RowDetailPanelComponent {
   }
 
   @Input() totalRows = 0;
+  @Input() connectionId: string | null = null;
+  @Input() database: string | null = null;
   @Output() closed = new EventEmitter<void>();
   @Output() navigateRow = new EventEmitter<'next' | 'previous'>();
+  @Output() openQueryRequested = new EventEmitter<{ sql: string; title: string }>();
 
+  private readonly ipc = inject(IpcService);
   private readonly _isOpen = signal(false);
   private readonly _selectedColumn = signal<string | null>(null);
+  readonly fkPreview = signal<FkPreviewState | null>(null);
 
   readonly isOpen = this._isOpen.asReadonly();
   readonly selectedColumn = this._selectedColumn.asReadonly();
@@ -678,6 +1052,8 @@ export class RowDetailPanelComponent {
         displayValue,
         isNull,
         isTruncated: displayValue.length < fullValue.length,
+        foreignKey: col.foreignKey,
+        isPrimaryKey: col.isPrimaryKey,
       };
     });
   });
@@ -789,5 +1165,151 @@ export class RowDetailPanelComponent {
     }
 
     return typeStr;
+  }
+
+  // FK Navigation Methods
+  showFkPreview(
+    col: {
+      name: string;
+      rawValue: unknown;
+      foreignKey?: { referencedSchema: string; referencedTable: string; referencedColumn: string };
+    },
+    event: Event
+  ): void {
+    event.stopPropagation();
+
+    if (!col.foreignKey || col.rawValue === null || col.rawValue === undefined) {
+      return;
+    }
+
+    if (!this.connectionId || !this.database) {
+      return;
+    }
+
+    this.fkPreview.set({
+      columnName: col.name,
+      foreignKey: col.foreignKey,
+      value: col.rawValue,
+      record: null,
+      columns: [],
+      loading: true,
+      error: null,
+    });
+
+    this.fetchFkRecord(col.rawValue, col.foreignKey);
+  }
+
+  private fetchFkRecord(
+    value: unknown,
+    foreignKey: { referencedSchema: string; referencedTable: string; referencedColumn: string }
+  ): void {
+    if (!this.connectionId || !this.database) return;
+
+    const request: FkRecordRequest = {
+      connectionId: this.connectionId,
+      database: this.database,
+      schema: foreignKey.referencedSchema,
+      table: foreignKey.referencedTable,
+      column: foreignKey.referencedColumn,
+      value,
+    };
+
+    this.ipc.fetchFkRecord(request).subscribe({
+      next: result => {
+        const current = this.fkPreview();
+        if (current) {
+          if (result.success && result.record) {
+            this.fkPreview.set({
+              ...current,
+              record: result.record,
+              columns: result.columns ?? [],
+              loading: false,
+              error: null,
+            });
+          } else {
+            this.fkPreview.set({
+              ...current,
+              loading: false,
+              error: result.error ?? 'Record not found',
+            });
+          }
+        }
+      },
+      error: err => {
+        const current = this.fkPreview();
+        if (current) {
+          this.fkPreview.set({
+            ...current,
+            loading: false,
+            error: err.message ?? 'Failed to fetch record',
+          });
+        }
+      },
+    });
+  }
+
+  closeFkPreview(): void {
+    this.fkPreview.set(null);
+  }
+
+  openFkInNewTab(
+    col: {
+      rawValue: unknown;
+      foreignKey?: { referencedSchema: string; referencedTable: string; referencedColumn: string };
+    },
+    event: Event
+  ): void {
+    event.stopPropagation();
+
+    if (!col.foreignKey || col.rawValue === null || col.rawValue === undefined) {
+      return;
+    }
+
+    this.emitFkQuery(col.rawValue, col.foreignKey);
+  }
+
+  openFkFromPreview(): void {
+    const preview = this.fkPreview();
+    if (!preview) return;
+
+    this.emitFkQuery(preview.value, preview.foreignKey);
+    this.closeFkPreview();
+  }
+
+  private emitFkQuery(
+    value: unknown,
+    foreignKey: { referencedSchema: string; referencedTable: string; referencedColumn: string }
+  ): void {
+    const escapedValue = this.formatFkValueForSql(value);
+    const sql = `SELECT *\nFROM [${foreignKey.referencedSchema}].[${foreignKey.referencedTable}]\nWHERE [${foreignKey.referencedColumn}] = ${escapedValue}`;
+    const title = `${foreignKey.referencedTable} - ${this.formatDisplayValue(value)}`;
+    this.openQueryRequested.emit({ sql, title });
+  }
+
+  formatFkFieldValue(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'object') {
+      const str = JSON.stringify(value);
+      return str.length > 80 ? str.substring(0, 80) + '...' : str;
+    }
+    const str = String(value);
+    return str.length > 150 ? str.substring(0, 150) + '...' : str;
+  }
+
+  private formatFkValueForSql(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'boolean') return value ? '1' : '0';
+    const str = String(value);
+    const escaped = str.replace(/'/g, "''");
+    return `N'${escaped}'`;
+  }
+
+  private formatDisplayValue(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'object') return JSON.stringify(value);
+    const str = String(value);
+    return str.length > 25 ? str.substring(0, 25) + '...' : str;
   }
 }

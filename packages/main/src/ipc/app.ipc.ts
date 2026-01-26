@@ -2,10 +2,13 @@
  * App IPC Handlers
  */
 
-import { ipcMain, app, shell } from 'electron';
-import { IPC_CHANNELS } from '@mj-forge/shared';
+import { ipcMain, app, shell, dialog } from 'electron';
+import { IPC_CHANNELS, type AppState, type TabState, type LayoutConfig } from '@mj-forge/shared';
+import { AppStateStore } from '../services/config/app-state';
 
 export function registerAppHandlers(): void {
+  const appState = AppStateStore.getInstance();
+
   // Get app version
   ipcMain.handle(IPC_CHANNELS.APP.GET_VERSION, async (): Promise<string> => {
     return app.getVersion();
@@ -19,5 +22,67 @@ export function registerAppHandlers(): void {
   // Show in folder
   ipcMain.handle(IPC_CHANNELS.APP.SHOW_IN_FOLDER, async (_event, path: string): Promise<void> => {
     shell.showItemInFolder(path);
+  });
+
+  // Get app state
+  ipcMain.handle(IPC_CHANNELS.APP.GET_STATE, async (): Promise<AppState> => {
+    return appState.getState();
+  });
+
+  // Set app state
+  ipcMain.handle(
+    IPC_CHANNELS.APP.SET_STATE,
+    async (_event, partial: Partial<AppState>): Promise<void> => {
+      appState.setState(partial);
+    }
+  );
+
+  // Save tabs
+  ipcMain.handle(
+    IPC_CHANNELS.APP.SAVE_TABS,
+    async (_event, tabs: TabState[], activeTabId: string | null): Promise<void> => {
+      appState.setOpenTabs(tabs);
+      appState.setActiveTabId(activeTabId);
+    }
+  );
+
+  // Get saved tabs
+  ipcMain.handle(
+    IPC_CHANNELS.APP.GET_TABS,
+    async (): Promise<{ tabs: TabState[]; activeTabId: string | null }> => {
+      return {
+        tabs: appState.getOpenTabs(),
+        activeTabId: appState.getActiveTabId(),
+      };
+    }
+  );
+
+  // Show open dialog
+  ipcMain.handle(
+    IPC_CHANNELS.APP.SHOW_OPEN_DIALOG,
+    async (_event, options: Electron.OpenDialogOptions) => {
+      return dialog.showOpenDialog(options);
+    }
+  );
+
+  // Show save dialog
+  ipcMain.handle(
+    IPC_CHANNELS.APP.SHOW_SAVE_DIALOG,
+    async (_event, options: Electron.SaveDialogOptions) => {
+      return dialog.showSaveDialog(options);
+    }
+  );
+
+  // Save golden layout config
+  ipcMain.handle(
+    IPC_CHANNELS.APP.SAVE_LAYOUT,
+    async (_event, config: LayoutConfig | undefined): Promise<void> => {
+      appState.setGoldenLayoutConfig(config);
+    }
+  );
+
+  // Get golden layout config
+  ipcMain.handle(IPC_CHANNELS.APP.GET_LAYOUT, async (): Promise<LayoutConfig | undefined> => {
+    return appState.getGoldenLayoutConfig();
   });
 }

@@ -66,6 +66,44 @@ export const IPC_CHANNELS = {
     DELETE_HISTORY_ENTRY: 'query:delete-history-entry',
     // Export
     EXPORT_RESULTS: 'query:export-results',
+    // Foreign Key Navigation
+    FETCH_FK_RECORD: 'query:fetch-fk-record',
+  },
+
+  // Query Results Persistence
+  QUERY_RESULTS: {
+    SAVE_SNAPSHOT: 'query-results:save-snapshot',
+    GET_SNAPSHOTS: 'query-results:get-snapshots',
+    GET_SNAPSHOT: 'query-results:get-snapshot',
+    DELETE_SNAPSHOT: 'query-results:delete-snapshot',
+    DELETE_SNAPSHOTS: 'query-results:delete-snapshots',
+    PIN_SNAPSHOT: 'query-results:pin-snapshot',
+    UNPIN_SNAPSHOT: 'query-results:unpin-snapshot',
+    LABEL_SNAPSHOT: 'query-results:label-snapshot',
+    GET_STORAGE_STATS: 'query-results:get-storage-stats',
+    PURGE: 'query-results:purge',
+    COMPARE_SNAPSHOTS: 'query-results:compare-snapshots',
+  },
+
+  // AI Integration
+  AI: {
+    GET_VENDORS: 'ai:get-vendors',
+    GET_SETTINGS: 'ai:get-settings',
+    SET_SETTINGS: 'ai:set-settings',
+    SET_API_KEY: 'ai:set-api-key',
+    REMOVE_API_KEY: 'ai:remove-api-key',
+    VALIDATE_API_KEY: 'ai:validate-api-key',
+    GENERATE_TAB_NAME: 'ai:generate-tab-name',
+    ANALYZE_RESULTS: 'ai:analyze-results',
+    GENERATE_SQL: 'ai:generate-sql',
+    CANCEL_REQUEST: 'ai:cancel-request',
+  },
+
+  // Server File System (browsing SQL Server's file system)
+  SERVER_FS: {
+    GET_DRIVES: 'server-fs:get-drives',
+    LIST_DIRECTORY: 'server-fs:list-directory',
+    GET_DEFAULT_PATHS: 'server-fs:get-default-paths',
   },
 
   // Backup Operations
@@ -75,6 +113,7 @@ export const IPC_CHANNELS = {
     PROGRESS: 'backup:progress',
     COMPLETE: 'backup:complete',
     ERROR: 'backup:error',
+    GET_HISTORY: 'backup:get-history',
   },
 
   // Restore Operations
@@ -82,6 +121,7 @@ export const IPC_CHANNELS = {
     START: 'restore:start',
     CANCEL: 'restore:cancel',
     GET_FILE_LIST: 'restore:get-file-list',
+    GET_BACKUP_INFO: 'restore:get-backup-info',
     PROGRESS: 'restore:progress',
     COMPLETE: 'restore:complete',
     ERROR: 'restore:error',
@@ -102,6 +142,28 @@ export const IPC_CHANNELS = {
     SHOW_IN_FOLDER: 'app:show-in-folder',
     SHOW_OPEN_DIALOG: 'app:show-open-dialog',
     SHOW_SAVE_DIALOG: 'app:show-save-dialog',
+    // State persistence
+    GET_STATE: 'app:get-state',
+    SET_STATE: 'app:set-state',
+    SAVE_TABS: 'app:save-tabs',
+    GET_TABS: 'app:get-tabs',
+    // GoldenLayout persistence
+    SAVE_LAYOUT: 'app:save-layout',
+    GET_LAYOUT: 'app:get-layout',
+  },
+
+  // Workspace (for file/folder support)
+  WORKSPACE: {
+    OPEN_FOLDER: 'workspace:open-folder',
+    GET_FILES: 'workspace:get-files',
+    READ_FILE: 'workspace:read-file',
+    WRITE_FILE: 'workspace:write-file',
+    CREATE_FILE: 'workspace:create-file',
+    DELETE_FILE: 'workspace:delete-file',
+    RENAME_FILE: 'workspace:rename-file',
+    WATCH: 'workspace:watch',
+    UNWATCH: 'workspace:unwatch',
+    FILE_CHANGED: 'workspace:file-changed',
   },
 } as const;
 

@@ -1,0 +1,203 @@
+/**
+ * App State Persistence Service
+ * Saves and restores application state across sessions
+ */
+
+import Store from 'electron-store';
+import { BaseSingleton } from '../../utils/singleton';
+import type { AppState, TabState, LayoutConfig } from '@mj-forge/shared';
+
+const DEFAULT_APP_STATE: AppState = {
+  lastConnectionId: null,
+  lastDatabase: null,
+  editorHeightPercent: 50,
+  sidebarWidth: 280,
+  sidebarCollapsed: false,
+  showQueryHistory: false,
+  openTabs: [],
+  activeTabId: null,
+  recentWorkspaces: [],
+  currentWorkspacePath: null,
+};
+
+export class AppStateStore extends BaseSingleton {
+  private store: Store<{ appState: AppState }>;
+
+  constructor() {
+    super();
+    this.store = new Store<{ appState: AppState }>({
+      name: 'app-state',
+      defaults: {
+        appState: DEFAULT_APP_STATE,
+      },
+    });
+  }
+
+  /**
+   * Get the full app state
+   */
+  getState(): AppState {
+    return this.store.get('appState');
+  }
+
+  /**
+   * Update app state (partial update)
+   */
+  setState(partial: Partial<AppState>): void {
+    const current = this.getState();
+    this.store.set('appState', { ...current, ...partial });
+  }
+
+  /**
+   * Get last connection ID
+   */
+  getLastConnectionId(): string | null {
+    return this.getState().lastConnectionId;
+  }
+
+  /**
+   * Set last connection ID
+   */
+  setLastConnectionId(connectionId: string | null): void {
+    this.setState({ lastConnectionId: connectionId });
+  }
+
+  /**
+   * Get last database
+   */
+  getLastDatabase(): string | null {
+    return this.getState().lastDatabase;
+  }
+
+  /**
+   * Set last database
+   */
+  setLastDatabase(database: string | null): void {
+    this.setState({ lastDatabase: database });
+  }
+
+  /**
+   * Get editor height percent
+   */
+  getEditorHeightPercent(): number {
+    return this.getState().editorHeightPercent;
+  }
+
+  /**
+   * Set editor height percent
+   */
+  setEditorHeightPercent(percent: number): void {
+    this.setState({ editorHeightPercent: percent });
+  }
+
+  /**
+   * Get sidebar width
+   */
+  getSidebarWidth(): number {
+    return this.getState().sidebarWidth;
+  }
+
+  /**
+   * Set sidebar width
+   */
+  setSidebarWidth(width: number): void {
+    this.setState({ sidebarWidth: width });
+  }
+
+  /**
+   * Get sidebar collapsed state
+   */
+  getSidebarCollapsed(): boolean {
+    return this.getState().sidebarCollapsed;
+  }
+
+  /**
+   * Set sidebar collapsed state
+   */
+  setSidebarCollapsed(collapsed: boolean): void {
+    this.setState({ sidebarCollapsed: collapsed });
+  }
+
+  /**
+   * Get open tabs
+   */
+  getOpenTabs(): TabState[] {
+    return this.getState().openTabs;
+  }
+
+  /**
+   * Set open tabs
+   */
+  setOpenTabs(tabs: TabState[]): void {
+    this.setState({ openTabs: tabs });
+  }
+
+  /**
+   * Get active tab ID
+   */
+  getActiveTabId(): string | null {
+    return this.getState().activeTabId;
+  }
+
+  /**
+   * Set active tab ID
+   */
+  setActiveTabId(tabId: string | null): void {
+    this.setState({ activeTabId: tabId });
+  }
+
+  /**
+   * Add recent workspace
+   */
+  addRecentWorkspace(workspacePath: string): void {
+    const current = this.getState().recentWorkspaces;
+    const filtered = current.filter(p => p !== workspacePath);
+    const updated = [workspacePath, ...filtered].slice(0, 10); // Keep last 10
+    this.setState({ recentWorkspaces: updated });
+  }
+
+  /**
+   * Get recent workspaces
+   */
+  getRecentWorkspaces(): string[] {
+    return this.getState().recentWorkspaces;
+  }
+
+  /**
+   * Get current workspace path
+   */
+  getCurrentWorkspacePath(): string | null {
+    return this.getState().currentWorkspacePath;
+  }
+
+  /**
+   * Set current workspace path
+   */
+  setCurrentWorkspacePath(path: string | null): void {
+    this.setState({ currentWorkspacePath: path });
+    if (path) {
+      this.addRecentWorkspace(path);
+    }
+  }
+
+  /**
+   * Get golden layout config
+   */
+  getGoldenLayoutConfig(): LayoutConfig | undefined {
+    return this.getState().goldenLayoutConfig;
+  }
+
+  /**
+   * Set golden layout config
+   */
+  setGoldenLayoutConfig(config: LayoutConfig | undefined): void {
+    this.setState({ goldenLayoutConfig: config });
+  }
+
+  /**
+   * Clear all state (for testing or reset)
+   */
+  clearState(): void {
+    this.store.set('appState', DEFAULT_APP_STATE);
+  }
+}

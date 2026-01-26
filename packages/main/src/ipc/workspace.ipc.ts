@@ -1,0 +1,189 @@
+/**
+ * Workspace IPC Handlers
+ * Handles file/folder operations for workspace support
+ */
+
+import { ipcMain, dialog } from 'electron';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { watch, FSWatcher } from 'fs';
+import { IPC_CHANNELS } from '@mj-forge/shared';
+import type { FileTreeNode, WorkspaceInfo, WorkspaceSettings } from '@mj-forge/shared';
+import { AppStateStore } from '../services/config/app-state';
+
+const WORKSPACE_SETTINGS_FILE = '.forge.json';
+const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
+
+// Track active file watchers
+const activeWatchers = new Map<string, FSWatcher>();
+
+export function registerWorkspaceHandlers(mainWindow: Electron.BrowserWindow): void {
+  const appState = AppStateStore.getInstance();
+
+  // Open folder and get workspace info
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, async (_event, folderPath?: string): Promise<WorkspaceInfo | null> => {
+    let targetPath = folderPath;
+
+    if (!targetPath) {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Open Folder',
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      targetPath = result.filePaths[0];
+    }
+
+    try {
+      const files = await buildFileTree(targetPath);
+      const settings = await loadWorkspaceSettings(targetPath);
+
+      // Save to app state
+      appState.setCurrentWorkspacePath(targetPath);
+
+      // Set up file watcher
+      setupFileWatcher(targetPath, mainWindow);
+
+      return {
+        path: targetPath,
+        name: path.basename(targetPath),
+        files,
+        settings,
+      };
+    } catch (error) {
+      console.error('Failed to open folder:', error);
+      throw error;
+    }
+  });
+
+  // Get files in a directory
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.GET_FILES, async (_event, dirPath: string): Promise<FileTreeNode[]> => {
+    return buildFileTree(dirPath);
+  });
+
+  // Read file contents
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.READ_FILE, async (_event, filePath: string): Promise<string> => {
+    const content = await fs.readFile(filePath, 'utf-8');
+    return content;
+  });
+
+  // Write file contents
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.WRITE_FILE, async (_event, filePath: string, content: string): Promise<void> => {
+    await fs.writeFile(filePath, content, 'utf-8');
+  });
+
+  // Create new file
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.CREATE_FILE, async (_event, filePath: string, content?: string): Promise<void> => {
+    await fs.writeFile(filePath, content || '', 'utf-8');
+  });
+
+  // Delete file
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.DELETE_FILE, async (_event, filePath: string): Promise<void> => {
+    await fs.unlink(filePath);
+  });
+
+  // Rename file
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE.RENAME_FILE, async (_event, oldPath: string, newPath: string): Promise<void> => {
+    await fs.rename(oldPath, newPath);
+  });
+}
+
+async function buildFileTree(dirPath: string, depth = 0, maxDepth = 5): Promise<FileTreeNode[]> {
+  if (depth >= maxDepth) return [];
+
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  const nodes: FileTreeNode[] = [];
+
+  for (const entry of entries) {
+    // Skip hidden files/folders and node_modules
+    if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+      continue;
+    }
+
+    const fullPath = path.join(dirPath, entry.name);
+
+    if (entry.isDirectory()) {
+      const children = await buildFileTree(fullPath, depth + 1, maxDepth);
+      // Only include directories that have SQL files (directly or in subdirs)
+      if (hasSqlFiles(children) || depth < 2) {
+        nodes.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'directory',
+          children,
+        });
+      }
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (SQL_EXTENSIONS.includes(ext)) {
+        nodes.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'file',
+          extension: ext,
+        });
+      }
+    }
+  }
+
+  // Sort: directories first, then files, alphabetically
+  return nodes.sort((a, b) => {
+    if (a.type === b.type) {
+      return a.name.localeCompare(b.name);
+    }
+    return a.type === 'directory' ? -1 : 1;
+  });
+}
+
+function hasSqlFiles(nodes: FileTreeNode[]): boolean {
+  for (const node of nodes) {
+    if (node.type === 'file') return true;
+    if (node.children && hasSqlFiles(node.children)) return true;
+  }
+  return false;
+}
+
+async function loadWorkspaceSettings(workspacePath: string): Promise<WorkspaceSettings | undefined> {
+  const settingsPath = path.join(workspacePath, WORKSPACE_SETTINGS_FILE);
+  try {
+    const content = await fs.readFile(settingsPath, 'utf-8');
+    return JSON.parse(content) as WorkspaceSettings;
+  } catch {
+    return undefined;
+  }
+}
+
+function setupFileWatcher(workspacePath: string, mainWindow: Electron.BrowserWindow): void {
+  // Clean up existing watcher for this path
+  if (activeWatchers.has(workspacePath)) {
+    activeWatchers.get(workspacePath)?.close();
+  }
+
+  try {
+    const watcher = watch(workspacePath, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+
+      const ext = path.extname(filename).toLowerCase();
+      if (SQL_EXTENSIONS.includes(ext)) {
+        mainWindow.webContents.send(IPC_CHANNELS.WORKSPACE.FILE_CHANGED, {
+          filePath: path.join(workspacePath, filename),
+          type: eventType,
+        });
+      }
+    });
+
+    activeWatchers.set(workspacePath, watcher);
+  } catch (error) {
+    console.error('Failed to set up file watcher:', error);
+  }
+}
+
+// Cleanup function for app shutdown
+export function cleanupWorkspaceWatchers(): void {
+  for (const watcher of activeWatchers.values()) {
+    watcher.close();
+  }
+  activeWatchers.clear();
+}
