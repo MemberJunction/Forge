@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/SQL%20Server-2017%2B-red?style=flat-square" alt="SQL Server">
-  <img src="https://img.shields.io/badge/status-in%20development-yellow?style=flat-square" alt="Status">
+  <img src="https://img.shields.io/badge/status-beta-orange?style=flat-square" alt="Status">
 </p>
 
 ---
@@ -97,6 +97,18 @@ Destructive operations require explicit confirmation. Type the database name to 
 
 Multi-tab query workspace with syntax highlighting, results grid, and messages pane. Everything you need for day-to-day SQL work.
 
+### AI-Powered Analysis
+
+Connect your own AI API keys (Anthropic, OpenAI, Google, Groq, or Cerebras) to unlock:
+
+- **Smart Tab Naming** — Tabs auto-rename based on query content
+- **Result Analysis** — Ask questions about your query results in natural language
+- **Pattern Detection** — AI identifies trends and anomalies in your data
+
+### Result History & Comparison
+
+Every query execution is saved as a snapshot. Compare any two runs side-by-side to see exactly what changed — added rows, removed rows, and modified values highlighted.
+
 ---
 
 ## Quick Start
@@ -104,20 +116,29 @@ Multi-tab query workspace with syntax highlighting, results grid, and messages p
 ### Requirements
 
 - macOS 13 (Ventura) or later
+- Apple Silicon (M1/M2/M3) or Intel Mac
 - SQL Server 2017+ (local Docker or remote server)
 - For Docker SQL Server: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
-### Installation
+### Download
+
+**[⬇️ Download MJ Forge for macOS](https://github.com/MemberJunction/mj-forge/releases/latest)**
+
+| Chip                     | Download                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------- |
+| Apple Silicon (M1/M2/M3) | [MJ Forge-x.x.x-arm64.dmg](https://github.com/MemberJunction/mj-forge/releases/latest) |
+| Intel                    | [MJ Forge-x.x.x-x64.dmg](https://github.com/MemberJunction/mj-forge/releases/latest)   |
+
+> **Note:** On first launch, right-click the app and select "Open" to bypass Gatekeeper (the app is not yet notarized).
+
+### Build from Source
 
 ```bash
-# Download the latest release
-# (Link will be available when v1.0 ships)
-
-# Or build from source
 git clone https://github.com/MemberJunction/mj-forge.git
 cd mj-forge
 npm install
-npm run dev
+npm run dev          # Development mode with hot reload
+npm run package:mac  # Build .dmg installer
 ```
 
 ### First Connection
@@ -131,22 +152,25 @@ npm run dev
 
 ## Screenshots
 
-*Coming soon — UI is currently in development*
+_Screenshots coming soon_
 
 ---
 
 ## Why MJ Forge?
 
-| Feature | MJ Forge | Azure Data Studio | TablePlus | SSMS |
-|---------|:--------:|:-----------------:|:---------:|:----:|
-| macOS Native | ✅ | ✅ | ✅ | ❌ |
-| Create/Rename/Delete DB | ✅ | ❌ | ❌ | ✅ |
-| Backup Database | ✅ | ❌ | ❌ | ✅ |
-| Restore Database | ✅ | ❌ | ❌ | ✅ |
-| Docker Detection | ✅ | ❌ | ❌ | ❌ |
-| T-SQL Transparency | ✅ | N/A | N/A | ❌ |
-| Query Editor | ✅ | ✅ | ✅ | ✅ |
-| Object Explorer | ✅ | ✅ | ✅ | ✅ |
+| Feature                 | MJ Forge | Azure Data Studio | TablePlus | SSMS |
+| ----------------------- | :------: | :---------------: | :-------: | :--: |
+| macOS Native            |    ✅    |        ✅         |    ✅     |  ❌  |
+| Create/Rename/Delete DB |    ✅    |        ❌         |    ❌     |  ✅  |
+| Backup Database         |    ✅    |        ❌         |    ❌     |  ✅  |
+| Restore Database        |    ✅    |        ❌         |    ❌     |  ✅  |
+| Docker Detection        |    ✅    |        ❌         |    ❌     |  ❌  |
+| T-SQL Transparency      |    ✅    |        N/A        |    N/A    |  ❌  |
+| Query Editor            |    ✅    |        ✅         |    ✅     |  ✅  |
+| Object Explorer         |    ✅    |        ✅         |    ✅     |  ✅  |
+| Result History & Diff   |    ✅    |        ❌         |    ❌     |  ❌  |
+| AI Analysis             |    ✅    |        ❌         |    ❌     |  ❌  |
+| FK Navigation           |    ✅    |        ❌         |    ❌     |  ✅  |
 
 ---
 
@@ -164,29 +188,35 @@ Built with patterns from [MemberJunction](https://github.com/MemberJunction/MJ),
 
 ## Roadmap
 
-### v1.0 — Core Features
-- [x] Project foundation
-- [ ] Connection management with Keychain storage
-- [ ] Docker SQL Server detection
-- [ ] Object explorer (databases, tables, views, procedures)
-- [ ] Multi-tab query editor with results grid
-- [ ] Create / Rename / Delete database
-- [ ] Full backup with streaming progress
-- [ ] Restore with file relocation wizard
+### v1.0 — Core Features ✅
 
-### v1.1 — Enhanced Experience
-- [ ] Query history and snippets
+- [x] Project foundation
+- [x] Connection management with Keychain storage
+- [x] Docker SQL Server detection
+- [x] Object explorer (databases, tables, views, procedures, functions)
+- [x] Multi-tab query editor with results grid
+- [x] Create / Rename / Delete database
+- [x] Full backup with streaming progress
+- [x] Restore with file relocation wizard
+
+### v1.1 — Enhanced Experience ✅
+
+- [x] Query result history with snapshots
+- [x] Result comparison (diff view)
+- [x] Dark/Light mode themes
+- [x] Export results (CSV, JSON, Excel)
+- [x] Foreign key navigation in results
+- [x] AI-powered features (tab naming, result analysis)
 - [ ] Differential backups
 - [ ] Connection grouping and tagging
-- [ ] Dark mode
-- [ ] Export results (CSV, JSON)
 
 ### v2.0 — Advanced Features
+
 - [ ] Azure AD authentication
 - [ ] IntelliSense / autocomplete
 - [ ] Backup scheduling
-- [ ] Table data viewer with filtering
 - [ ] Schema scripting
+- [ ] SQL generation with AI
 
 ---
 
@@ -260,6 +290,7 @@ MJ Forge is sponsored by and built with [MemberJunction](https://github.com/Memb
 </p>
 
 MemberJunction provides the foundational patterns used in MJ Forge:
+
 - **Singleton patterns** for service management
 - **Object caching** for performance
 - **Utility functions** for data handling
