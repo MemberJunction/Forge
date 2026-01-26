@@ -28,6 +28,14 @@ import {
   RenameDatabaseDialogComponent,
   RenameDatabaseDialogData,
 } from '../../shared/components/rename-database-dialog/rename-database-dialog.component';
+import {
+  CreateDatabaseDialogComponent,
+  CreateDatabaseDialogData,
+} from '../../shared/components/create-database-dialog/create-database-dialog.component';
+import {
+  ConnectionDialogComponent,
+  ConnectionDialogData,
+} from '../../shared/components/connection-dialog/connection-dialog.component';
 
 @Component({
   selector: 'app-sidebar',
@@ -44,9 +52,12 @@ import {
   ],
   template: `
     <div class="sidebar-container">
-      <!-- Header -->
+      <!-- Header (with padding for macOS traffic lights) -->
       <div class="sidebar-header">
-        <span class="logo">MJ Forge</span>
+        <div class="logo-area">
+          <img class="app-icon" src="assets/icons/mj-logo.png" alt="MJ Forge" />
+          <span class="logo">Forge</span>
+        </div>
         <button mat-icon-button matTooltip="New Connection" (click)="openConnectionDialog()">
           <mat-icon>add</mat-icon>
         </button>
@@ -243,7 +254,25 @@ import {
         align-items: center;
         justify-content: space-between;
         padding: var(--spacing-sm) var(--spacing-md);
+        padding-top: 28px; /* Space for macOS traffic lights */
         border-bottom: 1px solid var(--border-primary);
+        -webkit-app-region: drag; /* Allow dragging window from header */
+      }
+
+      .sidebar-header button {
+        -webkit-app-region: no-drag; /* Buttons should be clickable */
+      }
+
+      .logo-area {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .app-icon {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
       }
 
       .logo {
@@ -434,11 +463,17 @@ export class SidebarComponent {
   private pendingRenameDatabase: string | null = null;
 
   openConnectionDialog(): void {
-    this.router.navigate(['/connections']);
+    this.dialog.open(ConnectionDialogComponent, {
+      data: {} as ConnectionDialogData,
+      width: '540px',
+    });
   }
 
   manageConnections(): void {
-    this.router.navigate(['/connections']);
+    this.dialog.open(ConnectionDialogComponent, {
+      data: {} as ConnectionDialogData,
+      width: '540px',
+    });
   }
 
   async connectTo(profileId: string): Promise<void> {
@@ -589,6 +624,8 @@ export class SidebarComponent {
         return this.getViewContextMenu(node);
       case 'procedure':
         return this.getProcedureContextMenu(node);
+      case 'function':
+        return this.getFunctionContextMenu(node);
       default:
         return [];
     }
@@ -604,6 +641,16 @@ export class SidebarComponent {
           if (node.connectionId) {
             this.tabState.openQueryTab(node.connectionId, 'master');
             this.router.navigate(['/query']);
+          }
+        },
+      },
+      {
+        id: 'new-database',
+        label: 'New Database...',
+        icon: 'add_circle',
+        action: () => {
+          if (node.connectionId) {
+            this.openCreateDatabaseDialog(node.connectionId);
           }
         },
       },
@@ -858,7 +905,6 @@ export class SidebarComponent {
             const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
-            this.router.navigate(['/query']);
           }
         },
       },
@@ -880,11 +926,48 @@ export class SidebarComponent {
               );
               const sql = result.definition || '-- View definition not available';
               this.connectionState.selectDatabase(node.databaseName);
-              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
-              this.router.navigate(['/query']);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get view definition');
             }
+          }
+        },
+      },
+      {
+        id: 'script-alter',
+        label: 'Script View as ALTER',
+        icon: 'code',
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const result = await window.forge.explorer.getDefinition(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name,
+                'view'
+              );
+              let sql = result.definition || '-- View definition not available';
+              sql = sql.replace(/CREATE\s+VIEW\s+/i, 'ALTER VIEW ');
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            } catch (err) {
+              this.notification.error('Failed to get view definition');
+            }
+          }
+        },
+      },
+      {
+        id: 'script-select',
+        label: 'Script View as SELECT',
+        icon: 'code',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const sql = `SELECT * FROM [${schema}].[${node.metadata.name}]`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
       },
@@ -893,17 +976,104 @@ export class SidebarComponent {
         id: 'properties',
         label: 'Properties...',
         icon: 'info',
+        shortcut: 'Alt+Enter',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            this.tabState.openObjectTab(
-              node.connectionId,
-              node.databaseName,
-              node.metadata.name,
-              node.metadata.type
-            );
-            this.router.navigate(['/explorer']);
+            this.tableProperties.open({
+              connectionId: node.connectionId,
+              databaseName: node.databaseName,
+              schema: node.metadata.schema || 'dbo',
+              tableName: node.metadata.name,
+              objectType: 'view',
+            });
           }
         },
+      },
+      { id: 'div3', label: '', divider: true },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        icon: 'refresh',
+        action: () => this.explorerState.refreshNode(node.id),
+      },
+    ];
+  }
+
+  private getFunctionContextMenu(node: TreeNode): ContextMenuItem[] {
+    return [
+      {
+        id: 'script-create',
+        label: 'Script Function as CREATE',
+        icon: 'code',
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const result = await window.forge.explorer.getDefinition(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name,
+                'function'
+              );
+              const sql = result.definition || '-- Function definition not available';
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            } catch (err) {
+              this.notification.error('Failed to get function definition');
+            }
+          }
+        },
+      },
+      {
+        id: 'script-alter',
+        label: 'Script Function as ALTER',
+        icon: 'code',
+        action: async () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            try {
+              const schema = node.metadata.schema || 'dbo';
+              const result = await window.forge.explorer.getDefinition(
+                node.connectionId,
+                node.databaseName,
+                schema,
+                node.metadata.name,
+                'function'
+              );
+              let sql = result.definition || '-- Function definition not available';
+              sql = sql.replace(/CREATE\s+FUNCTION\s+/i, 'ALTER FUNCTION ');
+              this.connectionState.selectDatabase(node.databaseName);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            } catch (err) {
+              this.notification.error('Failed to get function definition');
+            }
+          }
+        },
+      },
+      { id: 'div1', label: '', divider: true },
+      {
+        id: 'properties',
+        label: 'Properties...',
+        icon: 'info',
+        shortcut: 'Alt+Enter',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            this.tableProperties.open({
+              connectionId: node.connectionId,
+              databaseName: node.databaseName,
+              schema: node.metadata.schema || 'dbo',
+              tableName: node.metadata.name,
+              objectType: 'function',
+            });
+          }
+        },
+      },
+      { id: 'div2', label: '', divider: true },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        icon: 'refresh',
+        action: () => this.explorerState.refreshNode(node.id),
       },
     ];
   }
@@ -919,8 +1089,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || 'dbo';
             const sql = `EXEC [${schema}].[${node.metadata.name}]`;
             this.connectionState.selectDatabase(node.databaseName);
-            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
-            this.router.navigate(['/query']);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
       },
@@ -942,8 +1111,7 @@ export class SidebarComponent {
               );
               const sql = result.definition || '-- Procedure definition not available';
               this.connectionState.selectDatabase(node.databaseName);
-              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
-              this.router.navigate(['/query']);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get procedure definition');
             }
@@ -965,12 +1133,10 @@ export class SidebarComponent {
                 node.metadata.name,
                 'procedure'
               );
-              // Replace CREATE with ALTER in the definition
               let sql = result.definition || '-- Procedure definition not available';
               sql = sql.replace(/CREATE\s+(PROCEDURE|PROC)\s+/i, 'ALTER $1 ');
               this.connectionState.selectDatabase(node.databaseName);
-              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
-              this.router.navigate(['/query']);
+              this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get procedure definition');
             }
@@ -982,22 +1148,55 @@ export class SidebarComponent {
         id: 'properties',
         label: 'Properties...',
         icon: 'info',
+        shortcut: 'Alt+Enter',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            this.tabState.openObjectTab(
-              node.connectionId,
-              node.databaseName,
-              node.metadata.name,
-              node.metadata.type
-            );
-            this.router.navigate(['/explorer']);
+            this.tableProperties.open({
+              connectionId: node.connectionId,
+              databaseName: node.databaseName,
+              schema: node.metadata.schema || 'dbo',
+              tableName: node.metadata.name,
+              objectType: 'procedure',
+            });
           }
         },
+      },
+      { id: 'div3', label: '', divider: true },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        icon: 'refresh',
+        action: () => this.explorerState.refreshNode(node.id),
       },
     ];
   }
 
-  // Database rename/delete dialog methods
+  // Database create/rename/delete dialog methods
+  private openCreateDatabaseDialog(connectionId: string): void {
+    const dialogData: CreateDatabaseDialogData = {
+      connectionId,
+    };
+
+    const dialogRef = this.dialog.open(CreateDatabaseDialogComponent, {
+      data: dialogData,
+      width: '450px',
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result?.success && result.databaseName) {
+        // Refresh the database list
+        this.connectionState.loadDatabases();
+        // Refresh explorer tree
+        const serverNode = this.explorerState
+          .rootNodes()
+          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
+        if (serverNode) {
+          this.explorerState.refreshNode(serverNode.id);
+        }
+      }
+    });
+  }
+
   private openRenameDatabaseDialog(connectionId: string, databaseName: string): void {
     const dialogData: RenameDatabaseDialogData = {
       connectionId,

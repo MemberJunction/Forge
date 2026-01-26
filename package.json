@@ -29,12 +29,19 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "deps:check": "syncpack list-mismatches",
     "deps:fix": "syncpack fix-mismatches",
-    "package": "npm run build && electron-builder --config electron-builder.yml",
-    "package:mac": "npm run build && electron-builder --mac --config electron-builder.yml",
-    "package:dir": "npm run build && electron-builder --dir --config electron-builder.yml",
+    "package": "npm run build && node scripts/prepare-package.js && electron-builder --config electron-builder.yml",
+    "package:mac": "npm run build && node scripts/prepare-package.js && electron-builder --mac --config electron-builder.yml",
+    "package:dir": "npm run build && node scripts/prepare-package.js && electron-builder --dir --config electron-builder.yml",
     "prepare": "husky"
   },
   "main": "packages/main/dist/index.js",
+  "dependencies": {
+    "dockerode": "^4.0.2",
+    "electron-store": "^8.2.0",
+    "keytar": "^7.9.0",
+    "mssql": "^11.0.1",
+    "uuid": "^10.0.0"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.27.12",
     "@types/jest": "^29.5.14",

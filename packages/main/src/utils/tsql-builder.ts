@@ -225,6 +225,31 @@ ORDER BY d.name;`;
   }
 
   /**
+   * Generate query to list schemas (excluding system schemas)
+   */
+  static listSchemas(database: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+SELECT
+  s.name,
+  p.name as owner,
+  CASE
+    WHEN s.name IN ('sys', 'INFORMATION_SCHEMA', 'guest', 'db_owner', 'db_accessadmin',
+      'db_securityadmin', 'db_ddladmin', 'db_backupoperator', 'db_datareader',
+      'db_datawriter', 'db_denydatareader', 'db_denydatawriter')
+    THEN 1
+    WHEN s.name LIKE 'db_%' THEN 1
+    ELSE 0
+  END as isSystem
+FROM sys.schemas s
+LEFT JOIN sys.database_principals p ON s.principal_id = p.principal_id
+WHERE s.schema_id < 16384
+ORDER BY
+  CASE WHEN s.name = 'dbo' THEN 0 ELSE 1 END,
+  s.name;`;
+  }
+
+  /**
    * Generate query to list tables
    */
   static listTables(database: string): string {

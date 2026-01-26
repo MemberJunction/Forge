@@ -35,6 +35,7 @@ export const IPC_CHANNELS = {
     GET_CHILDREN: 'explorer:get-children',
     GET_OBJECT_DETAILS: 'explorer:get-object-details',
     REFRESH_NODE: 'explorer:refresh-node',
+    LIST_SCHEMAS: 'explorer:list-schemas',
     // Table metadata
     GET_TABLE_COLUMNS: 'explorer:get-table-columns',
     GET_TABLE_INDEXES: 'explorer:get-table-indexes',

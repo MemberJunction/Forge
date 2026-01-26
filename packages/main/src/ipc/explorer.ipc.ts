@@ -34,6 +34,18 @@ export function registerExplorerHandlers(): void {
     ): Promise<ObjectMetadata[]> => {
       console.log(`[Explorer] Getting children for ${databaseName}/${parentPath}`);
 
+      if (parentPath === 'schemas') {
+        const schemas = await metadataService.listSchemas(connectionId, databaseName);
+        // Filter out system schemas and return as ObjectMetadata
+        return schemas
+          .filter(s => !s.isSystem)
+          .map(s => ({
+            name: s.name,
+            type: 'schema' as const,
+            schema: s.name,
+          }));
+      }
+
       if (parentPath === 'tables') {
         const tables = await metadataService.listTables(connectionId, databaseName);
         return tables.map(t => ({

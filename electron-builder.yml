@@ -1,6 +1,6 @@
-appId: com.memberjunction.mj-forge
+appId: com.memberjunction.forge
 productName: MJ Forge
-copyright: Copyright © 2024 MemberJunction
+copyright: Copyright © 2026 MemberJunction
 
 # Directories
 directories:
@@ -10,7 +10,7 @@ directories:
 # Main entry point
 extends: null
 
-# Files to include
+# Files to include in asar
 files:
   - packages/main/dist/**/*
   - packages/main/package.json
@@ -21,6 +21,13 @@ files:
   - packages/shared/package.json
   - package.json
   - node_modules/**/*
+  # Map workspace package to node_modules location
+  - from: packages/shared
+    to: node_modules/@mj-forge/shared
+    filter:
+      - dist/**/*
+      - package.json
+  # Exclusions
   - "!node_modules/.cache"
   - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
   - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
@@ -36,7 +43,7 @@ files:
   - "!**/node_modules/karma*/**"
   - "!**/node_modules/jasmine*/**"
 
-# Extra resources
+# Extra resources (outside asar)
 extraResources:
   - from: resources/
     to: resources/

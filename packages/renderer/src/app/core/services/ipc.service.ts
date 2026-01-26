@@ -4,6 +4,7 @@ import type {
   ConnectionProfile,
   TestConnectionResult,
   DatabaseInfo,
+  SchemaInfo,
   CreateDatabaseOptions,
   RenameDatabaseOptions,
   DeleteDatabaseOptions,
@@ -142,6 +143,7 @@ interface ForgeAPI {
     getInfo: (connectionId: string, databaseName: string) => Promise<DatabaseInfo>;
   };
   explorer: {
+    listSchemas: (connectionId: string, databaseName: string) => Promise<SchemaInfo[]>;
     getChildren: (
       connectionId: string,
       databaseName: string,
@@ -473,6 +475,10 @@ export class IpcService {
   }
 
   // Explorer methods
+  listSchemas(connectionId: string, databaseName: string): Observable<SchemaInfo[]> {
+    return from(this.api.explorer.listSchemas(connectionId, databaseName));
+  }
+
   getExplorerChildren(
     connectionId: string,
     databaseName: string,
