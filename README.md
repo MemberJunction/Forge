@@ -122,19 +122,19 @@ Every query execution is saved as a snapshot. Compare any two runs side-by-side 
 
 ### Download
 
-**[⬇️ Download MJ Forge for macOS](https://github.com/MemberJunction/mj-forge/releases/latest)**
+**[⬇️ Download MJ Forge for macOS](https://github.com/MemberJunction/Forge/releases/latest)**
 
-| Chip                     | Download                                                                               |
-| ------------------------ | -------------------------------------------------------------------------------------- |
-| Apple Silicon (M1/M2/M3) | [MJ Forge-x.x.x-arm64.dmg](https://github.com/MemberJunction/mj-forge/releases/latest) |
-| Intel                    | [MJ Forge-x.x.x-x64.dmg](https://github.com/MemberJunction/mj-forge/releases/latest)   |
+| Chip                     | Download                                                                            |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| Apple Silicon (M1/M2/M3) | [MJ Forge-x.x.x-arm64.dmg](https://github.com/MemberJunction/Forge/releases/latest) |
+| Intel                    | [MJ Forge-x.x.x-x64.dmg](https://github.com/MemberJunction/Forge/releases/latest)   |
 
 > **Note:** On first launch, right-click the app and select "Open" to bypass Gatekeeper (the app is not yet notarized).
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/MemberJunction/mj-forge.git
+git clone https://github.com/MemberJunction/Forge.git
 cd mj-forge
 npm install
 npm run dev          # Development mode with hot reload
@@ -232,7 +232,7 @@ Built with patterns from [MemberJunction](https://github.com/MemberJunction/MJ),
 
 ```bash
 # Clone the repository
-git clone https://github.com/MemberJunction/mj-forge.git
+git clone https://github.com/MemberJunction/Forge.git
 cd mj-forge
 
 # Install dependencies
@@ -310,5 +310,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 </p>
 
 <p align="center">
-  <a href="https://github.com/MemberJunction/mj-forge/stargazers">⭐ Star us on GitHub</a>
+  <a href="https://github.com/MemberJunction/Forge/stargazers">⭐ Star us on GitHub</a>
 </p>
