@@ -7,6 +7,7 @@ import type {
   ForeignKeyInfo,
   ConstraintInfo,
   TriggerInfo,
+  MJDatabaseInfo,
 } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { NotificationService } from '../services/notification.service';
@@ -52,6 +53,8 @@ export interface TreeNode {
   foreignKeyInfo?: ForeignKeyInfo;
   constraintInfo?: ConstraintInfo;
   triggerInfo?: TriggerInfo;
+  /** MemberJunction database info - set when database is MJ-enabled */
+  mjInfo?: MJDatabaseInfo;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -223,23 +226,40 @@ export class ExplorerStateService {
     if (node.type === 'server') {
       // Load databases
       const databases = await firstValueFrom(this.ipc.listDatabases(node.connectionId));
-      return databases.map(db => ({
-        id: `db-${node.connectionId}-${db.name}`,
-        name: db.name,
-        type: 'database' as const,
-        icon: this.iconMap['database'],
-        path: db.name,
-        hasChildren: true,
-        isExpanded: false,
-        isLoading: false,
-        connectionId: node.connectionId,
-        databaseName: db.name,
-        metadata: {
-          name: db.name,
-          type: 'database',
-          schema: '',
-        } as ObjectMetadata,
-      }));
+
+      // Create database nodes with MJ detection
+      const dbNodes = await Promise.all(
+        databases.map(async db => {
+          // Detect MemberJunction in each database
+          let mjInfo: MJDatabaseInfo | undefined;
+          try {
+            mjInfo = await firstValueFrom(this.ipc.detectMJDatabase(node.connectionId!, db.name));
+          } catch {
+            // MJ detection failed - that's ok, database is just not MJ-enabled
+          }
+
+          return {
+            id: `db-${node.connectionId}-${db.name}`,
+            name: db.name,
+            type: 'database' as const,
+            icon: this.iconMap['database'],
+            path: db.name,
+            hasChildren: true,
+            isExpanded: false,
+            isLoading: false,
+            connectionId: node.connectionId,
+            databaseName: db.name,
+            metadata: {
+              name: db.name,
+              type: 'database',
+              schema: '',
+            } as ObjectMetadata,
+            mjInfo: mjInfo?.isMJEnabled ? mjInfo : undefined,
+          };
+        })
+      );
+
+      return dbNodes;
     }
 
     if (node.type === 'database' && node.databaseName) {

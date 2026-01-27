@@ -186,6 +186,13 @@ import {
             <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
           }
           <span class="node-name">{{ node.name }}</span>
+          @if (node.mjInfo?.isMJEnabled) {
+            <span
+              class="mj-badge"
+              matTooltip="MemberJunction Database ({{ node.mjInfo.entityCount }} entities)"
+              >MJ</span
+            >
+          }
         </div>
         @if (node.isExpanded && node.children) {
           @for (child of node.children; track child.id) {
@@ -430,6 +437,22 @@ import {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .mj-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: var(--spacing-xs);
+        padding: 1px 5px;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+        border-radius: 3px;
+        text-transform: uppercase;
+        flex-shrink: 0;
       }
 
       .quick-actions {

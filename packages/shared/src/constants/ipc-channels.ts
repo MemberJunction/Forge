@@ -166,6 +166,14 @@ export const IPC_CHANNELS = {
     UNWATCH: 'workspace:unwatch',
     FILE_CHANGED: 'workspace:file-changed',
   },
+
+  // MemberJunction Integration
+  MJ: {
+    DETECT: 'mj:detect',
+    GET_ENTITIES: 'mj:get-entities',
+    GET_ENTITY_FIELDS: 'mj:get-entity-fields',
+    GET_APPLICATIONS: 'mj:get-applications',
+  },
 } as const;
 
 export type IpcChannels = typeof IPC_CHANNELS;

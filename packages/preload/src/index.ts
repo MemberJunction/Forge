@@ -63,6 +63,11 @@ import type {
   ServerDrive,
   ServerFileEntry,
   ServerDefaultPaths,
+  // MemberJunction types
+  MJDatabaseInfo,
+  MJEntityInfo,
+  MJEntityFieldInfo,
+  MJApplicationInfo,
 } from '@mj-forge/shared';
 
 /**
@@ -308,6 +313,31 @@ export interface ForgeAPI {
     deleteFile: (filePath: string) => Promise<void>;
     renameFile: (oldPath: string, newPath: string) => Promise<void>;
     onFileChanged: (callback: (event: { filePath: string; type: string }) => void) => () => void;
+  };
+
+  // MemberJunction Integration
+  mj: {
+    detect: (
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ) => Promise<MJDatabaseInfo>;
+    getEntities: (
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ) => Promise<MJEntityInfo[]>;
+    getEntityFields: (
+      connectionId: string,
+      database: string,
+      entityId: string,
+      mjSchemaName?: string
+    ) => Promise<MJEntityFieldInfo[]>;
+    getApplications: (
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ) => Promise<MJApplicationInfo[]>;
   };
 
   menu: {
@@ -654,6 +684,24 @@ const forgeAPI: ForgeAPI = {
     renameFile: (oldPath, newPath) =>
       ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE.RENAME_FILE, oldPath, newPath),
     onFileChanged: callback => createEventListener(IPC_CHANNELS.WORKSPACE.FILE_CHANGED, callback),
+  },
+
+  // MemberJunction Integration
+  mj: {
+    detect: (connectionId, database, mjSchemaName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MJ.DETECT, connectionId, database, mjSchemaName),
+    getEntities: (connectionId, database, mjSchemaName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MJ.GET_ENTITIES, connectionId, database, mjSchemaName),
+    getEntityFields: (connectionId, database, entityId, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_ENTITY_FIELDS,
+        connectionId,
+        database,
+        entityId,
+        mjSchemaName
+      ),
+    getApplications: (connectionId, database, mjSchemaName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MJ.GET_APPLICATIONS, connectionId, database, mjSchemaName),
   },
 
   menu: {

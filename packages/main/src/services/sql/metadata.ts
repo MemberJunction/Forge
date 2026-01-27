@@ -17,6 +17,10 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  MJDatabaseInfo,
+  MJEntityInfo,
+  MJEntityFieldInfo,
+  MJApplicationInfo,
 } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { ObjectCache } from '../../utils/object-cache';
@@ -779,6 +783,208 @@ export class MetadataService extends BaseSingleton {
       defaultValue: identityMap.get(col.name)?.defaultValue ?? null,
       foreignKey: fkMap.get(col.name) ?? null,
     }));
+  }
+
+  // ============================================================
+  // MemberJunction Detection & Metadata
+  // ============================================================
+
+  /**
+   * Detect if a database has MemberJunction installed.
+   * Checks for __mj schema and Entity/EntityField tables.
+   */
+  async detectMJDatabase(
+    connectionId: string,
+    database: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJDatabaseInfo> {
+    try {
+      // Check if the MJ schema exists and has the Entity table
+      const detectSql = `
+        USE [${database}];
+        SELECT
+          CASE WHEN SCHEMA_ID('${mjSchemaName}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
+      `;
+
+      const result = await this.poolManager.query<{
+        hasSchema: number;
+        hasEntityTable: number;
+        hasEntityFieldTable: number;
+        hasUsers: number;
+        hasAuditLog: number;
+        hasApplications: number;
+      }>(connectionId, detectSql);
+
+      const detection = result.recordset[0];
+      if (!detection || !detection.hasSchema || !detection.hasEntityTable) {
+        return { isMJEnabled: false };
+      }
+
+      // MJ is detected - get additional info
+      const countsSql = `
+        USE [${database}];
+        SELECT
+          (SELECT COUNT(*) FROM [${mjSchemaName}].[Entity]) AS entityCount,
+          (SELECT COUNT(*) FROM [${mjSchemaName}].[Application]) AS applicationCount
+      `;
+
+      const countsResult = await this.poolManager.query<{
+        entityCount: number;
+        applicationCount: number;
+      }>(connectionId, countsSql);
+
+      const counts = countsResult.recordset[0] || { entityCount: 0, applicationCount: 0 };
+
+      // Try to get version from VersionInstallation if it exists
+      let version: string | undefined;
+      try {
+        const versionSql = `
+          USE [${database}];
+          IF OBJECT_ID('${mjSchemaName}.VersionInstallation') IS NOT NULL
+            SELECT TOP 1 MJVersion as version FROM [${mjSchemaName}].[VersionInstallation]
+            ORDER BY InstalledAt DESC
+        `;
+        const versionResult = await this.poolManager.query<{ version: string }>(
+          connectionId,
+          versionSql
+        );
+        version = versionResult.recordset[0]?.version;
+      } catch {
+        // Version table may not exist in older MJ versions
+      }
+
+      return {
+        isMJEnabled: true,
+        schemaName: mjSchemaName,
+        version,
+        entityCount: counts.entityCount,
+        applicationCount: counts.applicationCount,
+        hasUsers: Boolean(detection.hasUsers),
+        hasAuditLog: Boolean(detection.hasAuditLog),
+      };
+    } catch (error) {
+      console.error('Error detecting MJ database:', error);
+      return { isMJEnabled: false };
+    }
+  }
+
+  /**
+   * Get MJ entities from a database
+   */
+  async getMJEntities(
+    connectionId: string,
+    database: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJEntityInfo[]> {
+    const sql = `
+      USE [${database}];
+      SELECT
+        CAST(ID AS NVARCHAR(36)) AS id,
+        Name AS name,
+        Description AS description,
+        BaseTable AS baseTable,
+        BaseView AS baseView,
+        SchemaName AS schemaName,
+        CAST(VirtualEntity AS BIT) AS isVirtual,
+        CAST(TrackRecordChanges AS BIT) AS trackRecordChanges,
+        CAST(AuditRecordAccess AS BIT) AS auditRecordAccess,
+        CAST(IncludeInAPI AS BIT) AS includeInAPI,
+        CAST(AllowCreateAPI AS BIT) AS allowCreateAPI,
+        CAST(AllowUpdateAPI AS BIT) AS allowUpdateAPI,
+        CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
+        CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
+        CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
+      FROM [${mjSchemaName}].[Entity]
+      ORDER BY Name
+    `;
+
+    const result = await this.poolManager.query<MJEntityInfo>(connectionId, sql);
+    return result.recordset.map(row => ({
+      ...row,
+      isVirtual: Boolean(row.isVirtual),
+      trackRecordChanges: Boolean(row.trackRecordChanges),
+      auditRecordAccess: Boolean(row.auditRecordAccess),
+      includeInAPI: Boolean(row.includeInAPI),
+      allowCreateAPI: Boolean(row.allowCreateAPI),
+      allowUpdateAPI: Boolean(row.allowUpdateAPI),
+      allowDeleteAPI: Boolean(row.allowDeleteAPI),
+    }));
+  }
+
+  /**
+   * Get MJ entity fields for a specific entity
+   */
+  async getMJEntityFields(
+    connectionId: string,
+    database: string,
+    entityId: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJEntityFieldInfo[]> {
+    const sql = `
+      USE [${database}];
+      SELECT
+        CAST(ID AS NVARCHAR(36)) AS id,
+        CAST(EntityID AS NVARCHAR(36)) AS entityId,
+        Name AS name,
+        DisplayName AS displayName,
+        Description AS description,
+        Type AS type,
+        Length AS length,
+        Precision AS precision,
+        Scale AS scale,
+        CAST(AllowsNull AS BIT) AS allowsNull,
+        CAST(IsPrimaryKey AS BIT) AS isPrimaryKey,
+        CAST(IsUnique AS BIT) AS isUnique,
+        DefaultValue AS defaultValue,
+        CAST(IsVirtual AS BIT) AS isVirtual,
+        Sequence AS sequence,
+        CAST(RelatedEntityID AS NVARCHAR(36)) AS relatedEntityId,
+        RelatedEntityFieldName AS relatedEntityFieldName
+      FROM [${mjSchemaName}].[EntityField]
+      WHERE EntityID = '${entityId}'
+      ORDER BY Sequence
+    `;
+
+    const result = await this.poolManager.query<MJEntityFieldInfo>(connectionId, sql);
+    return result.recordset.map(row => ({
+      ...row,
+      allowsNull: Boolean(row.allowsNull),
+      isPrimaryKey: Boolean(row.isPrimaryKey),
+      isUnique: Boolean(row.isUnique),
+      isVirtual: Boolean(row.isVirtual),
+    }));
+  }
+
+  /**
+   * Get MJ applications from a database
+   */
+  async getMJApplications(
+    connectionId: string,
+    database: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJApplicationInfo[]> {
+    try {
+      const sql = `
+        USE [${database}];
+        SELECT
+          CAST(ID AS NVARCHAR(36)) AS id,
+          Name AS name,
+          Description AS description,
+          Icon AS icon
+        FROM [${mjSchemaName}].[Application]
+        ORDER BY Name
+      `;
+
+      const result = await this.poolManager.query<MJApplicationInfo>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
   }
 
   /**

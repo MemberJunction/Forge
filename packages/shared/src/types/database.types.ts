@@ -214,3 +214,79 @@ export interface TableProperties {
   triggers: TriggerInfo[];
   extendedProperties: ExtendedProperty[];
 }
+
+/**
+ * MemberJunction Database Detection
+ * When a database has an __mj schema with Entity/EntityField tables,
+ * it's an MJ-enabled database with rich metadata we can leverage.
+ */
+export interface MJDatabaseInfo {
+  /** Whether this database has MJ installed */
+  isMJEnabled: boolean;
+  /** The MJ core schema name (typically '__mj') */
+  schemaName?: string;
+  /** MJ version if detectable */
+  version?: string;
+  /** Number of entities defined in MJ */
+  entityCount?: number;
+  /** Number of applications defined in MJ */
+  applicationCount?: number;
+  /** Whether user management is available */
+  hasUsers?: boolean;
+  /** Whether audit logging is enabled */
+  hasAuditLog?: boolean;
+}
+
+/**
+ * MemberJunction Entity metadata from __mj.Entity table
+ */
+export interface MJEntityInfo {
+  id: string;
+  name: string;
+  description?: string;
+  baseTable: string;
+  baseView?: string;
+  schemaName: string;
+  isVirtual: boolean;
+  trackRecordChanges: boolean;
+  auditRecordAccess: boolean;
+  includeInAPI: boolean;
+  allowCreateAPI: boolean;
+  allowUpdateAPI: boolean;
+  allowDeleteAPI: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * MemberJunction EntityField metadata from __mj.EntityField table
+ */
+export interface MJEntityFieldInfo {
+  id: string;
+  entityId: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  type: string;
+  length?: number;
+  precision?: number;
+  scale?: number;
+  allowsNull: boolean;
+  isPrimaryKey: boolean;
+  isUnique: boolean;
+  defaultValue?: string;
+  isVirtual: boolean;
+  sequence: number;
+  relatedEntityId?: string;
+  relatedEntityFieldName?: string;
+}
+
+/**
+ * MemberJunction Application metadata
+ */
+export interface MJApplicationInfo {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+}

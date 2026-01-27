@@ -12,6 +12,10 @@ import type {
   RenameDatabaseResult,
   DeleteDatabaseOptions,
   DeleteDatabaseResult,
+  MJDatabaseInfo,
+  MJEntityInfo,
+  MJEntityFieldInfo,
+  MJApplicationInfo,
 } from '@mj-forge/shared';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { MetadataService } from '../services/sql/metadata';
@@ -98,6 +102,63 @@ export function registerDatabaseHandlers(): void {
     async (_event, connectionId: string, name: string): Promise<DatabaseInfo | null> => {
       const databases = await metadataService.listDatabases(connectionId);
       return databases.find(d => d.name === name) || null;
+    }
+  );
+
+  // ============================================================
+  // MemberJunction Integration
+  // ============================================================
+
+  // Detect if database has MemberJunction installed
+  ipcMain.handle(
+    IPC_CHANNELS.MJ.DETECT,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ): Promise<MJDatabaseInfo> => {
+      return metadataService.detectMJDatabase(connectionId, database, mjSchemaName);
+    }
+  );
+
+  // Get MJ entities
+  ipcMain.handle(
+    IPC_CHANNELS.MJ.GET_ENTITIES,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ): Promise<MJEntityInfo[]> => {
+      return metadataService.getMJEntities(connectionId, database, mjSchemaName);
+    }
+  );
+
+  // Get MJ entity fields
+  ipcMain.handle(
+    IPC_CHANNELS.MJ.GET_ENTITY_FIELDS,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      entityId: string,
+      mjSchemaName?: string
+    ): Promise<MJEntityFieldInfo[]> => {
+      return metadataService.getMJEntityFields(connectionId, database, entityId, mjSchemaName);
+    }
+  );
+
+  // Get MJ applications
+  ipcMain.handle(
+    IPC_CHANNELS.MJ.GET_APPLICATIONS,
+    async (
+      _event,
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ): Promise<MJApplicationInfo[]> => {
+      return metadataService.getMJApplications(connectionId, database, mjSchemaName);
     }
   );
 }

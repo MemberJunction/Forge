@@ -64,6 +64,11 @@ import type {
   ServerDrive,
   ServerFileEntry,
   ServerDefaultPaths,
+  // MemberJunction types
+  MJDatabaseInfo,
+  MJEntityInfo,
+  MJEntityFieldInfo,
+  MJApplicationInfo,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -318,6 +323,29 @@ interface ForgeAPI {
     deleteFile: (filePath: string) => Promise<void>;
     renameFile: (oldPath: string, newPath: string) => Promise<void>;
     onFileChanged: (callback: (event: { filePath: string; type: string }) => void) => () => void;
+  };
+  mj: {
+    detect: (
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ) => Promise<MJDatabaseInfo>;
+    getEntities: (
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ) => Promise<MJEntityInfo[]>;
+    getEntityFields: (
+      connectionId: string,
+      database: string,
+      entityId: string,
+      mjSchemaName?: string
+    ) => Promise<MJEntityFieldInfo[]>;
+    getApplications: (
+      connectionId: string,
+      database: string,
+      mjSchemaName?: string
+    ) => Promise<MJApplicationInfo[]>;
   };
   menu: {
     onNewConnection: (callback: () => void) => () => void;
@@ -769,6 +797,55 @@ export class IpcService {
 
   renameWorkspaceFile(oldPath: string, newPath: string): Observable<void> {
     return from(this.api.workspace.renameFile(oldPath, newPath));
+  }
+
+  // ============================================================
+  // MemberJunction Detection Methods
+  // ============================================================
+
+  /**
+   * Detect if a database has MemberJunction installed
+   */
+  detectMJDatabase(
+    connectionId: string,
+    database: string,
+    mjSchemaName?: string
+  ): Observable<MJDatabaseInfo> {
+    return from(this.api.mj.detect(connectionId, database, mjSchemaName));
+  }
+
+  /**
+   * Get MJ entities from a database
+   */
+  getMJEntities(
+    connectionId: string,
+    database: string,
+    mjSchemaName?: string
+  ): Observable<MJEntityInfo[]> {
+    return from(this.api.mj.getEntities(connectionId, database, mjSchemaName));
+  }
+
+  /**
+   * Get MJ entity fields
+   */
+  getMJEntityFields(
+    connectionId: string,
+    database: string,
+    entityId: string,
+    mjSchemaName?: string
+  ): Observable<MJEntityFieldInfo[]> {
+    return from(this.api.mj.getEntityFields(connectionId, database, entityId, mjSchemaName));
+  }
+
+  /**
+   * Get MJ applications
+   */
+  getMJApplications(
+    connectionId: string,
+    database: string,
+    mjSchemaName?: string
+  ): Observable<MJApplicationInfo[]> {
+    return from(this.api.mj.getApplications(connectionId, database, mjSchemaName));
   }
 
   // AI methods

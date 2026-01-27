@@ -92,7 +92,7 @@ declare const monaco: { editor: MonacoEditor };
       <div class="query-toolbar">
         <button
           mat-icon-button
-          matTooltip="Execute (F5)"
+          matTooltip="Execute (F5 or Ctrl+E)"
           [disabled]="executing()"
           (click)="executeQuery()"
         >
@@ -286,7 +286,7 @@ declare const monaco: { editor: MonacoEditor };
                       <mat-icon>auto_awesome</mat-icon>
                     </button>
                   }
-                  @if (tabState.activeTab()?.id) {
+                  @if (tabId) {
                     <button
                       class="result-tab icon-tab"
                       [class.active]="activeTab() === 'history'"
@@ -350,10 +350,10 @@ declare const monaco: { editor: MonacoEditor };
                     [embedded]="true"
                   />
                 </div>
-              } @else if (activeTab() === 'history' && tabState.activeTab()?.id) {
+              } @else if (activeTab() === 'history' && tabId) {
                 <div class="tab-content-pane">
                   <app-result-history-panel
-                    [tabId]="tabState.activeTab()!.id"
+                    [tabId]="tabId"
                     [connectionId]="connectionState.activeConnectionId() ?? undefined"
                     [database]="selectedDatabase ?? undefined"
                     [embedded]="true"
@@ -799,6 +799,13 @@ export class QueryComponent implements OnInit, OnDestroy {
   private editor?: MonacoEditorInstance;
   private resizing = false;
 
+  /**
+   * The tab ID this component instance is bound to.
+   * Set by GoldenLayoutContainer when creating the component.
+   * This is the KEY to tab isolation - each component only manages its own tab.
+   */
+  tabId: string | null = null;
+
   selectedDatabase: string | null = null;
   executing = signal(false);
   result = signal<QueryResult | null>(null);
@@ -819,16 +826,14 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastTabId: string | null = null;
 
   constructor() {
-    // Watch for tab changes to update editor content
+    // Watch for THIS component's tab becoming active to sync editor content
     effect(
       () => {
         const activeTab = this.tabState.activeTab();
-        if (activeTab?.type === 'query' && activeTab.id !== this.lastTabId) {
-          this.lastTabId = activeTab.id;
-
+        // Only act if this component's tab is now active
+        if (activeTab?.type === 'query' && this.tabId && activeTab.id === this.tabId) {
           // Update database selection
           if (activeTab.databaseName) {
             this.selectedDatabase = activeTab.databaseName;
@@ -836,8 +841,12 @@ export class QueryComponent implements OnInit, OnDestroy {
           }
 
           // Update editor content when it's ready
-          if (this.editor && activeTab.content) {
-            this.editor.setValue(activeTab.content);
+          if (this.editor && activeTab.content !== undefined) {
+            const currentValue = this.editor.getValue();
+            // Only update if content differs (prevents cursor jump)
+            if (currentValue !== activeTab.content) {
+              this.editor.setValue(activeTab.content || '');
+            }
           }
 
           // Auto-execute if flag is set
@@ -870,20 +879,36 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   private handleKeydown = (event: KeyboardEvent): void => {
+    // Only respond to shortcuts if THIS component's tab is active
+    const activeTab = this.tabState.activeTab();
+    if (!this.tabId || activeTab?.id !== this.tabId) {
+      return;
+    }
+
     // F5 - Execute query
     if (event.key === 'F5') {
       event.preventDefault();
       this.executeQuery();
+      return;
     }
     // Cmd+Shift+F - Format SQL
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'f') {
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
       event.preventDefault();
       this.formatSql();
+      return;
     }
     // Cmd+Enter - Execute query (alternative)
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault();
       this.executeQuery();
+      return;
+    }
+    // Ctrl+E - Execute query (SSMS-style shortcut)
+    // Note: Uses ctrlKey specifically, not metaKey, to match SSMS behavior
+    if (event.ctrlKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'e') {
+      event.preventDefault();
+      this.executeQuery();
+      return;
     }
   };
 
@@ -966,27 +991,42 @@ export class QueryComponent implements OnInit, OnDestroy {
       renderWhitespace: 'selection',
     });
 
-    // Listen for content changes
+    // Listen for content changes - use this.tabId for isolation
     this.editor.onDidChangeModelContent(() => {
       const content = this.editor?.getValue() || '';
-      const activeTab = this.tabState.activeTab();
-      if (activeTab?.type === 'query') {
-        this.tabState.setTabContent(activeTab.id, content);
+      // Use the fixed tabId this component was created for
+      // This prevents writes to wrong tabs when switching quickly
+      if (this.tabId) {
+        this.tabState.setTabContent(this.tabId, content);
       }
     });
 
-    // Load existing content from active tab and handle auto-execute
-    const activeTab = this.tabState.activeTab();
-    if (activeTab?.type === 'query') {
-      this.lastTabId = activeTab.id;
-      if (activeTab.content) {
-        this.editor.setValue(activeTab.content);
+    // Load existing content from this component's tab
+    if (this.tabId) {
+      const tab = this.tabState.tabs().find(t => t.id === this.tabId);
+      if (tab?.type === 'query') {
+        if (tab.content) {
+          this.editor.setValue(tab.content);
+        }
+        // Handle auto-execute for initial load
+        if (tab.autoExecute && tab.content) {
+          this.tabState.clearAutoExecute(tab.id);
+          // Execute immediately since editor is ready and content is set
+          this.executeQuery();
+        }
       }
-      // Handle auto-execute for initial load
-      if (activeTab.autoExecute && activeTab.content) {
-        this.tabState.clearAutoExecute(activeTab.id);
-        // Execute immediately since editor is ready and content is set
-        this.executeQuery();
+    } else {
+      // Fallback for components created without tabId (legacy path)
+      const activeTab = this.tabState.activeTab();
+      if (activeTab?.type === 'query') {
+        this.tabId = activeTab.id; // Capture the tab ID
+        if (activeTab.content) {
+          this.editor.setValue(activeTab.content);
+        }
+        if (activeTab.autoExecute && activeTab.content) {
+          this.tabState.clearAutoExecute(activeTab.id);
+          this.executeQuery();
+        }
       }
     }
   }
@@ -1030,15 +1070,14 @@ export class QueryComponent implements OnInit, OnDestroy {
         this.historyState.loadHistory();
       }
 
-      // Auto-save result snapshot
-      const activeTab = this.tabState.activeTab();
-      if (result && activeTab && connectionId && database) {
-        this.resultsState.saveSnapshot(activeTab.id, sql, connectionId, database, result);
+      // Auto-save result snapshot - use this.tabId for correct tab
+      if (result && this.tabId && connectionId && database) {
+        this.resultsState.saveSnapshot(this.tabId, sql, connectionId, database, result);
       }
 
-      // Auto-rename tab using AI if enabled
-      if (result?.success && activeTab && this.aiState.autoRenameEnabled()) {
-        this.autoRenameTab(activeTab.id, sql, database ?? undefined);
+      // Auto-rename tab using AI if enabled - use this.tabId
+      if (result?.success && this.tabId && this.aiState.autoRenameEnabled()) {
+        this.autoRenameTab(this.tabId, sql, database ?? undefined);
       }
     } catch (error) {
       this.result.set({
