@@ -4,19 +4,66 @@ import { IpcService } from './ipc.service';
 import type { ObjectMetadata, ColumnInfo } from '@mj-forge/shared';
 import { firstValueFrom } from 'rxjs';
 
-interface CompletionItem {
-  label: string;
-  kind: number; // Monaco CompletionItemKind
-  detail?: string;
-  documentation?: string;
-  insertText: string;
-  sortText?: string;
-}
-
 interface TableInfo {
   schema: string;
   name: string;
   columns: ColumnInfo[];
+}
+
+interface ViewInfo {
+  schema: string;
+  name: string;
+}
+
+interface MonacoRange {
+  startLineNumber: number;
+  endLineNumber: number;
+  startColumn: number;
+  endColumn: number;
+}
+
+interface MonacoPosition {
+  lineNumber: number;
+  column: number;
+}
+
+interface MonacoWord {
+  startColumn: number;
+  endColumn: number;
+}
+
+interface MonacoModel {
+  getWordUntilPosition(position: MonacoPosition): MonacoWord;
+  getValueInRange(range: MonacoRange): string;
+  getLineContent(lineNumber: number): string;
+  getValue(): string;
+}
+
+interface MonacoCompletionItem {
+  label: string;
+  kind: number;
+  detail?: string;
+  insertText: string;
+  insertTextRules?: number;
+  range: MonacoRange;
+  sortText?: string;
+}
+
+interface MonacoLanguages {
+  registerCompletionItemProvider(
+    languageId: string,
+    provider: {
+      provideCompletionItems: (
+        model: MonacoModel,
+        position: MonacoPosition
+      ) => Promise<{ suggestions: MonacoCompletionItem[] }>;
+      triggerCharacters: string[];
+    }
+  ): void;
+}
+
+interface MonacoInstance {
+  languages: MonacoLanguages;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -24,9 +71,11 @@ export class SqlIntellisenseService {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly ipc = inject(IpcService);
 
+  private providerRegistered = false;
+
   // Cache of loaded metadata
   private tablesCache = new Map<string, TableInfo[]>();
-  private viewsCache = new Map<string, string[]>();
+  private viewsCache = new Map<string, ViewInfo[]>();
   private proceduresCache = new Map<string, string[]>();
   private functionsCache = new Map<string, string[]>();
 
@@ -44,22 +93,120 @@ export class SqlIntellisenseService {
 
   // SQL Keywords
   private readonly sqlKeywords = [
-    'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'LIKE',
-    'ORDER BY', 'GROUP BY', 'HAVING', 'DISTINCT', 'TOP', 'AS',
-    'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'CROSS JOIN', 'ON',
-    'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
-    'CREATE', 'ALTER', 'DROP', 'TABLE', 'VIEW', 'INDEX', 'PROCEDURE', 'FUNCTION',
-    'IF', 'ELSE', 'BEGIN', 'END', 'WHILE', 'RETURN', 'DECLARE',
-    'NULL', 'IS NULL', 'IS NOT NULL', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-    'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT',
-    'ASC', 'DESC', 'WITH', 'NOLOCK', 'COALESCE', 'NULLIF',
-    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'CONVERT', 'GETDATE', 'DATEADD',
-    'DATEDIFF', 'YEAR', 'MONTH', 'DAY', 'LEN', 'SUBSTRING', 'CHARINDEX', 'REPLACE',
-    'ISNULL', 'ROW_NUMBER', 'OVER', 'PARTITION BY', 'RANK', 'DENSE_RANK',
-    'EXEC', 'EXECUTE', 'PRINT', 'RAISERROR', 'TRY', 'CATCH', 'THROW',
-    'TRANSACTION', 'COMMIT', 'ROLLBACK', 'SAVEPOINT',
-    'PRIMARY KEY', 'FOREIGN KEY', 'REFERENCES', 'UNIQUE', 'CHECK', 'DEFAULT',
-    'CONSTRAINT', 'IDENTITY', 'NOT NULL', 'CLUSTERED', 'NONCLUSTERED',
+    'SELECT',
+    'FROM',
+    'WHERE',
+    'AND',
+    'OR',
+    'NOT',
+    'IN',
+    'BETWEEN',
+    'LIKE',
+    'ORDER BY',
+    'GROUP BY',
+    'HAVING',
+    'DISTINCT',
+    'TOP',
+    'AS',
+    'JOIN',
+    'INNER JOIN',
+    'LEFT JOIN',
+    'RIGHT JOIN',
+    'FULL JOIN',
+    'CROSS JOIN',
+    'ON',
+    'INSERT',
+    'INTO',
+    'VALUES',
+    'UPDATE',
+    'SET',
+    'DELETE',
+    'CREATE',
+    'ALTER',
+    'DROP',
+    'TABLE',
+    'VIEW',
+    'INDEX',
+    'PROCEDURE',
+    'FUNCTION',
+    'IF',
+    'ELSE',
+    'BEGIN',
+    'END',
+    'WHILE',
+    'RETURN',
+    'DECLARE',
+    'NULL',
+    'IS NULL',
+    'IS NOT NULL',
+    'EXISTS',
+    'CASE',
+    'WHEN',
+    'THEN',
+    'ELSE',
+    'END',
+    'UNION',
+    'UNION ALL',
+    'EXCEPT',
+    'INTERSECT',
+    'ASC',
+    'DESC',
+    'WITH',
+    'NOLOCK',
+    'COALESCE',
+    'NULLIF',
+    'COUNT',
+    'SUM',
+    'AVG',
+    'MIN',
+    'MAX',
+    'CAST',
+    'CONVERT',
+    'GETDATE',
+    'DATEADD',
+    'DATEDIFF',
+    'YEAR',
+    'MONTH',
+    'DAY',
+    'LEN',
+    'SUBSTRING',
+    'CHARINDEX',
+    'REPLACE',
+    'ISNULL',
+    'ROW_NUMBER',
+    'OVER',
+    'PARTITION BY',
+    'RANK',
+    'DENSE_RANK',
+    'EXEC',
+    'EXECUTE',
+    'PRINT',
+    'RAISERROR',
+    'TRY',
+    'CATCH',
+    'THROW',
+    'TRANSACTION',
+    'COMMIT',
+    'ROLLBACK',
+    'SAVEPOINT',
+    'PRIMARY KEY',
+    'FOREIGN KEY',
+    'REFERENCES',
+    'UNIQUE',
+    'CHECK',
+    'DEFAULT',
+    'CONSTRAINT',
+    'IDENTITY',
+    'NOT NULL',
+    'CLUSTERED',
+    'NONCLUSTERED',
+    'USE',
+    'GO',
+    'TRUNCATE',
+    'MERGE',
+    'OUTPUT',
+    'INSERTED',
+    'DELETED',
   ];
 
   // Common snippets
@@ -92,17 +239,20 @@ export class SqlIntellisenseService {
     {
       label: 'create_table',
       detail: 'CREATE TABLE template',
-      insertText: 'CREATE TABLE ${1:table_name} (\n\t${2:column_name} ${3:datatype} ${4:constraints}\n)',
+      insertText:
+        'CREATE TABLE ${1:table_name} (\n\t${2:column_name} ${3:datatype} ${4:constraints}\n)',
     },
     {
       label: 'create_procedure',
       detail: 'CREATE PROCEDURE template',
-      insertText: 'CREATE PROCEDURE ${1:procedure_name}\n\t@${2:param} ${3:datatype}\nAS\nBEGIN\n\t${4:-- body}\nEND',
+      insertText:
+        'CREATE PROCEDURE ${1:procedure_name}\n\t@${2:param} ${3:datatype}\nAS\nBEGIN\n\t${4:-- body}\nEND',
     },
     {
       label: 'try_catch',
       detail: 'TRY CATCH block',
-      insertText: 'BEGIN TRY\n\t${1:-- statements}\nEND TRY\nBEGIN CATCH\n\tSELECT ERROR_MESSAGE() AS ErrorMessage\nEND CATCH',
+      insertText:
+        'BEGIN TRY\n\t${1:-- statements}\nEND TRY\nBEGIN CATCH\n\tSELECT ERROR_MESSAGE() AS ErrorMessage\nEND CATCH',
     },
     {
       label: 'cte',
@@ -112,47 +262,61 @@ export class SqlIntellisenseService {
     {
       label: 'merge',
       detail: 'MERGE statement',
-      insertText: 'MERGE INTO ${1:target_table} AS target\nUSING ${2:source_table} AS source\nON ${3:condition}\nWHEN MATCHED THEN\n\tUPDATE SET ${4:updates}\nWHEN NOT MATCHED THEN\n\tINSERT (${5:columns}) VALUES (${6:values});',
+      insertText:
+        'MERGE INTO ${1:target_table} AS target\nUSING ${2:source_table} AS source\nON ${3:condition}\nWHEN MATCHED THEN\n\tUPDATE SET ${4:updates}\nWHEN NOT MATCHED THEN\n\tINSERT (${5:columns}) VALUES (${6:values});',
     },
   ];
 
   /**
-   * Register completion provider with Monaco
+   * Register completion provider with Monaco (idempotent)
    */
-  registerCompletionProvider(monacoInstance: any): void {
-    if (!monacoInstance?.languages) return;
+  registerCompletionProvider(monacoInstance: MonacoInstance): void {
+    if (this.providerRegistered || !monacoInstance?.languages) return;
+    this.providerRegistered = true;
 
     monacoInstance.languages.registerCompletionItemProvider('sql', {
-      provideCompletionItems: async (model: any, position: any) => {
+      provideCompletionItems: async (model: MonacoModel, position: MonacoPosition) => {
         const word = model.getWordUntilPosition(position);
-        const range = {
+        const range: MonacoRange = {
           startLineNumber: position.lineNumber,
           endLineNumber: position.lineNumber,
           startColumn: word.startColumn,
           endColumn: word.endColumn,
         };
 
-        const lineContent = model.getLineContent(position.lineNumber);
-        const textBeforeCursor = lineContent.substring(0, position.column - 1);
+        // Get full text from start of document to cursor for multi-line context
+        const fullTextBeforeCursor = model.getValueInRange({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        });
 
-        const suggestions: any[] = [];
+        const lineContent = model.getLineContent(position.lineNumber);
+        const lineBeforeCursor = lineContent.substring(0, position.column - 1);
+
+        const suggestions: MonacoCompletionItem[] = [];
 
         // Context-aware completions
-        if (this.isAfterFrom(textBeforeCursor) || this.isAfterJoin(textBeforeCursor)) {
-          // Suggest tables and views
+        if (this.isAfterUse(fullTextBeforeCursor)) {
+          suggestions.push(...this.getDatabaseCompletions(range));
+        } else if (
+          this.isAfterFrom(fullTextBeforeCursor) ||
+          this.isAfterJoin(fullTextBeforeCursor)
+        ) {
           suggestions.push(...(await this.getTableCompletions(range)));
           suggestions.push(...(await this.getViewCompletions(range)));
-        } else if (this.isAfterDot(textBeforeCursor)) {
-          // Column completion after table alias or name
-          const tableName = this.extractTableName(textBeforeCursor);
-          if (tableName) {
-            suggestions.push(...(await this.getColumnCompletions(tableName, range)));
+        } else if (this.isAfterDot(lineBeforeCursor)) {
+          const nameBeforeDot = this.extractTableName(lineBeforeCursor);
+          if (nameBeforeDot) {
+            // Try alias resolution first, then direct table name match
+            const fullText = model.getValue();
+            const resolvedTable = this.resolveAlias(nameBeforeDot, fullText) || nameBeforeDot;
+            suggestions.push(...(await this.getColumnCompletions(resolvedTable, range)));
           }
-        } else if (this.isAfterExec(textBeforeCursor)) {
-          // Suggest stored procedures
+        } else if (this.isAfterExec(fullTextBeforeCursor)) {
           suggestions.push(...(await this.getProcedureCompletions(range)));
         } else {
-          // General completions
           suggestions.push(...this.getKeywordCompletions(range));
           suggestions.push(...this.getSnippetCompletions(range));
           suggestions.push(...(await this.getTableCompletions(range)));
@@ -165,7 +329,7 @@ export class SqlIntellisenseService {
   }
 
   /**
-   * Load metadata for the current database
+   * Load metadata for the current database (tables, views, procedures)
    */
   async loadMetadata(): Promise<void> {
     const connectionId = this.connectionState.activeConnectionId();
@@ -175,29 +339,101 @@ export class SqlIntellisenseService {
 
     const cacheKey = `${connectionId}:${database}`;
 
-    // Load tables with columns
-    await this.loadTables(connectionId, database, cacheKey);
+    // Skip if already cached for this connection+database
+    if (this.tablesCache.has(cacheKey)) return;
+
+    await Promise.all([
+      this.loadTables(connectionId, database, cacheKey),
+      this.loadViews(connectionId, database, cacheKey),
+      this.loadProcedures(connectionId, database, cacheKey),
+    ]);
   }
 
-  private async loadTables(connectionId: string, database: string, cacheKey: string): Promise<void> {
+  /**
+   * Force reload metadata (e.g. after database switch)
+   */
+  async reloadMetadata(): Promise<void> {
+    const connectionId = this.connectionState.activeConnectionId();
+    const database = this.connectionState.selectedDatabase();
+
+    if (!connectionId || !database) return;
+
+    const cacheKey = `${connectionId}:${database}`;
+
+    // Clear existing cache for this key and reload
+    this.tablesCache.delete(cacheKey);
+    this.viewsCache.delete(cacheKey);
+    this.proceduresCache.delete(cacheKey);
+    this.functionsCache.delete(cacheKey);
+
+    await Promise.all([
+      this.loadTables(connectionId, database, cacheKey),
+      this.loadViews(connectionId, database, cacheKey),
+      this.loadProcedures(connectionId, database, cacheKey),
+    ]);
+  }
+
+  private async loadTables(
+    connectionId: string,
+    database: string,
+    cacheKey: string
+  ): Promise<void> {
     try {
       const tables = await firstValueFrom(
-        this.ipc.getExplorerChildren(connectionId, database, 'Tables')
+        this.ipc.getExplorerChildren(connectionId, database, 'tables')
       );
 
+      // Load columns in parallel batches
+      const batchSize = 10;
       const tableInfos: TableInfo[] = [];
-      for (const table of tables.slice(0, 50)) { // Limit for performance
-        const columns = await this.loadTableColumns(connectionId, database, table);
-        tableInfos.push({
-          schema: table.schema || 'dbo',
-          name: table.name,
-          columns,
-        });
+
+      for (let i = 0; i < tables.length; i += batchSize) {
+        const batch = tables.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async table => ({
+            schema: table.schema || 'dbo',
+            name: table.name,
+            columns: await this.loadTableColumns(connectionId, database, table),
+          }))
+        );
+        tableInfos.push(...batchResults);
       }
 
       this.tablesCache.set(cacheKey, tableInfos);
-    } catch (error) {
-      console.error('Failed to load tables for IntelliSense:', error);
+    } catch {
+      // Non-critical: IntelliSense will work without table data
+    }
+  }
+
+  private async loadViews(connectionId: string, database: string, cacheKey: string): Promise<void> {
+    try {
+      const views = await firstValueFrom(
+        this.ipc.getExplorerChildren(connectionId, database, 'views')
+      );
+      this.viewsCache.set(
+        cacheKey,
+        views.map(v => ({ schema: v.schema || 'dbo', name: v.name }))
+      );
+    } catch {
+      // Non-critical: IntelliSense will work without view data
+    }
+  }
+
+  private async loadProcedures(
+    connectionId: string,
+    database: string,
+    cacheKey: string
+  ): Promise<void> {
+    try {
+      const procs = await firstValueFrom(
+        this.ipc.getExplorerChildren(connectionId, database, 'procedures')
+      );
+      this.proceduresCache.set(
+        cacheKey,
+        procs.map(p => (p.schema && p.schema !== 'dbo' ? `[${p.schema}].[${p.name}]` : p.name))
+      );
+    } catch {
+      // Non-critical: IntelliSense will work without procedure data
     }
   }
 
@@ -215,17 +451,19 @@ export class SqlIntellisenseService {
     }
   }
 
-  private getKeywordCompletions(range: any): any[] {
+  // --- Completion generators ---
+
+  private getKeywordCompletions(range: MonacoRange): MonacoCompletionItem[] {
     return this.sqlKeywords.map((keyword, index) => ({
       label: keyword,
       kind: this.CompletionItemKind.Keyword,
       insertText: keyword,
       range,
-      sortText: `0${String(index).padStart(3, '0')}`, // Keywords first
+      sortText: `0${String(index).padStart(3, '0')}`,
     }));
   }
 
-  private getSnippetCompletions(range: any): any[] {
+  private getSnippetCompletions(range: MonacoRange): MonacoCompletionItem[] {
     return this.snippets.map(snippet => ({
       label: snippet.label,
       kind: this.CompletionItemKind.Snippet,
@@ -233,11 +471,23 @@ export class SqlIntellisenseService {
       insertText: snippet.insertText,
       insertTextRules: 4, // InsertAsSnippet
       range,
-      sortText: '1', // Snippets after keywords
+      sortText: '1',
     }));
   }
 
-  private async getTableCompletions(range: any): Promise<any[]> {
+  private getDatabaseCompletions(range: MonacoRange): MonacoCompletionItem[] {
+    const databases = this.connectionState.databases();
+    return databases.map(db => ({
+      label: db.name,
+      kind: this.CompletionItemKind.Class,
+      detail: 'Database',
+      insertText: `[${db.name}]`,
+      range,
+      sortText: '0',
+    }));
+  }
+
+  private async getTableCompletions(range: MonacoRange): Promise<MonacoCompletionItem[]> {
     const connectionId = this.connectionState.activeConnectionId();
     const database = this.connectionState.selectedDatabase();
     if (!connectionId || !database) return [];
@@ -246,16 +496,16 @@ export class SqlIntellisenseService {
     const tables = this.tablesCache.get(cacheKey) || [];
 
     return tables.map(table => ({
-      label: `${table.schema}.${table.name}`,
+      label: table.schema === 'dbo' ? table.name : `${table.schema}.${table.name}`,
       kind: this.CompletionItemKind.Class,
-      detail: 'Table',
-      insertText: `[${table.schema}].[${table.name}]`,
+      detail: `Table (${table.schema})`,
+      insertText: table.schema === 'dbo' ? `[${table.name}]` : `[${table.schema}].[${table.name}]`,
       range,
       sortText: '2',
     }));
   }
 
-  private async getViewCompletions(range: any): Promise<any[]> {
+  private async getViewCompletions(range: MonacoRange): Promise<MonacoCompletionItem[]> {
     const connectionId = this.connectionState.activeConnectionId();
     const database = this.connectionState.selectedDatabase();
     if (!connectionId || !database) return [];
@@ -264,16 +514,19 @@ export class SqlIntellisenseService {
     const views = this.viewsCache.get(cacheKey) || [];
 
     return views.map(view => ({
-      label: view,
+      label: view.schema === 'dbo' ? view.name : `${view.schema}.${view.name}`,
       kind: this.CompletionItemKind.Interface,
-      detail: 'View',
-      insertText: `[${view}]`,
+      detail: `View (${view.schema})`,
+      insertText: view.schema === 'dbo' ? `[${view.name}]` : `[${view.schema}].[${view.name}]`,
       range,
       sortText: '3',
     }));
   }
 
-  private async getColumnCompletions(tableName: string, range: any): Promise<any[]> {
+  private async getColumnCompletions(
+    tableName: string,
+    range: MonacoRange
+  ): Promise<MonacoCompletionItem[]> {
     const connectionId = this.connectionState.activeConnectionId();
     const database = this.connectionState.selectedDatabase();
     if (!connectionId || !database) return [];
@@ -281,28 +534,32 @@ export class SqlIntellisenseService {
     const cacheKey = `${connectionId}:${database}`;
     const tables = this.tablesCache.get(cacheKey) || [];
 
-    // Find the table (handle schema.table or just table)
+    // Clean brackets and handle schema.table or just table
     const parts = tableName.split('.');
-    const searchName = parts[parts.length - 1].replace(/[\[\]]/g, '');
+    const searchName = parts[parts.length - 1].replace(/[[\]]/g, '');
+    const searchSchema = parts.length > 1 ? parts[0].replace(/[[\]]/g, '') : null;
 
-    const table = tables.find(
-      t => t.name.toLowerCase() === searchName.toLowerCase()
-    );
+    const table = tables.find(t => {
+      const nameMatch = t.name.toLowerCase() === searchName.toLowerCase();
+      if (searchSchema) {
+        return nameMatch && t.schema.toLowerCase() === searchSchema.toLowerCase();
+      }
+      return nameMatch;
+    });
 
     if (!table) return [];
 
     return table.columns.map(col => ({
       label: col.name,
       kind: this.CompletionItemKind.Field,
-      detail: `${col.dataType}${col.isNullable ? ' (nullable)' : ''}`,
-      documentation: col.isPrimaryKey ? 'Primary Key' : undefined,
-      insertText: `[${col.name}]`,
+      detail: `${col.dataType}${col.isNullable ? ' (nullable)' : ''}${col.isPrimaryKey ? ' PK' : ''}`,
+      insertText: col.name,
       range,
-      sortText: '0',
+      sortText: col.isPrimaryKey ? '0' : '1',
     }));
   }
 
-  private async getProcedureCompletions(range: any): Promise<any[]> {
+  private async getProcedureCompletions(range: MonacoRange): Promise<MonacoCompletionItem[]> {
     const connectionId = this.connectionState.activeConnectionId();
     const database = this.connectionState.selectedDatabase();
     if (!connectionId || !database) return [];
@@ -319,15 +576,21 @@ export class SqlIntellisenseService {
     }));
   }
 
-  // Context detection helpers
+  // --- Context detection helpers ---
+
+  private isAfterUse(text: string): boolean {
+    return /\bUSE\s+$/i.test(text.trimEnd());
+  }
+
   private isAfterFrom(text: string): boolean {
-    const pattern = /\bFROM\s+$/i;
-    return pattern.test(text.trim());
+    // Match FROM (with optional comma for multi-table selects) at end of text
+    return /\b(FROM|,)\s+$/i.test(text.trimEnd());
   }
 
   private isAfterJoin(text: string): boolean {
-    const pattern = /\b(JOIN|INNER JOIN|LEFT JOIN|RIGHT JOIN|FULL JOIN|CROSS JOIN)\s+$/i;
-    return pattern.test(text.trim());
+    return /\b(JOIN|INNER\s+JOIN|LEFT\s+(OUTER\s+)?JOIN|RIGHT\s+(OUTER\s+)?JOIN|FULL\s+(OUTER\s+)?JOIN|CROSS\s+JOIN)\s+$/i.test(
+      text.trimEnd()
+    );
   }
 
   private isAfterDot(text: string): boolean {
@@ -335,14 +598,66 @@ export class SqlIntellisenseService {
   }
 
   private isAfterExec(text: string): boolean {
-    const pattern = /\b(EXEC|EXECUTE)\s+$/i;
-    return pattern.test(text.trim());
+    return /\b(EXEC|EXECUTE)\s+$/i.test(text.trimEnd());
   }
 
   private extractTableName(text: string): string | null {
-    // Match table name before the dot
-    const match = text.match(/(\[?\w+\]?(?:\.\[?\w+\]?)?)\s*\.$/);
+    const match = text.match(/(\[?\w+]?(?:\.\[?\w+]?)?)\s*\.$/);
     return match ? match[1] : null;
+  }
+
+  /**
+   * Parse table aliases from the full query text.
+   * Handles: FROM table alias, FROM table AS alias, JOIN table alias ON, JOIN table AS alias ON
+   */
+  private parseTableAliases(fullText: string): Map<string, string> {
+    const aliases = new Map<string, string>();
+
+    // Match: FROM/JOIN [schema.]table [AS] alias
+    const pattern = /\b(?:FROM|JOIN)\s+(\[?\w+]?(?:\.\[?\w+]?)?)\s+(?:AS\s+)?(\w+)\b/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(fullText)) !== null) {
+      const tableName = match[1];
+      const alias = match[2].toLowerCase();
+      // Skip SQL keywords that look like aliases
+      const reserved = new Set([
+        'where',
+        'on',
+        'inner',
+        'left',
+        'right',
+        'full',
+        'cross',
+        'outer',
+        'join',
+        'set',
+        'values',
+        'into',
+        'group',
+        'order',
+        'having',
+        'union',
+        'except',
+        'intersect',
+        'as',
+        'with',
+        'nolock',
+      ]);
+      if (!reserved.has(alias)) {
+        aliases.set(alias, tableName);
+      }
+    }
+
+    return aliases;
+  }
+
+  /**
+   * Resolve an alias to a table name, or return null if not an alias
+   */
+  private resolveAlias(nameBeforeDot: string, fullText: string): string | null {
+    const cleaned = nameBeforeDot.replace(/[[\]]/g, '').toLowerCase();
+    const aliases = this.parseTableAliases(fullText);
+    return aliases.get(cleaned) || null;
   }
 
   /**

@@ -1068,7 +1068,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   onDatabaseChange(database: string): void {
     this.connectionState.selectDatabase(database);
-    this.intellisense.loadMetadata();
+    this.intellisense.reloadMetadata();
   }
 
   // History panel methods
