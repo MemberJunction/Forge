@@ -688,9 +688,18 @@ pre {
   align-items: center !important;
   justify-content: center !important;
   font-size: 12px !important;
-  color: var(--text-primary) !important; // Better contrast
+  color: var(--text-primary) !important;
   border-radius: 4px !important;
   background: transparent !important;
+  background-image: none !important; // Override theme PNG
+
+  &::before {
+    content: '\00D7'; // Unicode multiplication sign (×) as close icon
+    font-size: 16px;
+    line-height: 1;
+    font-weight: 300;
+    color: inherit;
+  }
 }
 
 // Hover state - more prominent with background
