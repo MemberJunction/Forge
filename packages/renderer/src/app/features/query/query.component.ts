@@ -20,6 +20,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatInputModule } from '@angular/material/input';
 import { MatDividerModule } from '@angular/material/divider';
 import { IpcService } from '../../core/services/ipc.service';
+import { SqlIntellisenseService } from '../../core/services/sql-intellisense.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { NotificationService } from '../../core/services/notification.service';
@@ -64,7 +65,7 @@ interface MonacoModel {
   getValueInRange(selection: MonacoSelection): string;
 }
 
-declare const monaco: { editor: MonacoEditor };
+declare const monaco: { editor: MonacoEditor; languages: unknown };
 
 @Component({
   selector: 'app-query',
@@ -795,6 +796,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   readonly historyState = inject(QueryHistoryStateService);
   readonly resultsState = inject(QueryResultsStateService);
   readonly aiState = inject(AIStateService);
+  private readonly intellisense = inject(SqlIntellisenseService);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
@@ -966,6 +968,10 @@ export class QueryComponent implements OnInit, OnDestroy {
       renderWhitespace: 'selection',
     });
 
+    // Register SQL autocomplete provider and load schema metadata
+    this.intellisense.registerCompletionProvider(monaco);
+    this.intellisense.loadMetadata();
+
     // Listen for content changes
     this.editor.onDidChangeModelContent(() => {
       const content = this.editor?.getValue() || '';
@@ -1062,6 +1068,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   onDatabaseChange(database: string): void {
     this.connectionState.selectDatabase(database);
+    this.intellisense.loadMetadata();
   }
 
   // History panel methods
