@@ -36,6 +36,7 @@ import {
   ConnectionDialogComponent,
   ConnectionDialogData,
 } from '../../shared/components/connection-dialog/connection-dialog.component';
+import { ManageConnectionsDialogComponent } from '../../shared/components/manage-connections-dialog/manage-connections-dialog.component';
 
 @Component({
   selector: 'app-sidebar',
@@ -470,9 +471,8 @@ export class SidebarComponent {
   }
 
   manageConnections(): void {
-    this.dialog.open(ConnectionDialogComponent, {
-      data: {} as ConnectionDialogData,
-      width: '540px',
+    this.dialog.open(ManageConnectionsDialogComponent, {
+      width: '560px',
     });
   }
 

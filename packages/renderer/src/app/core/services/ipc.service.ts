@@ -118,6 +118,7 @@ interface ForgeAPI {
     list: () => Promise<ConnectionProfile[]>;
     connect: (profileId: string) => Promise<void>;
     disconnect: (profileId: string) => Promise<void>;
+    reorder: (orderedIds: string[]) => Promise<void>;
   };
   docker: {
     detect: () => Promise<DockerStatus>;
@@ -421,6 +422,10 @@ export class IpcService {
 
   disconnect(profileId: string): Observable<void> {
     return from(this.api.connection.disconnect(profileId));
+  }
+
+  reorderConnections(orderedIds: string[]): Observable<void> {
+    return from(this.api.connection.reorder(orderedIds));
   }
 
   // Docker methods

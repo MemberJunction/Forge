@@ -81,4 +81,12 @@ export function registerConnectionHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.CONNECTION.DISCONNECT, async (_event, id: string): Promise<void> => {
     await poolManager.closePool(id);
   });
+
+  // Reorder connections
+  ipcMain.handle(
+    IPC_CHANNELS.CONNECTION.REORDER,
+    async (_event, orderedIds: string[]): Promise<void> => {
+      profileStore.reorder(orderedIds);
+    }
+  );
 }

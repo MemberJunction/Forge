@@ -76,6 +76,7 @@ export interface ForgeAPI {
     list: () => Promise<ConnectionProfile[]>;
     connect: (profileId: string) => Promise<void>;
     disconnect: (profileId: string) => Promise<void>;
+    reorder: (orderedIds: string[]) => Promise<void>;
   };
 
   docker: {
@@ -422,6 +423,7 @@ const forgeAPI: ForgeAPI = {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.LIST),
     connect: profileId => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.CONNECT, profileId),
     disconnect: profileId => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.DISCONNECT, profileId),
+    reorder: orderedIds => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.REORDER, orderedIds),
   },
 
   docker: {

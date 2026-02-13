@@ -187,6 +187,16 @@ export class ConnectionStateService {
     return this._profiles().find(p => p.id === id);
   }
 
+  async reorderProfiles(orderedIds: string[]): Promise<void> {
+    try {
+      await firstValueFrom(this.ipc.reorderConnections(orderedIds));
+      await this.loadProfiles();
+    } catch (error) {
+      this.notification.error('Failed to reorder connections');
+      console.error('Failed to reorder profiles:', error);
+    }
+  }
+
   /**
    * Initialize state from saved app state
    * Should be called on app startup

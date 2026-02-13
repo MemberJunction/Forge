@@ -131,6 +131,30 @@ export class ConnectionProfilesStore extends BaseSingleton {
   }
 
   /**
+   * Reorder connection profiles by an ordered list of IDs
+   */
+  reorder(orderedIds: string[]): void {
+    const profiles = this.getAll();
+    const profileMap = new Map(profiles.map(p => [p.id, p]));
+    const reordered: ConnectionProfile[] = [];
+
+    for (const id of orderedIds) {
+      const profile = profileMap.get(id);
+      if (profile) {
+        reordered.push(profile);
+        profileMap.delete(id);
+      }
+    }
+
+    // Append any profiles not in the ordered list (safety net)
+    for (const profile of profileMap.values()) {
+      reordered.push(profile);
+    }
+
+    this.store.set('profiles', reordered);
+  }
+
+  /**
    * Get password for a connection
    */
   async getPassword(id: string): Promise<string | null> {
