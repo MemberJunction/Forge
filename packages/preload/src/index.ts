@@ -68,6 +68,12 @@ import type {
   MJEntityInfo,
   MJEntityFieldInfo,
   MJApplicationInfo,
+  MJRecordChange,
+  MJAuditLog,
+  MJQuery,
+  MJErrorLog,
+  MJUserRecordLog,
+  MJEntityRelationship,
 } from '@mj-forge/shared';
 
 /**
@@ -338,6 +344,42 @@ export interface ForgeAPI {
       database: string,
       mjSchemaName?: string
     ) => Promise<MJApplicationInfo[]>;
+    getEntityRelationships: (
+      connectionId: string,
+      database: string,
+      entityId?: string,
+      mjSchemaName?: string
+    ) => Promise<MJEntityRelationship[]>;
+    getRecordChanges: (
+      connectionId: string,
+      database: string,
+      options?: { entityId?: string; entityName?: string; recordId?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJRecordChange[]>;
+    getAuditLogs: (
+      connectionId: string,
+      database: string,
+      options?: { entityId?: string; recordId?: string; userId?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJAuditLog[]>;
+    getSavedQueries: (
+      connectionId: string,
+      database: string,
+      categoryId?: string,
+      mjSchemaName?: string
+    ) => Promise<MJQuery[]>;
+    getErrorLogs: (
+      connectionId: string,
+      database: string,
+      options?: { category?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJErrorLog[]>;
+    getUserRecordLogs: (
+      connectionId: string,
+      database: string,
+      options?: { entityId?: string; recordId?: string; userId?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJUserRecordLog[]>;
   };
 
   menu: {
@@ -702,6 +744,54 @@ const forgeAPI: ForgeAPI = {
       ),
     getApplications: (connectionId, database, mjSchemaName) =>
       ipcRenderer.invoke(IPC_CHANNELS.MJ.GET_APPLICATIONS, connectionId, database, mjSchemaName),
+    getEntityRelationships: (connectionId, database, entityId, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_ENTITY_RELATIONSHIPS,
+        connectionId,
+        database,
+        entityId,
+        mjSchemaName
+      ),
+    getRecordChanges: (connectionId, database, options, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_RECORD_CHANGES,
+        connectionId,
+        database,
+        options,
+        mjSchemaName
+      ),
+    getAuditLogs: (connectionId, database, options, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_AUDIT_LOGS,
+        connectionId,
+        database,
+        options,
+        mjSchemaName
+      ),
+    getSavedQueries: (connectionId, database, categoryId, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_SAVED_QUERIES,
+        connectionId,
+        database,
+        categoryId,
+        mjSchemaName
+      ),
+    getErrorLogs: (connectionId, database, options, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_ERROR_LOGS,
+        connectionId,
+        database,
+        options,
+        mjSchemaName
+      ),
+    getUserRecordLogs: (connectionId, database, options, mjSchemaName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.MJ.GET_USER_RECORD_LOGS,
+        connectionId,
+        database,
+        options,
+        mjSchemaName
+      ),
   },
 
   menu: {

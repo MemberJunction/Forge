@@ -290,3 +290,106 @@ export interface MJApplicationInfo {
   description?: string;
   icon?: string;
 }
+
+/**
+ * MemberJunction Record Change from __mj.RecordChange table
+ * Tracks field-level changes to records
+ */
+export interface MJRecordChange {
+  id: string;
+  entityId: string;
+  entityName?: string;
+  recordId: string;
+  type: 'Create' | 'Update' | 'Delete';
+  source: string;
+  changesJSON?: string;
+  changesDescription?: string;
+  fullRecordJSON?: string;
+  status: string;
+  comments?: string;
+  createdAt: string;
+  userId?: string;
+  userName?: string;
+}
+
+/**
+ * MemberJunction Audit Log entry from __mj.AuditLog table
+ */
+export interface MJAuditLog {
+  id: string;
+  userId?: string;
+  userName?: string;
+  auditLogTypeName?: string;
+  status: 'Allow' | 'Deny';
+  entityId?: string;
+  entityName?: string;
+  recordId?: string;
+  description?: string;
+  details?: string;
+  createdAt: string;
+}
+
+/**
+ * MemberJunction Saved Query from __mj.Query table
+ */
+export interface MJQuery {
+  id: string;
+  name: string;
+  description?: string;
+  categoryId?: string;
+  categoryName?: string;
+  sql: string;
+  originalSQL?: string;
+  feedback?: string;
+  status: string;
+  qualityRank?: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * MemberJunction Error Log entry from __mj.ErrorLog table
+ */
+export interface MJErrorLog {
+  id: string;
+  code?: string;
+  message?: string;
+  category?: string;
+  status?: string;
+  details?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+/**
+ * MemberJunction User Record Log from __mj.UserRecordLog table
+ * Tracks which users accessed which records
+ */
+export interface MJUserRecordLog {
+  id: string;
+  userId: string;
+  userName?: string;
+  entityId: string;
+  entityName?: string;
+  recordId: string;
+  earliestAt: string;
+  latestAt: string;
+  totalCount: number;
+}
+
+/**
+ * MemberJunction Entity Relationship from __mj.EntityRelationship table
+ */
+export interface MJEntityRelationship {
+  id: string;
+  entityId: string;
+  entityName?: string;
+  relatedEntityId: string;
+  relatedEntityName?: string;
+  bundleInAPI: boolean;
+  type: string;
+  displayName?: string;
+  displayInForm: boolean;
+  displayLocation: string;
+  sequence: number;
+}

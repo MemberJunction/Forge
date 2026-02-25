@@ -173,6 +173,12 @@ export const IPC_CHANNELS = {
     GET_ENTITIES: 'mj:get-entities',
     GET_ENTITY_FIELDS: 'mj:get-entity-fields',
     GET_APPLICATIONS: 'mj:get-applications',
+    GET_ENTITY_RELATIONSHIPS: 'mj:get-entity-relationships',
+    GET_RECORD_CHANGES: 'mj:get-record-changes',
+    GET_AUDIT_LOGS: 'mj:get-audit-logs',
+    GET_SAVED_QUERIES: 'mj:get-saved-queries',
+    GET_ERROR_LOGS: 'mj:get-error-logs',
+    GET_USER_RECORD_LOGS: 'mj:get-user-record-logs',
   },
 } as const;
 

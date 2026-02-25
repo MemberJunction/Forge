@@ -69,6 +69,12 @@ import type {
   MJEntityInfo,
   MJEntityFieldInfo,
   MJApplicationInfo,
+  MJRecordChange,
+  MJAuditLog,
+  MJQuery,
+  MJErrorLog,
+  MJUserRecordLog,
+  MJEntityRelationship,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -346,6 +352,42 @@ interface ForgeAPI {
       database: string,
       mjSchemaName?: string
     ) => Promise<MJApplicationInfo[]>;
+    getEntityRelationships: (
+      connectionId: string,
+      database: string,
+      entityId?: string,
+      mjSchemaName?: string
+    ) => Promise<MJEntityRelationship[]>;
+    getRecordChanges: (
+      connectionId: string,
+      database: string,
+      options?: { entityId?: string; entityName?: string; recordId?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJRecordChange[]>;
+    getAuditLogs: (
+      connectionId: string,
+      database: string,
+      options?: { entityId?: string; recordId?: string; userId?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJAuditLog[]>;
+    getSavedQueries: (
+      connectionId: string,
+      database: string,
+      categoryId?: string,
+      mjSchemaName?: string
+    ) => Promise<MJQuery[]>;
+    getErrorLogs: (
+      connectionId: string,
+      database: string,
+      options?: { category?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJErrorLog[]>;
+    getUserRecordLogs: (
+      connectionId: string,
+      database: string,
+      options?: { entityId?: string; recordId?: string; userId?: string; limit?: number },
+      mjSchemaName?: string
+    ) => Promise<MJUserRecordLog[]>;
   };
   menu: {
     onNewConnection: (callback: () => void) => () => void;
@@ -846,6 +888,78 @@ export class IpcService {
     mjSchemaName?: string
   ): Observable<MJApplicationInfo[]> {
     return from(this.api.mj.getApplications(connectionId, database, mjSchemaName));
+  }
+
+  /**
+   * Get MJ entity relationships
+   */
+  getMJEntityRelationships(
+    connectionId: string,
+    database: string,
+    entityId?: string,
+    mjSchemaName?: string
+  ): Observable<MJEntityRelationship[]> {
+    return from(this.api.mj.getEntityRelationships(connectionId, database, entityId, mjSchemaName));
+  }
+
+  /**
+   * Get MJ record changes (change history)
+   */
+  getMJRecordChanges(
+    connectionId: string,
+    database: string,
+    options?: { entityId?: string; entityName?: string; recordId?: string; limit?: number },
+    mjSchemaName?: string
+  ): Observable<MJRecordChange[]> {
+    return from(this.api.mj.getRecordChanges(connectionId, database, options, mjSchemaName));
+  }
+
+  /**
+   * Get MJ audit logs
+   */
+  getMJAuditLogs(
+    connectionId: string,
+    database: string,
+    options?: { entityId?: string; recordId?: string; userId?: string; limit?: number },
+    mjSchemaName?: string
+  ): Observable<MJAuditLog[]> {
+    return from(this.api.mj.getAuditLogs(connectionId, database, options, mjSchemaName));
+  }
+
+  /**
+   * Get MJ saved queries
+   */
+  getMJSavedQueries(
+    connectionId: string,
+    database: string,
+    categoryId?: string,
+    mjSchemaName?: string
+  ): Observable<MJQuery[]> {
+    return from(this.api.mj.getSavedQueries(connectionId, database, categoryId, mjSchemaName));
+  }
+
+  /**
+   * Get MJ error logs
+   */
+  getMJErrorLogs(
+    connectionId: string,
+    database: string,
+    options?: { category?: string; limit?: number },
+    mjSchemaName?: string
+  ): Observable<MJErrorLog[]> {
+    return from(this.api.mj.getErrorLogs(connectionId, database, options, mjSchemaName));
+  }
+
+  /**
+   * Get MJ user record logs
+   */
+  getMJUserRecordLogs(
+    connectionId: string,
+    database: string,
+    options?: { entityId?: string; recordId?: string; userId?: string; limit?: number },
+    mjSchemaName?: string
+  ): Observable<MJUserRecordLog[]> {
+    return from(this.api.mj.getUserRecordLogs(connectionId, database, options, mjSchemaName));
   }
 
   // AI methods
