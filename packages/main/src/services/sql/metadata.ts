@@ -17,6 +17,16 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  MJDatabaseInfo,
+  MJEntityInfo,
+  MJEntityFieldInfo,
+  MJApplicationInfo,
+  MJRecordChange,
+  MJAuditLog,
+  MJQuery,
+  MJErrorLog,
+  MJUserRecordLog,
+  MJEntityRelationship,
 } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { ObjectCache } from '../../utils/object-cache';
@@ -779,6 +789,480 @@ export class MetadataService extends BaseSingleton {
       defaultValue: identityMap.get(col.name)?.defaultValue ?? null,
       foreignKey: fkMap.get(col.name) ?? null,
     }));
+  }
+
+  // ============================================================
+  // MemberJunction Detection & Metadata
+  // ============================================================
+
+  /**
+   * Detect if a database has MemberJunction installed.
+   * Checks for __mj schema and Entity/EntityField tables.
+   */
+  async detectMJDatabase(
+    connectionId: string,
+    database: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJDatabaseInfo> {
+    try {
+      // Check if the MJ schema exists and has the Entity table
+      const detectSql = `
+        USE [${database}];
+        SELECT
+          CASE WHEN SCHEMA_ID('${mjSchemaName}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
+          CASE WHEN OBJECT_ID('${mjSchemaName}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
+      `;
+
+      const result = await this.poolManager.query<{
+        hasSchema: number;
+        hasEntityTable: number;
+        hasEntityFieldTable: number;
+        hasUsers: number;
+        hasAuditLog: number;
+        hasApplications: number;
+      }>(connectionId, detectSql);
+
+      const detection = result.recordset[0];
+      if (!detection || !detection.hasSchema || !detection.hasEntityTable) {
+        return { isMJEnabled: false };
+      }
+
+      // MJ is detected - get additional info
+      const countsSql = `
+        USE [${database}];
+        SELECT
+          (SELECT COUNT(*) FROM [${mjSchemaName}].[Entity]) AS entityCount,
+          (SELECT COUNT(*) FROM [${mjSchemaName}].[Application]) AS applicationCount
+      `;
+
+      const countsResult = await this.poolManager.query<{
+        entityCount: number;
+        applicationCount: number;
+      }>(connectionId, countsSql);
+
+      const counts = countsResult.recordset[0] || { entityCount: 0, applicationCount: 0 };
+
+      // Try to get version from VersionInstallation if it exists
+      let version: string | undefined;
+      try {
+        const versionSql = `
+          USE [${database}];
+          IF OBJECT_ID('${mjSchemaName}.VersionInstallation') IS NOT NULL
+            SELECT TOP 1 MJVersion as version FROM [${mjSchemaName}].[VersionInstallation]
+            ORDER BY InstalledAt DESC
+        `;
+        const versionResult = await this.poolManager.query<{ version: string }>(
+          connectionId,
+          versionSql
+        );
+        version = versionResult.recordset[0]?.version;
+      } catch {
+        // Version table may not exist in older MJ versions
+      }
+
+      return {
+        isMJEnabled: true,
+        schemaName: mjSchemaName,
+        version,
+        entityCount: counts.entityCount,
+        applicationCount: counts.applicationCount,
+        hasUsers: Boolean(detection.hasUsers),
+        hasAuditLog: Boolean(detection.hasAuditLog),
+      };
+    } catch (error) {
+      console.error('Error detecting MJ database:', error);
+      return { isMJEnabled: false };
+    }
+  }
+
+  /**
+   * Get MJ entities from a database
+   */
+  async getMJEntities(
+    connectionId: string,
+    database: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJEntityInfo[]> {
+    const sql = `
+      USE [${database}];
+      SELECT
+        CAST(ID AS NVARCHAR(36)) AS id,
+        Name AS name,
+        Description AS description,
+        BaseTable AS baseTable,
+        BaseView AS baseView,
+        SchemaName AS schemaName,
+        CAST(VirtualEntity AS BIT) AS isVirtual,
+        CAST(TrackRecordChanges AS BIT) AS trackRecordChanges,
+        CAST(AuditRecordAccess AS BIT) AS auditRecordAccess,
+        CAST(IncludeInAPI AS BIT) AS includeInAPI,
+        CAST(AllowCreateAPI AS BIT) AS allowCreateAPI,
+        CAST(AllowUpdateAPI AS BIT) AS allowUpdateAPI,
+        CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
+        CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
+        CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
+      FROM [${mjSchemaName}].[Entity]
+      ORDER BY Name
+    `;
+
+    const result = await this.poolManager.query<MJEntityInfo>(connectionId, sql);
+    return result.recordset.map(row => ({
+      ...row,
+      isVirtual: Boolean(row.isVirtual),
+      trackRecordChanges: Boolean(row.trackRecordChanges),
+      auditRecordAccess: Boolean(row.auditRecordAccess),
+      includeInAPI: Boolean(row.includeInAPI),
+      allowCreateAPI: Boolean(row.allowCreateAPI),
+      allowUpdateAPI: Boolean(row.allowUpdateAPI),
+      allowDeleteAPI: Boolean(row.allowDeleteAPI),
+    }));
+  }
+
+  /**
+   * Get MJ entity fields for a specific entity
+   */
+  async getMJEntityFields(
+    connectionId: string,
+    database: string,
+    entityId: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJEntityFieldInfo[]> {
+    const sql = `
+      USE [${database}];
+      SELECT
+        CAST(ID AS NVARCHAR(36)) AS id,
+        CAST(EntityID AS NVARCHAR(36)) AS entityId,
+        Name AS name,
+        DisplayName AS displayName,
+        Description AS description,
+        Type AS type,
+        Length AS length,
+        Precision AS precision,
+        Scale AS scale,
+        CAST(AllowsNull AS BIT) AS allowsNull,
+        CAST(IsPrimaryKey AS BIT) AS isPrimaryKey,
+        CAST(IsUnique AS BIT) AS isUnique,
+        DefaultValue AS defaultValue,
+        CAST(IsVirtual AS BIT) AS isVirtual,
+        Sequence AS sequence,
+        CAST(RelatedEntityID AS NVARCHAR(36)) AS relatedEntityId,
+        RelatedEntityFieldName AS relatedEntityFieldName
+      FROM [${mjSchemaName}].[EntityField]
+      WHERE EntityID = '${entityId}'
+      ORDER BY Sequence
+    `;
+
+    const result = await this.poolManager.query<MJEntityFieldInfo>(connectionId, sql);
+    return result.recordset.map(row => ({
+      ...row,
+      allowsNull: Boolean(row.allowsNull),
+      isPrimaryKey: Boolean(row.isPrimaryKey),
+      isUnique: Boolean(row.isUnique),
+      isVirtual: Boolean(row.isVirtual),
+    }));
+  }
+
+  /**
+   * Get MJ applications from a database
+   */
+  async getMJApplications(
+    connectionId: string,
+    database: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJApplicationInfo[]> {
+    try {
+      const sql = `
+        USE [${database}];
+        SELECT
+          CAST(ID AS NVARCHAR(36)) AS id,
+          Name AS name,
+          Description AS description,
+          Icon AS icon
+        FROM [${mjSchemaName}].[Application]
+        ORDER BY Name
+      `;
+
+      const result = await this.poolManager.query<MJApplicationInfo>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get MJ entity relationships
+   */
+  async getMJEntityRelationships(
+    connectionId: string,
+    database: string,
+    entityId?: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJEntityRelationship[]> {
+    try {
+      const whereClause = entityId ? `WHERE er.EntityID = '${entityId}'` : '';
+      const sql = `
+        USE [${database}];
+        SELECT
+          CAST(er.ID AS NVARCHAR(36)) AS id,
+          CAST(er.EntityID AS NVARCHAR(36)) AS entityId,
+          e1.Name AS entityName,
+          CAST(er.RelatedEntityID AS NVARCHAR(36)) AS relatedEntityId,
+          e2.Name AS relatedEntityName,
+          CAST(er.BundleInAPI AS BIT) AS bundleInAPI,
+          er.Type AS type,
+          er.DisplayName AS displayName,
+          CAST(er.DisplayInForm AS BIT) AS displayInForm,
+          er.DisplayLocation AS displayLocation,
+          er.Sequence AS sequence
+        FROM [${mjSchemaName}].[EntityRelationship] er
+        JOIN [${mjSchemaName}].[Entity] e1 ON er.EntityID = e1.ID
+        JOIN [${mjSchemaName}].[Entity] e2 ON er.RelatedEntityID = e2.ID
+        ${whereClause}
+        ORDER BY er.Sequence
+      `;
+
+      const result = await this.poolManager.query<MJEntityRelationship>(connectionId, sql);
+      return result.recordset.map(row => ({
+        ...row,
+        bundleInAPI: Boolean(row.bundleInAPI),
+        displayInForm: Boolean(row.displayInForm),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get MJ record changes (audit trail for data modifications)
+   */
+  async getMJRecordChanges(
+    connectionId: string,
+    database: string,
+    options: {
+      entityId?: string;
+      entityName?: string;
+      recordId?: string;
+      limit?: number;
+    } = {},
+    mjSchemaName = '__mj'
+  ): Promise<MJRecordChange[]> {
+    try {
+      const conditions: string[] = [];
+      if (options.entityId) conditions.push(`rc.EntityID = '${options.entityId}'`);
+      if (options.entityName) conditions.push(`e.Name = '${options.entityName}'`);
+      if (options.recordId) conditions.push(`rc.RecordID = '${options.recordId}'`);
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const limit = options.limit || 100;
+
+      const sql = `
+        USE [${database}];
+        SELECT TOP ${limit}
+          CAST(rc.ID AS NVARCHAR(36)) AS id,
+          CAST(rc.EntityID AS NVARCHAR(36)) AS entityId,
+          e.Name AS entityName,
+          rc.RecordID AS recordId,
+          rc.Type AS type,
+          rc.Source AS source,
+          rc.ChangesJSON AS changesJSON,
+          rc.ChangesDescription AS changesDescription,
+          rc.FullRecordJSON AS fullRecordJSON,
+          rc.Status AS status,
+          rc.Comments AS comments,
+          CONVERT(VARCHAR(30), rc.__mj_CreatedAt, 126) AS createdAt,
+          CAST(rc.UserID AS NVARCHAR(36)) AS userId,
+          u.Name AS userName
+        FROM [${mjSchemaName}].[RecordChange] rc
+        LEFT JOIN [${mjSchemaName}].[Entity] e ON rc.EntityID = e.ID
+        LEFT JOIN [${mjSchemaName}].[User] u ON rc.UserID = u.ID
+        ${whereClause}
+        ORDER BY rc.__mj_CreatedAt DESC
+      `;
+
+      const result = await this.poolManager.query<MJRecordChange>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get MJ audit logs
+   */
+  async getMJAuditLogs(
+    connectionId: string,
+    database: string,
+    options: {
+      entityId?: string;
+      recordId?: string;
+      userId?: string;
+      limit?: number;
+    } = {},
+    mjSchemaName = '__mj'
+  ): Promise<MJAuditLog[]> {
+    try {
+      const conditions: string[] = [];
+      if (options.entityId) conditions.push(`al.EntityID = '${options.entityId}'`);
+      if (options.recordId) conditions.push(`al.RecordID = '${options.recordId}'`);
+      if (options.userId) conditions.push(`al.UserID = '${options.userId}'`);
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const limit = options.limit || 100;
+
+      const sql = `
+        USE [${database}];
+        SELECT TOP ${limit}
+          CAST(al.ID AS NVARCHAR(36)) AS id,
+          CAST(al.UserID AS NVARCHAR(36)) AS userId,
+          u.Name AS userName,
+          alt.Name AS auditLogTypeName,
+          al.Status AS status,
+          CAST(al.EntityID AS NVARCHAR(36)) AS entityId,
+          e.Name AS entityName,
+          al.RecordID AS recordId,
+          al.Description AS description,
+          al.Details AS details,
+          CONVERT(VARCHAR(30), al.__mj_CreatedAt, 126) AS createdAt
+        FROM [${mjSchemaName}].[AuditLog] al
+        LEFT JOIN [${mjSchemaName}].[User] u ON al.UserID = u.ID
+        LEFT JOIN [${mjSchemaName}].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
+        LEFT JOIN [${mjSchemaName}].[Entity] e ON al.EntityID = e.ID
+        ${whereClause}
+        ORDER BY al.__mj_CreatedAt DESC
+      `;
+
+      const result = await this.poolManager.query<MJAuditLog>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get MJ saved queries
+   */
+  async getMJSavedQueries(
+    connectionId: string,
+    database: string,
+    categoryId?: string,
+    mjSchemaName = '__mj'
+  ): Promise<MJQuery[]> {
+    try {
+      const whereClause = categoryId ? `WHERE q.CategoryID = '${categoryId}'` : '';
+      const sql = `
+        USE [${database}];
+        SELECT
+          CAST(q.ID AS NVARCHAR(36)) AS id,
+          q.Name AS name,
+          q.Description AS description,
+          CAST(q.CategoryID AS NVARCHAR(36)) AS categoryId,
+          qc.Name AS categoryName,
+          q.SQL AS sql,
+          q.OriginalSQL AS originalSQL,
+          q.Feedback AS feedback,
+          q.Status AS status,
+          q.QualityRank AS qualityRank,
+          CONVERT(VARCHAR(30), q.__mj_CreatedAt, 126) AS createdAt,
+          CONVERT(VARCHAR(30), q.__mj_UpdatedAt, 126) AS updatedAt
+        FROM [${mjSchemaName}].[Query] q
+        LEFT JOIN [${mjSchemaName}].[QueryCategory] qc ON q.CategoryID = qc.ID
+        ${whereClause}
+        ORDER BY q.Name
+      `;
+
+      const result = await this.poolManager.query<MJQuery>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get MJ error logs
+   */
+  async getMJErrorLogs(
+    connectionId: string,
+    database: string,
+    options: { category?: string; limit?: number } = {},
+    mjSchemaName = '__mj'
+  ): Promise<MJErrorLog[]> {
+    try {
+      const conditions: string[] = [];
+      if (options.category) conditions.push(`Category = '${options.category}'`);
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const limit = options.limit || 100;
+
+      const sql = `
+        USE [${database}];
+        SELECT TOP ${limit}
+          CAST(ID AS NVARCHAR(36)) AS id,
+          Code AS code,
+          Message AS message,
+          Category AS category,
+          Status AS status,
+          Details AS details,
+          CreatedBy AS createdBy,
+          CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt
+        FROM [${mjSchemaName}].[ErrorLog]
+        ${whereClause}
+        ORDER BY __mj_CreatedAt DESC
+      `;
+
+      const result = await this.poolManager.query<MJErrorLog>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get MJ user record access logs
+   */
+  async getMJUserRecordLogs(
+    connectionId: string,
+    database: string,
+    options: {
+      entityId?: string;
+      recordId?: string;
+      userId?: string;
+      limit?: number;
+    } = {},
+    mjSchemaName = '__mj'
+  ): Promise<MJUserRecordLog[]> {
+    try {
+      const conditions: string[] = [];
+      if (options.entityId) conditions.push(`url.EntityID = '${options.entityId}'`);
+      if (options.recordId) conditions.push(`url.RecordID = '${options.recordId}'`);
+      if (options.userId) conditions.push(`url.UserID = '${options.userId}'`);
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const limit = options.limit || 100;
+
+      const sql = `
+        USE [${database}];
+        SELECT TOP ${limit}
+          CAST(url.ID AS NVARCHAR(36)) AS id,
+          CAST(url.UserID AS NVARCHAR(36)) AS userId,
+          u.Name AS userName,
+          CAST(url.EntityID AS NVARCHAR(36)) AS entityId,
+          e.Name AS entityName,
+          url.RecordID AS recordId,
+          CONVERT(VARCHAR(30), url.EarliestAt, 126) AS earliestAt,
+          CONVERT(VARCHAR(30), url.LatestAt, 126) AS latestAt,
+          url.TotalCount AS totalCount
+        FROM [${mjSchemaName}].[UserRecordLog] url
+        LEFT JOIN [${mjSchemaName}].[User] u ON url.UserID = u.ID
+        LEFT JOIN [${mjSchemaName}].[Entity] e ON url.EntityID = e.ID
+        ${whereClause}
+        ORDER BY url.LatestAt DESC
+      `;
+
+      const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql);
+      return result.recordset;
+    } catch {
+      return [];
+    }
   }
 
   /**

@@ -186,6 +186,14 @@ import {
             <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
           }
           <span class="node-name">{{ node.name }}</span>
+          @if (node.mjInfo?.isMJEnabled) {
+            <img
+              class="mj-icon"
+              src="assets/icons/mj-logo.png"
+              alt="MemberJunction"
+              matTooltip="MemberJunction ({{ node.mjInfo.entityCount }} entities)"
+            />
+          }
         </div>
         @if (node.isExpanded && node.children) {
           @for (child of node.children; track child.id) {
@@ -432,6 +440,19 @@ import {
         white-space: nowrap;
       }
 
+      .mj-icon {
+        width: 14px;
+        height: 14px;
+        margin-left: var(--spacing-xs);
+        flex-shrink: 0;
+        opacity: 0.9;
+        transition: opacity var(--transition-fast);
+
+        &:hover {
+          opacity: 1;
+        }
+      }
+
       .quick-actions {
         margin-top: auto;
 
@@ -626,6 +647,17 @@ export class SidebarComponent {
         return this.getProcedureContextMenu(node);
       case 'function':
         return this.getFunctionContextMenu(node);
+      // MJ-specific context menus
+      case 'mj_entity':
+        return this.getMJEntityContextMenu(node);
+      case 'mj_query':
+        return this.getMJQueryContextMenu(node);
+      case 'mj_changes_folder':
+        return this.getMJChangesFolderContextMenu(node);
+      case 'mj_audit_folder':
+        return this.getMJAuditFolderContextMenu(node);
+      case 'mj_errors_folder':
+        return this.getMJErrorsFolderContextMenu(node);
       default:
         return [];
     }
@@ -884,6 +916,64 @@ export class SidebarComponent {
         },
       },
       { id: 'div3', label: '', divider: true },
+      {
+        id: 'mj-change-history',
+        label: 'View Change History (MJ)',
+        icon: 'change_history',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const tableName = node.metadata.name;
+            const sql = `-- Change History for [${schema}].[${tableName}]
+-- Note: Requires MemberJunction to be installed in this database
+SELECT TOP 100
+  rc.Type,
+  rc.Source,
+  rc.RecordID,
+  rc.ChangesDescription,
+  rc.Status,
+  u.Name AS ChangedBy,
+  rc.__mj_CreatedAt AS ChangedAt,
+  rc.ChangesJSON
+FROM [__mj].[RecordChange] rc
+LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
+LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
+WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
+ORDER BY rc.__mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      {
+        id: 'mj-audit-log',
+        label: 'View Audit Log (MJ)',
+        icon: 'history',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const tableName = node.metadata.name;
+            const sql = `-- Audit Log for [${schema}].[${tableName}]
+-- Note: Requires MemberJunction to be installed in this database
+SELECT TOP 100
+  al.Status,
+  alt.Name AS AuditType,
+  al.RecordID,
+  u.Name AS UserName,
+  al.Description,
+  al.__mj_CreatedAt AS AuditedAt
+FROM [__mj].[AuditLog] al
+LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
+LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
+LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
+WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
+ORDER BY al.__mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      { id: 'div4', label: '', divider: true },
       {
         id: 'refresh',
         label: 'Refresh',
@@ -1162,6 +1252,199 @@ export class SidebarComponent {
         },
       },
       { id: 'div3', label: '', divider: true },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        icon: 'refresh',
+        action: () => this.explorerState.refreshNode(node.id),
+      },
+    ];
+  }
+
+  // MemberJunction context menus
+  private getMJEntityContextMenu(node: TreeNode): ContextMenuItem[] {
+    return [
+      {
+        id: 'select-top',
+        label: 'SELECT TOP 1000',
+        icon: 'table_chart',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.schema && node.tableName) {
+            const sql = `SELECT TOP 1000 * FROM [${node.schema}].[${node.tableName}]`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      {
+        id: 'view-change-history',
+        label: 'View Change History',
+        icon: 'change_history',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const sql = `-- Change History for ${node.metadata.name}
+SELECT TOP 100
+  rc.Type,
+  rc.Source,
+  rc.ChangesDescription,
+  rc.Status,
+  u.Name AS ChangedBy,
+  rc.__mj_CreatedAt AS ChangedAt,
+  rc.ChangesJSON
+FROM [__mj].[RecordChange] rc
+LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
+LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
+WHERE e.Name = '${node.metadata.name}'
+ORDER BY rc.__mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      {
+        id: 'view-audit-log',
+        label: 'View Audit Log',
+        icon: 'history',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const sql = `-- Audit Log for ${node.metadata.name}
+SELECT TOP 100
+  al.Status,
+  alt.Name AS AuditType,
+  u.Name AS UserName,
+  al.RecordID,
+  al.Description,
+  al.__mj_CreatedAt AS AuditedAt
+FROM [__mj].[AuditLog] al
+LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
+LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
+LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
+WHERE e.Name = '${node.metadata.name}'
+ORDER BY al.__mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+    ];
+  }
+
+  private getMJQueryContextMenu(node: TreeNode): ContextMenuItem[] {
+    return [
+      {
+        id: 'open-query',
+        label: 'Open in New Tab',
+        icon: 'code',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata?.definition) {
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(
+              node.connectionId,
+              node.databaseName,
+              node.metadata.definition
+            );
+          }
+        },
+      },
+    ];
+  }
+
+  private getMJChangesFolderContextMenu(node: TreeNode): ContextMenuItem[] {
+    return [
+      {
+        id: 'view-all-changes',
+        label: 'View All Change History',
+        icon: 'change_history',
+        action: () => {
+          if (node.connectionId && node.databaseName) {
+            const sql = `-- All Recent Record Changes
+SELECT TOP 200
+  e.Name AS Entity,
+  rc.RecordID,
+  rc.Type,
+  rc.Source,
+  rc.ChangesDescription,
+  rc.Status,
+  u.Name AS ChangedBy,
+  rc.__mj_CreatedAt AS ChangedAt
+FROM [__mj].[RecordChange] rc
+LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
+LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
+ORDER BY rc.__mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        icon: 'refresh',
+        action: () => this.explorerState.refreshNode(node.id),
+      },
+    ];
+  }
+
+  private getMJAuditFolderContextMenu(node: TreeNode): ContextMenuItem[] {
+    return [
+      {
+        id: 'view-all-audits',
+        label: 'View All Audit Logs',
+        icon: 'history',
+        action: () => {
+          if (node.connectionId && node.databaseName) {
+            const sql = `-- All Recent Audit Logs
+SELECT TOP 200
+  al.Status,
+  alt.Name AS AuditType,
+  e.Name AS Entity,
+  al.RecordID,
+  u.Name AS UserName,
+  al.Description,
+  al.__mj_CreatedAt AS AuditedAt
+FROM [__mj].[AuditLog] al
+LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
+LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
+LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
+ORDER BY al.__mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        icon: 'refresh',
+        action: () => this.explorerState.refreshNode(node.id),
+      },
+    ];
+  }
+
+  private getMJErrorsFolderContextMenu(node: TreeNode): ContextMenuItem[] {
+    return [
+      {
+        id: 'view-all-errors',
+        label: 'View All Error Logs',
+        icon: 'error',
+        action: () => {
+          if (node.connectionId && node.databaseName) {
+            const sql = `-- All Recent Error Logs
+SELECT TOP 200
+  Code,
+  Message,
+  Category,
+  Status,
+  CreatedBy,
+  __mj_CreatedAt AS CreatedAt,
+  Details
+FROM [__mj].[ErrorLog]
+ORDER BY __mj_CreatedAt DESC`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
       {
         id: 'refresh',
         label: 'Refresh',

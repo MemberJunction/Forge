@@ -18,6 +18,7 @@ export class CredentialStore extends BaseSingleton {
   // In-memory cache - all credentials loaded from single keychain entry
   private cache: Map<string, string> = new Map();
   private cacheLoaded = false;
+  private keychainAvailable = true;
 
   /**
    * Load all credentials from keychain into memory cache (called once at startup)
@@ -62,9 +63,14 @@ export class CredentialStore extends BaseSingleton {
 
       this.cacheLoaded = true;
     } catch (error) {
-      console.error('[CredentialStore] Failed to load credentials:', error);
-      // Mark as loaded even on error to avoid repeated attempts
+      // Keychain access denied or unavailable - app will continue without saved credentials
+      this.keychainAvailable = false;
       this.cacheLoaded = true;
+      console.warn(
+        '[CredentialStore] Keychain access unavailable - saved credentials will not be loaded.',
+        'The app will continue without stored passwords. Grant keychain access to enable credential storage.'
+      );
+      console.debug('[CredentialStore] Keychain error details:', error);
     }
   }
 
@@ -91,14 +97,26 @@ export class CredentialStore extends BaseSingleton {
         await this.loadAllIntoCache();
       }
 
-      // Update cache
+      // Update cache (always store in memory even if keychain is unavailable)
       this.cache.set(connectionId, password);
-      // Save entire vault to keychain
-      await this.saveVault();
-      console.log(`[CredentialStore] Successfully stored password for: ${connectionId}`);
+
+      // Only attempt to persist if keychain is available
+      if (this.keychainAvailable) {
+        await this.saveVault();
+        console.log(`[CredentialStore] Successfully stored password for: ${connectionId}`);
+      } else {
+        console.warn(
+          `[CredentialStore] Password cached in memory for: ${connectionId} (keychain unavailable - will not persist)`
+        );
+      }
     } catch (error) {
-      console.error('Failed to store credential:', error);
-      throw new Error('Failed to store credential in Keychain');
+      // Keychain became unavailable - mark it and keep in memory cache
+      this.keychainAvailable = false;
+      console.warn(
+        `[CredentialStore] Failed to persist credential for ${connectionId} - keychain access denied.`,
+        'Password is cached in memory for this session only.'
+      );
+      console.debug('[CredentialStore] Keychain error details:', error);
     }
   }
 
@@ -136,16 +154,25 @@ export class CredentialStore extends BaseSingleton {
       const existed = this.cache.has(connectionId);
       this.cache.delete(connectionId);
 
-      // Save updated vault to keychain
-      if (existed) {
+      // Save updated vault to keychain (only if available)
+      if (existed && this.keychainAvailable) {
         await this.saveVault();
       }
 
       return existed;
     } catch (error) {
-      console.error('Failed to delete credential:', error);
-      return false;
+      // Keychain became unavailable - still removed from memory cache
+      this.keychainAvailable = false;
+      console.warn('[CredentialStore] Failed to persist deletion - keychain unavailable');
+      return true; // Still removed from memory
     }
+  }
+
+  /**
+   * Check if keychain access is available
+   */
+  isKeychainAvailable(): boolean {
+    return this.keychainAvailable;
   }
 
   /**

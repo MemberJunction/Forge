@@ -189,7 +189,7 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
     {
       name: 'Query Execution',
       shortcuts: [
-        { keys: 'F5 or ⌘ + Enter', description: 'Execute Query' },
+        { keys: 'F5 / Ctrl+E / ⌘+Enter', description: 'Execute Query' },
         { keys: 'Escape', description: 'Cancel Query' },
         { keys: '⌘ + Shift + F', description: 'Format SQL' },
       ],
