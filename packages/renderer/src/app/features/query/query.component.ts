@@ -899,6 +899,8 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private editorReadyTimer: ReturnType<typeof setTimeout> | null = null;
+  private resizeCleanup: (() => void) | null = null;
 
   constructor() {
     // Watch for THIS component's tab becoming active to sync editor content
@@ -974,6 +976,10 @@ export class QueryComponent implements OnInit, OnDestroy {
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
     }
+    if (this.editorReadyTimer) {
+      clearTimeout(this.editorReadyTimer);
+    }
+    this.resizeCleanup?.();
   }
 
   private handleKeydown = (event: KeyboardEvent): void => {
@@ -1012,6 +1018,12 @@ export class QueryComponent implements OnInit, OnDestroy {
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'g') {
       event.preventDefault();
       this.goToLine();
+      return;
+    }
+    // Cmd+H / Ctrl+H - Find & Replace
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'h') {
+      event.preventDefault();
+      this.openFindReplace();
       return;
     }
   };
@@ -1255,10 +1267,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Prevent concurrent execution — cancel previous query if still running
+    if (this.executing() && this.currentQueryId) {
+      this.ipc.cancelQuery(this.currentQueryId).toPromise().catch(() => {});
+    }
+
     this.executing.set(true);
     this.result.set(null);
     this.viewingHistoricalResult.set(null); // Clear any historical result view
-    this.currentQueryId = `query-${Date.now()}`;
+    const queryId = `query-${Date.now()}`;
+    this.currentQueryId = queryId;
     this.lastExecutedSql = sql;
 
     // Register with global execution tracker
@@ -1271,9 +1289,12 @@ export class QueryComponent implements OnInit, OnDestroy {
           connectionId,
           database: database || undefined,
           sql,
-          queryId: this.currentQueryId,
+          queryId,
         })
         .toPromise();
+
+      // Only update results if this is still the current query (not stale)
+      if (this.currentQueryId !== queryId) return;
 
       this.result.set(result ?? null);
       this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
@@ -1503,6 +1524,9 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   startResize(event: MouseEvent): void {
+    // Clean up any previous resize listeners
+    this.resizeCleanup?.();
+
     this.resizing = true;
     const startY = event.clientY;
     const startHeight = this.editorHeight();
@@ -1516,14 +1540,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       this.editorHeight.set(Math.max(10, Math.min(90, newHeight)));
     };
 
-    const onMouseUp = () => {
+    const cleanup = () => {
       this.resizing = false;
       document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('mouseup', cleanup);
+      this.resizeCleanup = null;
     };
 
+    this.resizeCleanup = cleanup;
     document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mouseup', cleanup);
   }
 
   activeResultSet(): ResultSet | null {
@@ -1556,24 +1582,28 @@ export class QueryComponent implements OnInit, OnDestroy {
    * Polls until editor is available and has the content loaded.
    */
   private executeWhenEditorReady(expectedContent: string, maxAttempts = 20): void {
+    // Cancel any previous polling
+    if (this.editorReadyTimer) {
+      clearTimeout(this.editorReadyTimer);
+      this.editorReadyTimer = null;
+    }
+
     let attempts = 0;
     const checkAndExecute = (): void => {
       attempts++;
       if (this.editor && this.editor.getValue() === expectedContent) {
-        // Editor is ready with correct content - execute
+        this.editorReadyTimer = null;
         this.executeQuery();
       } else if (attempts < maxAttempts) {
-        // Try again after a short delay
-        setTimeout(checkAndExecute, 50);
+        this.editorReadyTimer = setTimeout(checkAndExecute, 50);
       } else {
-        // Give up after max attempts, try anyway
+        this.editorReadyTimer = null;
         if (this.editor) {
           this.executeQuery();
         }
       }
     };
-    // Start checking after a brief delay
-    setTimeout(checkAndExecute, 50);
+    this.editorReadyTimer = setTimeout(checkAndExecute, 50);
   }
 
   // Row detail panel methods

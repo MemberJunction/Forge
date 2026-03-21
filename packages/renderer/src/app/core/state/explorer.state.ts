@@ -164,6 +164,11 @@ export class ExplorerStateService {
       return;
     }
 
+    // Guard against concurrent expand calls (e.g. double-click)
+    if (this._loadingNodeIds().has(nodeId)) {
+      return;
+    }
+
     // Mark as loading
     this._loadingNodeIds.update(ids => new Set([...ids, nodeId]));
     this.updateNode(nodeId, { isLoading: true });

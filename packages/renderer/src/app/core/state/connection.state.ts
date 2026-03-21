@@ -154,6 +154,7 @@ export class ConnectionStateService {
       this._activeConnectionId.set(null);
       this._databases.set([]);
       this._selectedDatabase.set(null);
+      this.explorerState.removeServerNode(connectionId);
       this.notification.info('Disconnected');
       // Clear saved connection state
       this.saveState();
@@ -163,6 +164,7 @@ export class ConnectionStateService {
       this._activeConnectionId.set(null);
       this._databases.set([]);
       this._selectedDatabase.set(null);
+      this.explorerState.removeServerNode(connectionId);
     }
   }
 

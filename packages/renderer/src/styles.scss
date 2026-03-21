@@ -981,19 +981,27 @@ pre {
 
 // Drop target highlight — clear visual indicator
 .lm_dropTargetIndicator {
-  background: color-mix(in srgb, var(--border-focus) 15%, transparent) !important;
+  background: rgba(38, 139, 210, 0.15) !important;
   border: 2px dashed var(--border-focus) !important;
   border-radius: var(--radius-md) !important;
   transition: all 0.15s ease !important;
+
+  @supports (background: color-mix(in srgb, red 50%, blue)) {
+    background: color-mix(in srgb, var(--border-focus) 15%, transparent) !important;
+  }
 }
 
 // Tab drop placeholder — insertion marker
 .lm_tabDropPlaceholder {
-  background: color-mix(in srgb, var(--border-focus) 25%, transparent) !important;
+  background: rgba(38, 139, 210, 0.25) !important;
   border: 2px solid var(--border-focus) !important;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
   min-width: 40px !important;
   margin: 0 2px !important;
+
+  @supports (background: color-mix(in srgb, red 50%, blue)) {
+    background: color-mix(in srgb, var(--border-focus) 25%, transparent) !important;
+  }
 }
 
 // Dim other tabs while dragging for focus
@@ -1031,7 +1039,7 @@ pre {
     border-radius: var(--radius-sm) !important;
 
     &.checked {
-      background-color: var(--accent-primary) !important;
+      background-color: var(--border-focus) !important;
       color: white !important;
     }
   }
@@ -1065,7 +1073,7 @@ pre {
 // Current find match (focused)
 .monaco-editor .currentFindMatch {
   background-color: rgba(255, 215, 0, 0.4) !important;
-  border: 2px solid var(--accent-primary) !important;
+  border: 2px solid var(--border-focus) !important;
 }
 
 // Ensure CDK overlay (mat-select dropdowns, tooltips, etc.) appears above everything

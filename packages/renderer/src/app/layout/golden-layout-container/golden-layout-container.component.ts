@@ -288,6 +288,12 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   renameValue = '';
   private renameTabId: string | null = null;
 
+  // Guard to prevent circular GL→tabState→GL sync during GL-initiated close
+  private glInitiatedClose = false;
+
+  // Cleanup for context menu document listeners
+  private contextMenuCleanup: (() => void) | null = null;
+
   ngOnInit(): void {
     // Subscribe to tab events from Golden Layout
     this.subscriptions.push(
@@ -296,7 +302,10 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       }),
       this.layoutManager.TabClosed.subscribe(tabId => {
         this.cleanupTabComponent(tabId);
+        // Guard: GL already removed this tab, skip the sync back to GL
+        this.glInitiatedClose = true;
         this.tabState.closeTab(tabId);
+        this.glInitiatedClose = false;
       }),
       this.layoutManager.LayoutChanged.subscribe(() => {
         const layout = this.layoutManager.SaveLayout();
@@ -318,7 +327,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
     // Subscribe to tab state changes to sync with Golden Layout
     this.subscriptions.push(
       this.tabState.tabs$.subscribe(tabs => {
-        if (this.layoutRestorationComplete) {
+        if (this.layoutRestorationComplete && !this.glInitiatedClose) {
           this.syncTabsWithGoldenLayout(tabs);
         }
       })
@@ -339,6 +348,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
     });
     this.componentRefs.clear();
 
+    this.contextMenuCleanup?.();
     this.layoutManager.Destroy();
   }
 
@@ -637,31 +647,40 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
    * Show context menu
    */
   showContextMenu(x: number, y: number, tabId: string): void {
-    this.contextMenuX = x;
-    this.contextMenuY = y;
+    // Clean up any previous context menu listeners
+    this.contextMenuCleanup?.();
+
+    // Clamp to viewport so menu doesn't go off-screen
+    this.contextMenuX = Math.min(x, window.innerWidth - 200);
+    this.contextMenuY = Math.min(y, window.innerHeight - 300);
     this.contextMenuTabId = tabId;
     this.contextMenuVisible = true;
     this.cdr.detectChanges();
 
     // Close menu when clicking outside
     setTimeout(() => {
+      const cleanup = () => {
+        document.removeEventListener('click', clickHandler);
+        document.removeEventListener('keydown', keyHandler);
+        this.contextMenuCleanup = null;
+      };
+
       const clickHandler = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
         if (!target.closest('.context-menu')) {
           this.hideContextMenu();
-          document.removeEventListener('click', clickHandler);
-          document.removeEventListener('keydown', keyHandler);
+          cleanup();
         }
       };
 
       const keyHandler = (event: KeyboardEvent) => {
         if (event.key === 'Escape') {
           this.hideContextMenu();
-          document.removeEventListener('click', clickHandler);
-          document.removeEventListener('keydown', keyHandler);
+          cleanup();
         }
       };
 
+      this.contextMenuCleanup = cleanup;
       document.addEventListener('click', clickHandler);
       document.addEventListener('keydown', keyHandler);
     }, 0);

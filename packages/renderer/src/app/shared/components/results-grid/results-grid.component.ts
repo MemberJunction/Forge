@@ -4,6 +4,7 @@ import {
   Output,
   EventEmitter,
   OnChanges,
+  OnDestroy,
   SimpleChanges,
   inject,
   signal,
@@ -30,7 +31,7 @@ import {
 import type { ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { NotificationService } from '../../../core/services/notification.service';
 import { IpcService } from '../../../core/services/ipc.service';
-import { firstValueFrom } from 'rxjs';
+import { Subscription, firstValueFrom } from 'rxjs';
 
 interface ColumnStats {
   column: string;
@@ -1113,7 +1114,7 @@ interface FkPreviewData {
     `,
   ],
 })
-export class ResultsGridComponent implements OnChanges {
+export class ResultsGridComponent implements OnChanges, OnDestroy {
   @Input() resultSet: ResultSet | null = null;
   @Input() tableName: string = 'result';
   @Input() connectionId: string | null = null;
@@ -1125,6 +1126,7 @@ export class ResultsGridComponent implements OnChanges {
   private readonly notification = inject(NotificationService);
   private readonly ipc = inject(IpcService);
   private gridApi: GridApi | null = null;
+  private fkSubscription: Subscription | null = null;
 
   rowData: Record<string, unknown>[] = [];
   columnDefs: ColDef[] = [];
@@ -1163,6 +1165,10 @@ export class ResultsGridComponent implements OnChanges {
     if (changes['resultSet'] && this.resultSet) {
       this.updateGrid();
     }
+  }
+
+  ngOnDestroy(): void {
+    this.fkSubscription?.unsubscribe();
   }
 
   private updateGrid(): void {
@@ -1714,7 +1720,10 @@ export class ResultsGridComponent implements OnChanges {
   ): void {
     if (!this.connectionId || !this.database) return;
 
-    this.ipc
+    // Cancel any in-flight FK fetch
+    this.fkSubscription?.unsubscribe();
+
+    this.fkSubscription = this.ipc
       .fetchFkRecord({
         connectionId: this.connectionId,
         database: this.database,

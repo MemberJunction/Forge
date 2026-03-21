@@ -43,6 +43,16 @@ export class MetadataService extends BaseSingleton {
   private procedureCache: ObjectCache<ProcedureInfo[]>;
   private functionCache: ObjectCache<FunctionInfo[]>;
 
+  /** Escape a SQL identifier for use inside square brackets (doubles any `]` characters) */
+  private escId(name: string): string {
+    return name.replace(/\]/g, ']]');
+  }
+
+  /** Escape a string value for use inside single quotes (doubles any `'` characters) */
+  private escStr(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
   constructor() {
     super();
     this.poolManager = ConnectionPoolManager.getInstance();
@@ -832,16 +842,20 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJDatabaseInfo> {
     try {
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
+      const mjStr = mjSchemaName.replace(/'/g, "''");
+
       // Check if the MJ schema exists and has the Entity table
       const detectSql = `
-        USE [${database}];
+        USE [${db}];
         SELECT
-          CASE WHEN SCHEMA_ID('${mjSchemaName}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
-          CASE WHEN OBJECT_ID('${mjSchemaName}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
-          CASE WHEN OBJECT_ID('${mjSchemaName}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
-          CASE WHEN OBJECT_ID('${mjSchemaName}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
-          CASE WHEN OBJECT_ID('${mjSchemaName}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
-          CASE WHEN OBJECT_ID('${mjSchemaName}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
+          CASE WHEN SCHEMA_ID('${mjStr}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
+          CASE WHEN OBJECT_ID('${mjStr}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
+          CASE WHEN OBJECT_ID('${mjStr}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
+          CASE WHEN OBJECT_ID('${mjStr}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
+          CASE WHEN OBJECT_ID('${mjStr}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
+          CASE WHEN OBJECT_ID('${mjStr}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
       `;
 
       const result = await this.poolManager.query<{
@@ -860,10 +874,10 @@ export class MetadataService extends BaseSingleton {
 
       // MJ is detected - get additional info
       const countsSql = `
-        USE [${database}];
+        USE [${db}];
         SELECT
-          (SELECT COUNT(*) FROM [${mjSchemaName}].[Entity]) AS entityCount,
-          (SELECT COUNT(*) FROM [${mjSchemaName}].[Application]) AS applicationCount
+          (SELECT COUNT(*) FROM [${mj}].[Entity]) AS entityCount,
+          (SELECT COUNT(*) FROM [${mj}].[Application]) AS applicationCount
       `;
 
       const countsResult = await this.poolManager.query<{
@@ -877,9 +891,9 @@ export class MetadataService extends BaseSingleton {
       let version: string | undefined;
       try {
         const versionSql = `
-          USE [${database}];
-          IF OBJECT_ID('${mjSchemaName}.VersionInstallation') IS NOT NULL
-            SELECT TOP 1 MJVersion as version FROM [${mjSchemaName}].[VersionInstallation]
+          USE [${db}];
+          IF OBJECT_ID('${mjStr}.VersionInstallation') IS NOT NULL
+            SELECT TOP 1 MJVersion as version FROM [${mj}].[VersionInstallation]
             ORDER BY InstalledAt DESC
         `;
         const versionResult = await this.poolManager.query<{ version: string }>(
@@ -914,8 +928,10 @@ export class MetadataService extends BaseSingleton {
     database: string,
     mjSchemaName = '__mj'
   ): Promise<MJEntityInfo[]> {
+    const db = this.escId(database);
+    const mj = this.escId(mjSchemaName);
     const sql = `
-      USE [${database}];
+      USE [${db}];
       SELECT
         CAST(ID AS NVARCHAR(36)) AS id,
         Name AS name,
@@ -932,7 +948,7 @@ export class MetadataService extends BaseSingleton {
         CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
         CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
         CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
-      FROM [${mjSchemaName}].[Entity]
+      FROM [${mj}].[Entity]
       ORDER BY Name
     `;
 
@@ -958,8 +974,10 @@ export class MetadataService extends BaseSingleton {
     entityId: string,
     mjSchemaName = '__mj'
   ): Promise<MJEntityFieldInfo[]> {
+    const db = this.escId(database);
+    const mj = this.escId(mjSchemaName);
     const sql = `
-      USE [${database}];
+      USE [${db}];
       SELECT
         CAST(ID AS NVARCHAR(36)) AS id,
         CAST(EntityID AS NVARCHAR(36)) AS entityId,
@@ -978,8 +996,8 @@ export class MetadataService extends BaseSingleton {
         Sequence AS sequence,
         CAST(RelatedEntityID AS NVARCHAR(36)) AS relatedEntityId,
         RelatedEntityFieldName AS relatedEntityFieldName
-      FROM [${mjSchemaName}].[EntityField]
-      WHERE EntityID = '${entityId}'
+      FROM [${mj}].[EntityField]
+      WHERE EntityID = '${this.escStr(entityId)}'
       ORDER BY Sequence
     `;
 
@@ -1002,14 +1020,16 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJApplicationInfo[]> {
     try {
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT
           CAST(ID AS NVARCHAR(36)) AS id,
           Name AS name,
           Description AS description,
           Icon AS icon
-        FROM [${mjSchemaName}].[Application]
+        FROM [${mj}].[Application]
         ORDER BY Name
       `;
 
@@ -1030,9 +1050,11 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJEntityRelationship[]> {
     try {
-      const whereClause = entityId ? `WHERE er.EntityID = '${entityId}'` : '';
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
+      const whereClause = entityId ? `WHERE er.EntityID = '${this.escStr(entityId)}'` : '';
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT
           CAST(er.ID AS NVARCHAR(36)) AS id,
           CAST(er.EntityID AS NVARCHAR(36)) AS entityId,
@@ -1045,9 +1067,9 @@ export class MetadataService extends BaseSingleton {
           CAST(er.DisplayInForm AS BIT) AS displayInForm,
           er.DisplayLocation AS displayLocation,
           er.Sequence AS sequence
-        FROM [${mjSchemaName}].[EntityRelationship] er
-        JOIN [${mjSchemaName}].[Entity] e1 ON er.EntityID = e1.ID
-        JOIN [${mjSchemaName}].[Entity] e2 ON er.RelatedEntityID = e2.ID
+        FROM [${mj}].[EntityRelationship] er
+        JOIN [${mj}].[Entity] e1 ON er.EntityID = e1.ID
+        JOIN [${mj}].[Entity] e2 ON er.RelatedEntityID = e2.ID
         ${whereClause}
         ORDER BY er.Sequence
       `;
@@ -1078,15 +1100,17 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJRecordChange[]> {
     try {
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
       const conditions: string[] = [];
-      if (options.entityId) conditions.push(`rc.EntityID = '${options.entityId}'`);
-      if (options.entityName) conditions.push(`e.Name = '${options.entityName}'`);
-      if (options.recordId) conditions.push(`rc.RecordID = '${options.recordId}'`);
+      if (options.entityId) conditions.push(`rc.EntityID = '${this.escStr(options.entityId)}'`);
+      if (options.entityName) conditions.push(`e.Name = '${this.escStr(options.entityName)}'`);
+      if (options.recordId) conditions.push(`rc.RecordID = '${this.escStr(options.recordId)}'`);
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const limit = options.limit || 100;
+      const limit = Math.max(1, Math.min(options.limit || 100, 10000));
 
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT TOP ${limit}
           CAST(rc.ID AS NVARCHAR(36)) AS id,
           CAST(rc.EntityID AS NVARCHAR(36)) AS entityId,
@@ -1102,9 +1126,9 @@ export class MetadataService extends BaseSingleton {
           CONVERT(VARCHAR(30), rc.__mj_CreatedAt, 126) AS createdAt,
           CAST(rc.UserID AS NVARCHAR(36)) AS userId,
           u.Name AS userName
-        FROM [${mjSchemaName}].[RecordChange] rc
-        LEFT JOIN [${mjSchemaName}].[Entity] e ON rc.EntityID = e.ID
-        LEFT JOIN [${mjSchemaName}].[User] u ON rc.UserID = u.ID
+        FROM [${mj}].[RecordChange] rc
+        LEFT JOIN [${mj}].[Entity] e ON rc.EntityID = e.ID
+        LEFT JOIN [${mj}].[User] u ON rc.UserID = u.ID
         ${whereClause}
         ORDER BY rc.__mj_CreatedAt DESC
       `;
@@ -1131,15 +1155,17 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJAuditLog[]> {
     try {
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
       const conditions: string[] = [];
-      if (options.entityId) conditions.push(`al.EntityID = '${options.entityId}'`);
-      if (options.recordId) conditions.push(`al.RecordID = '${options.recordId}'`);
-      if (options.userId) conditions.push(`al.UserID = '${options.userId}'`);
+      if (options.entityId) conditions.push(`al.EntityID = '${this.escStr(options.entityId)}'`);
+      if (options.recordId) conditions.push(`al.RecordID = '${this.escStr(options.recordId)}'`);
+      if (options.userId) conditions.push(`al.UserID = '${this.escStr(options.userId)}'`);
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const limit = options.limit || 100;
+      const limit = Math.max(1, Math.min(options.limit || 100, 10000));
 
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT TOP ${limit}
           CAST(al.ID AS NVARCHAR(36)) AS id,
           CAST(al.UserID AS NVARCHAR(36)) AS userId,
@@ -1152,10 +1178,10 @@ export class MetadataService extends BaseSingleton {
           al.Description AS description,
           al.Details AS details,
           CONVERT(VARCHAR(30), al.__mj_CreatedAt, 126) AS createdAt
-        FROM [${mjSchemaName}].[AuditLog] al
-        LEFT JOIN [${mjSchemaName}].[User] u ON al.UserID = u.ID
-        LEFT JOIN [${mjSchemaName}].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
-        LEFT JOIN [${mjSchemaName}].[Entity] e ON al.EntityID = e.ID
+        FROM [${mj}].[AuditLog] al
+        LEFT JOIN [${mj}].[User] u ON al.UserID = u.ID
+        LEFT JOIN [${mj}].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
+        LEFT JOIN [${mj}].[Entity] e ON al.EntityID = e.ID
         ${whereClause}
         ORDER BY al.__mj_CreatedAt DESC
       `;
@@ -1177,9 +1203,11 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJQuery[]> {
     try {
-      const whereClause = categoryId ? `WHERE q.CategoryID = '${categoryId}'` : '';
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
+      const whereClause = categoryId ? `WHERE q.CategoryID = '${this.escStr(categoryId)}'` : '';
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT
           CAST(q.ID AS NVARCHAR(36)) AS id,
           q.Name AS name,
@@ -1193,8 +1221,8 @@ export class MetadataService extends BaseSingleton {
           q.QualityRank AS qualityRank,
           CONVERT(VARCHAR(30), q.__mj_CreatedAt, 126) AS createdAt,
           CONVERT(VARCHAR(30), q.__mj_UpdatedAt, 126) AS updatedAt
-        FROM [${mjSchemaName}].[Query] q
-        LEFT JOIN [${mjSchemaName}].[QueryCategory] qc ON q.CategoryID = qc.ID
+        FROM [${mj}].[Query] q
+        LEFT JOIN [${mj}].[QueryCategory] qc ON q.CategoryID = qc.ID
         ${whereClause}
         ORDER BY q.Name
       `;
@@ -1216,13 +1244,15 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJErrorLog[]> {
     try {
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
       const conditions: string[] = [];
-      if (options.category) conditions.push(`Category = '${options.category}'`);
+      if (options.category) conditions.push(`Category = '${this.escStr(options.category)}'`);
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const limit = options.limit || 100;
+      const limit = Math.max(1, Math.min(options.limit || 100, 10000));
 
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT TOP ${limit}
           CAST(ID AS NVARCHAR(36)) AS id,
           Code AS code,
@@ -1232,7 +1262,7 @@ export class MetadataService extends BaseSingleton {
           Details AS details,
           CreatedBy AS createdBy,
           CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt
-        FROM [${mjSchemaName}].[ErrorLog]
+        FROM [${mj}].[ErrorLog]
         ${whereClause}
         ORDER BY __mj_CreatedAt DESC
       `;
@@ -1259,15 +1289,17 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJUserRecordLog[]> {
     try {
+      const db = this.escId(database);
+      const mj = this.escId(mjSchemaName);
       const conditions: string[] = [];
-      if (options.entityId) conditions.push(`url.EntityID = '${options.entityId}'`);
-      if (options.recordId) conditions.push(`url.RecordID = '${options.recordId}'`);
-      if (options.userId) conditions.push(`url.UserID = '${options.userId}'`);
+      if (options.entityId) conditions.push(`url.EntityID = '${this.escStr(options.entityId)}'`);
+      if (options.recordId) conditions.push(`url.RecordID = '${this.escStr(options.recordId)}'`);
+      if (options.userId) conditions.push(`url.UserID = '${this.escStr(options.userId)}'`);
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const limit = options.limit || 100;
+      const limit = Math.max(1, Math.min(options.limit || 100, 10000));
 
       const sql = `
-        USE [${database}];
+        USE [${db}];
         SELECT TOP ${limit}
           CAST(url.ID AS NVARCHAR(36)) AS id,
           CAST(url.UserID AS NVARCHAR(36)) AS userId,
@@ -1278,9 +1310,9 @@ export class MetadataService extends BaseSingleton {
           CONVERT(VARCHAR(30), url.EarliestAt, 126) AS earliestAt,
           CONVERT(VARCHAR(30), url.LatestAt, 126) AS latestAt,
           url.TotalCount AS totalCount
-        FROM [${mjSchemaName}].[UserRecordLog] url
-        LEFT JOIN [${mjSchemaName}].[User] u ON url.UserID = u.ID
-        LEFT JOIN [${mjSchemaName}].[Entity] e ON url.EntityID = e.ID
+        FROM [${mj}].[UserRecordLog] url
+        LEFT JOIN [${mj}].[User] u ON url.UserID = u.ID
+        LEFT JOIN [${mj}].[Entity] e ON url.EntityID = e.ID
         ${whereClause}
         ORDER BY url.LatestAt DESC
       `;

@@ -411,15 +411,25 @@ export class TabStateService {
   }
 
   closeAllTabs(): void {
+    // Clean up content tracking for all tabs
+    for (const tab of this._tabs()) {
+      this.cleanContentMap.delete(tab.id);
+    }
     this._tabs.set([]);
     this._activeTabId.set('');
+    this.saveTabs();
   }
 
   closeOtherTabs(tabId: string): void {
     const tab = this._tabs().find(t => t.id === tabId);
     if (tab) {
+      // Clean up content tracking for removed tabs
+      for (const t of this._tabs()) {
+        if (t.id !== tabId) this.cleanContentMap.delete(t.id);
+      }
       this._tabs.set([tab]);
       this._activeTabId.set(tabId);
+      this.saveTabs();
     }
   }
 
@@ -427,6 +437,10 @@ export class TabStateService {
     const tabs = this._tabs();
     const index = tabs.findIndex(t => t.id === tabId);
     if (index === -1) return;
+    // Clean up content tracking for removed tabs
+    for (let i = index + 1; i < tabs.length; i++) {
+      this.cleanContentMap.delete(tabs[i].id);
+    }
     this._tabs.set(tabs.slice(0, index + 1));
     // If active tab was to the right, activate this tab
     if (!this._tabs().find(t => t.id === this._activeTabId())) {
