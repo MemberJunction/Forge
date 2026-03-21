@@ -20,6 +20,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatInputModule } from '@angular/material/input';
 import { MatDividerModule } from '@angular/material/divider';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
@@ -27,6 +28,7 @@ import { NotificationService } from '../../core/services/notification.service';
 import { QueryHistoryStateService } from '../../core/state/query-history.state';
 import { QueryResultsStateService } from '../../core/state/query-results.state';
 import { AIStateService } from '../../core/state/ai.state';
+import { QueryExecutionService } from '../../core/services/query-execution.service';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
@@ -65,7 +67,31 @@ interface MonacoModel {
   getValueInRange(selection: MonacoSelection): string;
 }
 
-declare const monaco: { editor: MonacoEditor };
+declare const monaco: {
+  editor: MonacoEditor;
+  languages: {
+    registerCompletionItemProvider(
+      languageId: string,
+      provider: {
+        provideCompletionItems: (model: unknown, position: unknown) => {
+          suggestions: Array<{
+            label: string;
+            kind: number;
+            insertText: string;
+            detail: string;
+          }>;
+        };
+      }
+    ): void;
+    CompletionItemKind: {
+      Struct: number;
+      Interface: number;
+      Function: number;
+      Field: number;
+      Keyword: number;
+    };
+  };
+};
 
 @Component({
   selector: 'app-query',
@@ -139,7 +165,13 @@ declare const monaco: { editor: MonacoEditor };
 
         @if (activeResultSet()) {
           <div class="toolbar-divider"></div>
-          <button mat-icon-button [matMenuTriggerFor]="exportMenu" matTooltip="Export Results">
+          <button mat-icon-button matTooltip="Quick Export as JSON" (click)="exportAsJson()">
+            <mat-icon>code</mat-icon>
+          </button>
+          <button mat-icon-button matTooltip="Quick Export as SQL INSERT" (click)="exportAsSqlInsert()">
+            <mat-icon>storage</mat-icon>
+          </button>
+          <button mat-icon-button [matMenuTriggerFor]="exportMenu" matTooltip="Export Results (Save As)">
             <mat-icon>download</mat-icon>
           </button>
           <mat-menu #exportMenu="matMenu">
@@ -796,6 +828,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   readonly historyState = inject(QueryHistoryStateService);
   readonly resultsState = inject(QueryResultsStateService);
   readonly aiState = inject(AIStateService);
+  private readonly queryExecution = inject(QueryExecutionService);
   private readonly cdr = inject(ChangeDetectorRef);
 
   private editor?: MonacoEditorInstance;
@@ -815,6 +848,8 @@ export class QueryComponent implements OnInit, OnDestroy {
   editorHeight = signal(50);
   showHistory = signal(false);
   historySearchText = '';
+
+  readonly autoCompleteObjects = signal<Array<{name: string; schema: string; type: string; displayType: string}>>([]);
 
   // Row detail panel state
   rowDetailData = signal<RowDetailData | null>(null);
@@ -884,11 +919,14 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     // Listen for keyboard shortcuts
     document.addEventListener('keydown', this.handleKeydown);
+    // Listen for snippet insertion events
+    window.addEventListener('forge:insert-snippet', this.handleInsertSnippet);
   }
 
   ngOnDestroy(): void {
     this.editor?.dispose();
     document.removeEventListener('keydown', this.handleKeydown);
+    window.removeEventListener('forge:insert-snippet', this.handleInsertSnippet);
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
     }
@@ -925,6 +963,27 @@ export class QueryComponent implements OnInit, OnDestroy {
       event.preventDefault();
       this.executeQuery();
       return;
+    }
+  };
+
+  private handleInsertSnippet = (event: Event): void => {
+    // Only respond if THIS component's tab is active
+    const activeTab = this.tabState.activeTab();
+    if (!this.tabId || activeTab?.id !== this.tabId) {
+      return;
+    }
+
+    const customEvent = event as CustomEvent<{ sql: string }>;
+    const sql = customEvent.detail?.sql;
+    if (sql && this.editor) {
+      const currentValue = this.editor.getValue();
+      if (currentValue.trim()) {
+        // Append with newline separator
+        this.editor.setValue(currentValue + '\n\n' + sql);
+      } else {
+        this.editor.setValue(sql);
+      }
+      this.notification.success('Snippet inserted');
     }
   };
 
@@ -1045,6 +1104,74 @@ export class QueryComponent implements OnInit, OnDestroy {
         }
       }
     }
+
+    // Register SQL auto-complete provider
+    monaco.languages.registerCompletionItemProvider('sql', {
+      provideCompletionItems: (model: unknown, position: unknown) => {
+        const suggestions: Array<{
+          label: string;
+          kind: number;
+          insertText: string;
+          detail: string;
+        }> = [];
+
+        // Add table suggestions from cached metadata
+        for (const obj of this.autoCompleteObjects()) {
+          suggestions.push({
+            label: obj.schema === 'dbo' ? obj.name : `${obj.schema}.${obj.name}`,
+            kind: obj.type === 'table' ? monaco.languages.CompletionItemKind.Struct
+                  : obj.type === 'view' ? monaco.languages.CompletionItemKind.Interface
+                  : obj.type === 'procedure' ? monaco.languages.CompletionItemKind.Function
+                  : monaco.languages.CompletionItemKind.Field,
+            insertText: obj.schema === 'dbo' ? `[${obj.name}]` : `[${obj.schema}].[${obj.name}]`,
+            detail: `${obj.displayType} - ${obj.schema}`,
+          });
+        }
+
+        // Add SQL keywords
+        const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
+          'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ORDER BY', 'GROUP BY',
+          'HAVING', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'ALTER',
+          'DROP', 'TABLE', 'VIEW', 'INDEX', 'EXEC', 'EXECUTE', 'DECLARE', 'BEGIN', 'END',
+          'IF', 'ELSE', 'WHILE', 'RETURN', 'TOP', 'DISTINCT', 'AS', 'NULL', 'IS', 'NOT NULL',
+          'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'CONVERT', 'COALESCE', 'ISNULL'];
+        for (const kw of keywords) {
+          suggestions.push({
+            label: kw,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: kw,
+            detail: 'SQL Keyword',
+          });
+        }
+
+        return { suggestions };
+      }
+    });
+
+    this.loadAutoCompleteObjects();
+  }
+
+  private async loadAutoCompleteObjects(): Promise<void> {
+    const connectionId = this.connectionState.activeConnectionId();
+    const database = this.connectionState.selectedDatabase();
+    if (!connectionId || !database) return;
+
+    try {
+      const [tables, views, procs] = await Promise.all([
+        firstValueFrom(this.ipc.getExplorerChildren(connectionId, database, 'tables')),
+        firstValueFrom(this.ipc.getExplorerChildren(connectionId, database, 'views')),
+        firstValueFrom(this.ipc.getExplorerChildren(connectionId, database, 'procedures')),
+      ]);
+
+      const objects = [
+        ...tables.map(t => ({ name: t.name, schema: t.schema || 'dbo', type: 'table', displayType: 'Table' })),
+        ...views.map(v => ({ name: v.name, schema: v.schema || 'dbo', type: 'view', displayType: 'View' })),
+        ...procs.map(p => ({ name: p.name, schema: p.schema || 'dbo', type: 'procedure', displayType: 'Procedure' })),
+      ];
+      this.autoCompleteObjects.set(objects);
+    } catch {
+      // Silently fail - autocomplete is optional
+    }
   }
 
   async executeQuery(): Promise<void> {
@@ -1067,6 +1194,10 @@ export class QueryComponent implements OnInit, OnDestroy {
     this.viewingHistoricalResult.set(null); // Clear any historical result view
     this.currentQueryId = `query-${Date.now()}`;
     this.lastExecutedSql = sql;
+
+    // Register with global execution tracker
+    const tabTitle = this.tabState.tabs().find(t => t.id === this.tabId)?.title || 'Query';
+    this.queryExecution.startExecution(this.tabId || this.currentQueryId, tabTitle);
 
     try {
       const result = await this.ipc
@@ -1109,6 +1240,7 @@ export class QueryComponent implements OnInit, OnDestroy {
       });
     } finally {
       this.executing.set(false);
+      this.queryExecution.endExecution(this.tabId || '');
       this.currentQueryId = null;
     }
   }
@@ -1216,6 +1348,54 @@ export class QueryComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.notification.error('Export failed');
     }
+  }
+
+  exportAsJson(): void {
+    const resultSet = this.activeResultSet();
+    if (!resultSet?.rows?.length) return;
+
+    const json = JSON.stringify(resultSet.rows, null, 2);
+    this.downloadFile(json, 'results.json', 'application/json');
+    this.notification.success(`Exported ${resultSet.rows.length} rows as JSON`);
+  }
+
+  exportAsSqlInsert(): void {
+    const resultSet = this.activeResultSet();
+    if (!resultSet?.rows?.length || !resultSet?.columns?.length) return;
+
+    const tableName = this.getTableNameFromSql() || 'TableName';
+    const columns = resultSet.columns.map(c => `[${c.name}]`).join(', ');
+
+    const inserts = resultSet.rows.map(row => {
+      const values = resultSet.columns.map(col => {
+        const val = row[col.name];
+        if (val === null || val === undefined) return 'NULL';
+        if (typeof val === 'number') return String(val);
+        if (typeof val === 'boolean') return val ? '1' : '0';
+        return `'${String(val).replace(/'/g, "''")}'`;
+      }).join(', ');
+      return `INSERT INTO [${tableName}] (${columns}) VALUES (${values});`;
+    }).join('\n');
+
+    this.downloadFile(inserts, 'inserts.sql', 'text/plain');
+    this.notification.success(`Exported ${resultSet.rows.length} INSERT statements`);
+  }
+
+  private getTableNameFromSql(): string | null {
+    const sql = this.getLastExecutedSql();
+    if (!sql) return null;
+    const match = sql.match(/FROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i);
+    return match ? match[2] : null;
+  }
+
+  private downloadFile(content: string, filename: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   startResize(event: MouseEvent): void {
@@ -1357,9 +1537,47 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
   }
 
-  // Show Execution Plan (placeholder for now)
-  showExecutionPlan(): void {
-    this.notification.info('Execution plan visualization coming soon');
+  async showExecutionPlan(): Promise<void> {
+    const sql = this.getSelectedOrAllText();
+    if (!sql.trim()) {
+      this.notification.warning('No query to show plan for');
+      return;
+    }
+
+    const connectionId = this.connectionState.activeConnectionId();
+    const database = this.selectedDatabase;
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    this.executing.set(true);
+    this.result.set(null);
+
+    try {
+      const planSql = `SET SHOWPLAN_TEXT ON;\n${sql}\nSET SHOWPLAN_TEXT OFF;`;
+      const result = await this.ipc
+        .executeQuery({
+          connectionId,
+          database: database || undefined,
+          sql: planSql,
+          queryId: `plan-${Date.now()}`,
+        })
+        .toPromise();
+
+      this.result.set(result ?? null);
+      this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
+      this.notification.success('Execution plan generated');
+    } catch (error) {
+      this.result.set({
+        queryId: `plan-${Date.now()}`,
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get execution plan',
+        executionTime: 0,
+      });
+    } finally {
+      this.executing.set(false);
+    }
   }
 
   // Get last executed SQL for AI analysis

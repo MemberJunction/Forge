@@ -28,6 +28,8 @@ export class ConnectionStateService {
   private readonly _databases = signal<DatabaseInfo[]>([]);
   private readonly _loadingDatabases = signal(false);
   private readonly _selectedDatabase = signal<string | null>(null);
+  private readonly _connectionHealthy = signal(true);
+  private _heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   // Public readonly signals
   readonly profiles = this._profiles.asReadonly();
@@ -36,6 +38,7 @@ export class ConnectionStateService {
   readonly databases = this._databases.asReadonly();
   readonly loadingDatabases = this._loadingDatabases.asReadonly();
   readonly selectedDatabase = this._selectedDatabase.asReadonly();
+  readonly connectionHealthy = this._connectionHealthy.asReadonly();
 
   // Computed signals
   readonly activeProfile = computed(() => {
@@ -130,6 +133,7 @@ export class ConnectionStateService {
       await this.loadDatabases();
       // Save connection state for persistence
       this.saveState();
+      this.startHeartbeat();
       return true;
     } catch (error) {
       this.notification.error('Failed to connect');
@@ -141,6 +145,7 @@ export class ConnectionStateService {
   }
 
   async disconnect(): Promise<void> {
+    this.stopHeartbeat();
     const connectionId = this._activeConnectionId();
     if (!connectionId) return;
 
@@ -224,6 +229,39 @@ export class ConnectionStateService {
       }
     } catch (error) {
       console.error('Failed to restore connection state:', error);
+    }
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this._connectionHealthy.set(true);
+    this._heartbeatInterval = setInterval(async () => {
+      const connectionId = this._activeConnectionId();
+      if (!connectionId) {
+        this.stopHeartbeat();
+        return;
+      }
+      try {
+        await firstValueFrom(this.ipc.listDatabases(connectionId));
+        this._connectionHealthy.set(true);
+      } catch {
+        this._connectionHealthy.set(false);
+        // Try to reconnect once
+        try {
+          await firstValueFrom(this.ipc.connect(connectionId));
+          this._connectionHealthy.set(true);
+          this.notification.info('Connection restored');
+        } catch {
+          // Stay unhealthy, user can manually reconnect
+        }
+      }
+    }, 30000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this._heartbeatInterval) {
+      clearInterval(this._heartbeatInterval);
+      this._heartbeatInterval = null;
     }
   }
 

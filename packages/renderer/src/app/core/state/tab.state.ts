@@ -354,6 +354,33 @@ export class TabStateService {
     }
   }
 
+  closeTabsToRight(tabId: string): void {
+    const tabs = this._tabs();
+    const index = tabs.findIndex(t => t.id === tabId);
+    if (index === -1) return;
+    this._tabs.set(tabs.slice(0, index + 1));
+    // If active tab was to the right, activate this tab
+    if (!this._tabs().find(t => t.id === this._activeTabId())) {
+      this._activeTabId.set(tabId);
+    }
+    this.saveTabs();
+  }
+
+  duplicateTab(tabId: string): string | null {
+    const tab = this._tabs().find(t => t.id === tabId);
+    if (!tab || tab.type !== 'query') return null;
+    return this.openTab({
+      type: tab.type,
+      title: `${tab.title} (copy)`,
+      icon: tab.icon,
+      connectionId: tab.connectionId,
+      databaseName: tab.databaseName,
+      content: tab.content,
+      isDirty: tab.isDirty,
+      metadata: tab.metadata ? { ...tab.metadata } : undefined,
+    });
+  }
+
   nextTab(): void {
     const tabs = this._tabs();
     if (tabs.length <= 1) return;

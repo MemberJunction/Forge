@@ -170,27 +170,34 @@ export interface ConnectionDialogResult {
   styles: [
     `
       .connection-dialog {
-        width: 500px;
+        width: 520px;
       }
 
       h2[mat-dialog-title] {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 0;
+        gap: 10px;
 
         mat-icon {
           color: var(--status-info);
+          font-size: 22px;
+          width: 22px;
+          height: 22px;
+        }
+
+        span {
+          font-size: 15px;
+          font-weight: 600;
         }
       }
 
       mat-dialog-content {
-        padding-top: 16px;
-
         h3 {
-          font-size: var(--font-size-sm);
+          font-size: var(--font-size-xs);
           font-weight: 600;
-          margin: 16px 0 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin: 20px 0 12px;
           color: var(--text-secondary);
         }
       }
@@ -219,13 +226,10 @@ export interface ConnectionDialogResult {
       }
 
       mat-divider {
-        margin: 16px 0;
+        margin: 16px 0 !important;
       }
 
       mat-dialog-actions {
-        padding: 16px 24px;
-        gap: 8px;
-
         button mat-spinner {
           display: inline-block;
         }

@@ -9,6 +9,7 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { SettingsService } from '../../core/services/settings.service';
 import { IpcService } from '../../core/services/ipc.service';
+import { QueryExecutionService } from '../../core/services/query-execution.service';
 import { DockerPanelComponent } from '../../shared/components/docker-panel/docker-panel.component';
 import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
 
@@ -28,9 +29,17 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
     <div class="status-bar-container">
       <div class="status-left">
         @if (connectionState.isConnected()) {
-          <div class="status-item connected" matTooltip="Connected">
-            <mat-icon>cloud_done</mat-icon>
+          <div
+            class="status-item"
+            [class.connected]="connectionState.connectionHealthy()"
+            [class.unhealthy]="!connectionState.connectionHealthy()"
+            [matTooltip]="connectionState.connectionHealthy() ? 'Connected' : 'Connection lost — attempting to reconnect...'"
+          >
+            <mat-icon>{{ connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
             <span>{{ connectionState.activeProfile()?.name }}</span>
+            @if (!connectionState.connectionHealthy()) {
+              <mat-icon class="health-warning spinning">sync</mat-icon>
+            }
           </div>
           @if (connectionState.selectedDatabase()) {
             <div class="status-item" matTooltip="Current Database">
@@ -57,6 +66,11 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           <div class="status-item">
             <mat-icon class="spinning">sync</mat-icon>
             <span>Connecting...</span>
+          </div>
+        } @else if (queryExecution.isAnyRunning()) {
+          <div class="status-item executing" matTooltip="Running {{ queryExecution.runningCount() }} quer{{ queryExecution.runningCount() === 1 ? 'y' : 'ies' }}">
+            <mat-icon class="spinning">hourglass_top</mat-icon>
+            <span>Executing{{ queryExecution.runningCount() > 1 ? ' (' + queryExecution.runningCount() + ')' : '' }}...</span>
           </div>
         }
       </div>
@@ -174,6 +188,21 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         &.disconnected mat-icon {
           color: var(--text-muted);
         }
+
+        &.unhealthy mat-icon {
+          color: var(--status-warning);
+        }
+
+        .health-warning {
+          font-size: 12px;
+          width: 12px;
+          height: 12px;
+          margin-left: 2px;
+        }
+      }
+
+      .executing mat-icon {
+        color: var(--status-warning);
       }
 
       .spinning {
@@ -280,6 +309,7 @@ export class StatusBarComponent implements OnInit {
   readonly connectionState = inject(ConnectionStateService);
   readonly tabState = inject(TabStateService);
   readonly settings = inject(SettingsService);
+  readonly queryExecution = inject(QueryExecutionService);
   private readonly ipc = inject(IpcService);
 
   // Docker state

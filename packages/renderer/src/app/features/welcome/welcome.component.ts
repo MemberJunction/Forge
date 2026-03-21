@@ -59,12 +59,12 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           <section class="recent-connections">
             <h2>Recent Connections</h2>
             <div class="connection-list">
-              @for (profile of connectionState.profiles(); track profile.id) {
-                <div class="connection-item" (click)="connectTo(profile.id)">
+              @for (profile of connectionState.profiles().slice(0, 5); track profile.id) {
+                <div class="connection-item" (click)="quickConnect(profile)">
                   <mat-icon>dns</mat-icon>
                   <div class="connection-info">
                     <span class="connection-name">{{ profile.name }}</span>
-                    <span class="connection-server">{{ profile.server }}</span>
+                    <span class="connection-server">{{ profile.server }}:{{ profile.port }}</span>
                   </div>
                   <mat-icon class="connect-icon">arrow_forward</mat-icon>
                 </div>
@@ -420,6 +420,10 @@ export class WelcomeComponent implements OnInit {
     if (profiles.length > 0) {
       this.connectTo(profiles[0].id);
     }
+  }
+
+  quickConnect(profile: { id: string }): void {
+    this.connectTo(profile.id);
   }
 
   async connectTo(profileId: string): Promise<void> {

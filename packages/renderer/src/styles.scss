@@ -461,46 +461,188 @@ pre {
   }
 }
 
-// Material overrides for dark theme
+// ============================================
+// Material Component Overrides
+// ============================================
+
+// Snackbar / Toast notifications
 .mat-mdc-snack-bar-container {
   --mdc-snackbar-container-color: var(--bg-elevated);
   --mdc-snackbar-supporting-text-color: var(--text-primary);
 }
 
+// ---- Dialog / Modal Overrides ----
+.cdk-overlay-dark-backdrop {
+  background-color: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(2px);
+}
+
 .mat-mdc-dialog-container {
-  --mdc-dialog-container-color: var(--bg-secondary);
+  --mdc-dialog-container-color: var(--bg-primary);
+
+  .mdc-dialog__surface {
+    border-radius: var(--radius-lg) !important;
+    border: 1px solid var(--border-secondary) !important;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    overflow: hidden !important;
+  }
 }
 
-.mat-mdc-menu-panel {
-  --mat-menu-container-color: var(--bg-elevated);
+// Dialog title
+.mat-mdc-dialog-title {
+  padding: 20px 24px 12px !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid var(--border-primary);
+  background-color: var(--bg-secondary);
+  margin: 0 !important;
 }
 
-.mat-mdc-tooltip {
-  --mdc-plain-tooltip-container-color: var(--bg-elevated);
-  --mdc-plain-tooltip-supporting-text-color: var(--text-primary);
+// Dialog content
+.mat-mdc-dialog-content {
+  padding: 20px 24px !important;
+  color: var(--text-primary) !important;
+  max-height: 65vh !important;
 }
 
-// Ensure mat-select and form fields use correct text colors
-.mat-mdc-select {
-  --mat-select-enabled-trigger-text-color: var(--text-primary);
-  --mat-select-trigger-text-color: var(--text-primary);
+// Dialog actions (footer buttons)
+.mat-mdc-dialog-actions {
+  padding: 12px 24px 16px !important;
+  border-top: 1px solid var(--border-primary);
+  background-color: var(--bg-secondary);
+  gap: 8px !important;
+  min-height: unset !important;
+  justify-content: flex-end !important;
 }
 
+// ---- Form Field Overrides ----
 .mat-mdc-form-field {
   --mdc-filled-text-field-input-text-color: var(--text-primary);
   --mdc-outlined-text-field-input-text-color: var(--text-primary);
   --mdc-filled-text-field-label-text-color: var(--text-secondary);
   --mdc-outlined-text-field-label-text-color: var(--text-secondary);
+  --mdc-outlined-text-field-outline-color: var(--border-primary);
+  --mdc-outlined-text-field-hover-outline-color: var(--border-secondary);
+  --mdc-outlined-text-field-focus-outline-color: var(--border-focus);
+  --mdc-outlined-text-field-container-shape: var(--radius-md);
+  --mat-form-field-container-text-size: 13px;
+  --mat-form-field-subscript-text-size: 11px;
+
+  .mdc-text-field--outlined .mdc-notched-outline {
+    .mdc-notched-outline__leading,
+    .mdc-notched-outline__trailing,
+    .mdc-notched-outline__notch {
+      border-color: var(--border-primary);
+    }
+  }
+
+  .mat-mdc-form-field-hint {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
 }
 
-// Ensure mat-icon-button uses correct colors
+// Select dropdown
+.mat-mdc-select {
+  --mat-select-enabled-trigger-text-color: var(--text-primary);
+  --mat-select-trigger-text-color: var(--text-primary);
+}
+
+.mat-mdc-select-panel {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border-secondary) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.mat-mdc-option {
+  --mat-option-label-text-color: var(--text-primary);
+  --mat-option-hover-state-layer-color: var(--bg-hover);
+  --mat-option-selected-state-layer-color: var(--bg-active);
+  font-size: 13px !important;
+  min-height: 36px !important;
+}
+
+// Checkbox
+.mat-mdc-checkbox {
+  --mdc-checkbox-unselected-icon-color: var(--text-secondary);
+  --mdc-checkbox-selected-checkmark-color: #fff;
+  --mdc-checkbox-selected-icon-color: var(--border-focus);
+  --mdc-checkbox-selected-hover-icon-color: var(--border-focus);
+  --mdc-checkbox-selected-focus-icon-color: var(--border-focus);
+
+  .mdc-label {
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+}
+
+// Divider
+.mat-divider {
+  border-top-color: var(--border-primary) !important;
+}
+
+// ---- Button Overrides ----
+.mat-mdc-button {
+  --mdc-text-button-label-text-color: var(--text-primary);
+  border-radius: var(--radius-md) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+.mat-mdc-outlined-button,
+.mat-mdc-stroked-button {
+  --mdc-outlined-button-outline-color: var(--border-secondary);
+  border-radius: var(--radius-md) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+.mat-mdc-unelevated-button,
+.mat-mdc-raised-button {
+  border-radius: var(--radius-md) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+
 .mat-mdc-icon-button {
   --mdc-icon-button-icon-color: var(--text-secondary);
 }
 
-// Ensure mat-button text is readable
-.mat-mdc-button {
-  --mdc-text-button-label-text-color: var(--text-primary);
+// Menu panels
+.mat-mdc-menu-panel {
+  --mat-menu-container-color: var(--bg-elevated);
+  border: 1px solid var(--border-secondary) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.mat-mdc-menu-item {
+  --mat-menu-item-label-text-color: var(--text-primary);
+  --mat-menu-item-icon-color: var(--text-secondary);
+  --mat-menu-item-hover-state-layer-color: var(--bg-hover);
+  font-size: 13px !important;
+  min-height: 36px !important;
+}
+
+// Tooltip
+.mat-mdc-tooltip {
+  --mdc-plain-tooltip-container-color: var(--bg-elevated);
+  --mdc-plain-tooltip-supporting-text-color: var(--text-primary);
+
+  .mdc-tooltip__surface {
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md) !important;
+    font-size: 12px !important;
+  }
+}
+
+// Progress spinner - match theme accent
+.mat-mdc-progress-spinner {
+  --mdc-circular-progress-active-indicator-color: var(--border-focus);
 }
 
 // ============================================

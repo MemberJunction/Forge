@@ -11,6 +11,7 @@ import { TablePropertiesContainerComponent } from './shared/components/table-pro
 import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
 import { ObjectSearchComponent } from './shared/components/object-search/object-search.component';
 import { ShortcutsDialogComponent } from './shared/components/shortcuts-dialog/shortcuts-dialog.component';
+import { SnippetLibraryComponent } from './shared/components/snippet-library/snippet-library.component';
 import { SettingsService } from './core/services/settings.service';
 import { ConnectionStateService } from './core/state/connection.state';
 import { TabStateService } from './core/state/tab.state';
@@ -29,6 +30,7 @@ import { TabStateService } from './core/state/tab.state';
     CommandPaletteComponent,
     ObjectSearchComponent,
     ShortcutsDialogComponent,
+    SnippetLibraryComponent,
   ],
   template: `
     @if (loading()) {
@@ -43,6 +45,7 @@ import { TabStateService } from './core/state/tab.state';
       <app-command-palette />
       <app-object-search />
       <app-shortcuts-dialog />
+      <app-snippet-library />
     }
   `,
   styles: [

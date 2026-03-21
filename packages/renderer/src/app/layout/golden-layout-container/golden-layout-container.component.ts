@@ -61,6 +61,12 @@ import type { LayoutConfig } from '@mj-forge/shared';
           <span class="material-icons">{{ isContextTabPinned ? 'push_pin' : 'push_pin' }}</span>
           <span>{{ isContextTabPinned ? 'Unpin Tab' : 'Pin Tab' }}</span>
         </div>
+        @if (isContextTabDuplicable) {
+          <div class="context-menu-item" (click)="onContextDuplicate()">
+            <span class="material-icons">content_copy</span>
+            <span>Duplicate Tab</span>
+          </div>
+        }
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" (click)="onContextClose()">
           <span class="material-icons">close</span>
@@ -69,6 +75,10 @@ import type { LayoutConfig } from '@mj-forge/shared';
         <div class="context-menu-item" (click)="onContextCloseOthers()">
           <span class="material-icons">close_fullscreen</span>
           <span>Close Other Tabs</span>
+        </div>
+        <div class="context-menu-item" (click)="onContextCloseToRight()">
+          <span class="material-icons">tab_close_right</span>
+          <span>Close Tabs to Right</span>
         </div>
       </div>
     }
@@ -689,6 +699,35 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   onContextCloseOthers(): void {
     if (this.contextMenuTabId) {
       this.tabState.closeOtherTabs(this.contextMenuTabId);
+    }
+    this.hideContextMenu();
+  }
+
+  /**
+   * Check if context menu tab can be duplicated (only query tabs)
+   */
+  get isContextTabDuplicable(): boolean {
+    if (!this.contextMenuTabId) return false;
+    const tab = this.tabState.tabs().find(t => t.id === this.contextMenuTabId);
+    return tab?.type === 'query';
+  }
+
+  /**
+   * Duplicate tab from context menu
+   */
+  onContextDuplicate(): void {
+    if (this.contextMenuTabId) {
+      this.tabState.duplicateTab(this.contextMenuTabId);
+    }
+    this.hideContextMenu();
+  }
+
+  /**
+   * Close tabs to the right from context menu
+   */
+  onContextCloseToRight(): void {
+    if (this.contextMenuTabId) {
+      this.tabState.closeTabsToRight(this.contextMenuTabId);
     }
     this.hideContextMenu();
   }

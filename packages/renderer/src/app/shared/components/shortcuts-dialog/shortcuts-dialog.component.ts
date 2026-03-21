@@ -181,7 +181,7 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
         { keys: '⌘ + N', description: 'New Query Tab' },
         { keys: '⌘ + W', description: 'Close Current Tab' },
         { keys: '⌘ + S', description: 'Save Query' },
-        { keys: '⌘ + Shift + S', description: 'Save Query As' },
+        { keys: '⌘ + Shift + S', description: 'Snippet Library' },
         { keys: 'Ctrl + Tab', description: 'Next Tab' },
         { keys: 'Ctrl + Shift + Tab', description: 'Previous Tab' },
       ],

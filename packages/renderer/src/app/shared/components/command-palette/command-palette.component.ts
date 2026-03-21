@@ -13,10 +13,12 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { Router } from '@angular/router';
+import { MatDialog } from '@angular/material/dialog';
 import Fuse from 'fuse.js';
 import { ConnectionStateService } from '../../../core/state/connection.state';
 import { TabStateService } from '../../../core/state/tab.state';
 import { SettingsService } from '../../../core/services/settings.service';
+import { SchemaDiffDialogComponent } from '../schema-diff-dialog/schema-diff-dialog.component';
 
 export interface Command {
   id: string;
@@ -226,6 +228,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly tabState = inject(TabStateService);
   private readonly settings = inject(SettingsService);
   private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
 
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
 
@@ -480,6 +483,19 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         },
       },
 
+      // Snippets
+      {
+        id: 'snippet-library',
+        label: 'Snippet Library',
+        description: 'Save, search, and insert SQL snippets',
+        icon: 'data_object',
+        category: 'query',
+        shortcut: '⇧⌘S',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-snippets'));
+        },
+      },
+
       // Database
       {
         id: 'backup-database',
@@ -504,6 +520,19 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         isEnabled: () => this.connectionState.isConnected(),
       },
 
+      // Schema Diff
+      {
+        id: 'schema-diff',
+        label: 'Compare Database Schemas',
+        description: 'Diff tables, columns, and objects between two databases',
+        icon: 'compare_arrows',
+        category: 'query',
+        action: () => {
+          this.dialog.open(SchemaDiffDialogComponent, { width: '520px' });
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
       // ERD
       {
         id: 'open-erd',
@@ -520,6 +549,47 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
           }
         },
         isEnabled: () => this.connectionState.isConnected(),
+      },
+
+      // Snippets
+      {
+        id: 'open-snippets',
+        label: 'Open Snippet Library',
+        description: 'Browse and insert saved SQL snippets',
+        icon: 'content_paste',
+        category: 'edit',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-snippets'));
+        },
+      },
+      {
+        id: 'save-snippet',
+        label: 'Save as Snippet',
+        description: 'Save current query as a reusable snippet',
+        icon: 'bookmark_add',
+        category: 'edit',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:save-snippet'));
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
+      // Theme toggle
+      {
+        id: 'toggle-theme',
+        label: 'Toggle Theme',
+        description: 'Cycle between dark, light, and system theme',
+        icon: 'contrast',
+        category: 'settings',
+        action: () => {
+          const root = document.documentElement;
+          const current = root.getAttribute('data-theme');
+          if (current === 'dark' || !current) {
+            root.setAttribute('data-theme', 'light');
+          } else {
+            root.setAttribute('data-theme', 'dark');
+          }
+        },
       },
 
       // Help
