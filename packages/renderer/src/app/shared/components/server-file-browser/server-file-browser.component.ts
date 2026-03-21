@@ -128,11 +128,11 @@ export interface ServerFileBrowserResult {
         }
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button mat-flat-button color="primary" [disabled]="!canConfirm()" (click)="confirm()">
           {{ data.mode === 'save' ? 'Save' : 'Select' }}
         </button>
+        <button mat-button (click)="cancel()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,

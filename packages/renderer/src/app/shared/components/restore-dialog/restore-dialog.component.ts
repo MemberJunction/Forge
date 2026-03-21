@@ -250,8 +250,7 @@ export interface RestoreDialogData {
         </mat-accordion>
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="restoring()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
           mat-flat-button
           color="primary"
@@ -261,6 +260,7 @@ export interface RestoreDialogData {
           <mat-icon>{{ restoring() ? 'sync' : 'restore' }}</mat-icon>
           <span>{{ restoring() ? 'Restoring...' : 'Start Restore' }}</span>
         </button>
+        <button mat-button (click)="cancel()" [disabled]="restoring()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,

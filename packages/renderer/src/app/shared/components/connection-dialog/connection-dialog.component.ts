@@ -127,17 +127,17 @@ export interface ConnectionDialogResult {
         </div>
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="saving()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
-          mat-stroked-button
-          [disabled]="!canTestConnection() || testing()"
-          (click)="testConnection()"
+          mat-flat-button
+          color="primary"
+          [disabled]="!isValid() || connectionState.connecting() || saving()"
+          (click)="connectNow()"
         >
-          @if (testing()) {
+          @if (connectionState.connecting()) {
             <mat-spinner diameter="18" />
           } @else {
-            Test
+            Connect
           }
         </button>
         <button
@@ -153,17 +153,17 @@ export interface ConnectionDialogResult {
           }
         </button>
         <button
-          mat-flat-button
-          color="primary"
-          [disabled]="!isValid() || connectionState.connecting() || saving()"
-          (click)="connectNow()"
+          mat-stroked-button
+          [disabled]="!canTestConnection() || testing()"
+          (click)="testConnection()"
         >
-          @if (connectionState.connecting()) {
+          @if (testing()) {
             <mat-spinner diameter="18" />
           } @else {
-            Connect
+            Test
           }
         </button>
+        <button mat-button (click)="cancel()" [disabled]="saving()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,

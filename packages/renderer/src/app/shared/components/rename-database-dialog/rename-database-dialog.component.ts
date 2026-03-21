@@ -69,8 +69,7 @@ export interface RenameDatabaseDialogData {
         }
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="renaming()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
           mat-flat-button
           color="primary"
@@ -84,6 +83,7 @@ export interface RenameDatabaseDialogData {
           }
           <span>{{ renaming() ? 'Renaming...' : 'Rename' }}</span>
         </button>
+        <button mat-button (click)="cancel()" [disabled]="renaming()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,

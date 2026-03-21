@@ -76,8 +76,7 @@ export interface CreateDatabaseDialogData {
         }
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="creating()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
           mat-flat-button
           color="primary"
@@ -91,6 +90,7 @@ export interface CreateDatabaseDialogData {
           }
           <span>{{ creating() ? 'Creating...' : 'Create' }}</span>
         </button>
+        <button mat-button (click)="cancel()" [disabled]="creating()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,

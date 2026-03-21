@@ -165,8 +165,7 @@ export interface BackupDialogData {
         </mat-accordion>
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="backing()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
           mat-flat-button
           color="primary"
@@ -176,6 +175,7 @@ export interface BackupDialogData {
           <mat-icon>{{ backing() ? 'sync' : 'backup' }}</mat-icon>
           <span>{{ backing() ? 'Backing Up...' : 'Start Backup' }}</span>
         </button>
+        <button mat-button (click)="cancel()" [disabled]="backing()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,
