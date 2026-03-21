@@ -446,6 +446,64 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => this.tabState.previousTab(),
       },
 
+      // Tab management
+      {
+        id: 'close-all-tabs',
+        label: 'Close All Tabs',
+        description: 'Close all open tabs',
+        icon: 'tab_close',
+        category: 'file',
+        action: () => this.tabState.closeAllTabs(),
+      },
+      {
+        id: 'close-other-tabs',
+        label: 'Close Other Tabs',
+        description: 'Close all tabs except the active one',
+        icon: 'tab_unselected',
+        category: 'file',
+        action: () => {
+          const activeId = this.tabState.activeTabId();
+          if (activeId) this.tabState.closeOtherTabs(activeId);
+        },
+      },
+
+      // Search
+      {
+        id: 'find-object',
+        label: 'Find Database Object',
+        description: 'Search for tables, views, procedures',
+        icon: 'search',
+        category: 'file',
+        shortcut: '⌘P',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-object-search'));
+        },
+      },
+
+      // Database
+      {
+        id: 'backup-database',
+        label: 'Backup Database',
+        description: 'Back up the current database',
+        icon: 'backup',
+        category: 'connection',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-backup'));
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+      {
+        id: 'restore-database',
+        label: 'Restore Database',
+        description: 'Restore a database from backup',
+        icon: 'restore',
+        category: 'connection',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-restore'));
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
       // Help
       {
         id: 'show-shortcuts',
@@ -456,6 +514,16 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         shortcut: '⌘K ⌘S',
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:show-shortcuts'));
+        },
+      },
+      {
+        id: 'about',
+        label: 'About MJ Forge',
+        description: 'Version and product information',
+        icon: 'info',
+        category: 'help',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:show-about'));
         },
       },
     ];

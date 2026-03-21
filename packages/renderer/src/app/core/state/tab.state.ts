@@ -170,6 +170,8 @@ export class TabStateService {
     }
   }
 
+  private readonly MAX_QUERY_TABS = 20;
+
   openQueryTab(
     connectionId: string,
     databaseName: string,
@@ -177,6 +179,30 @@ export class TabStateService {
     autoExecute = false
   ): string {
     const queryTabs = this._tabs().filter(t => t.type === 'query');
+
+    // If no initial SQL, reuse the active tab if it's an empty, clean query tab
+    if (!initialSql) {
+      const activeTab = this.activeTab();
+      if (
+        activeTab &&
+        activeTab.type === 'query' &&
+        !activeTab.isDirty &&
+        (!activeTab.content || activeTab.content.trim() === '')
+      ) {
+        // Reuse the active empty query tab
+        this.updateTab(activeTab.id, { connectionId, databaseName });
+        return activeTab.id;
+      }
+    }
+
+    // Enforce max query tab limit — close oldest non-dirty, non-pinned query tabs
+    if (queryTabs.length >= this.MAX_QUERY_TABS) {
+      const closeable = queryTabs.filter(t => !t.isDirty && !t.isPinned);
+      if (closeable.length > 0) {
+        this.closeTab(closeable[0].id);
+      }
+    }
+
     const title = `Query ${queryTabs.length + 1}`;
 
     return this.openTab({

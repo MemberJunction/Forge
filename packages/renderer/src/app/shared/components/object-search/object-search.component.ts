@@ -354,19 +354,19 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
       const objects: SearchableObject[] = [];
 
       // Get tables
-      const tables = await this.loadObjectType(connectionId, database, 'Tables');
+      const tables = await this.loadObjectType(connectionId, database, 'tables');
       objects.push(...tables.map(obj => this.mapToSearchable(obj, 'table', 'Table')));
 
       // Get views
-      const views = await this.loadObjectType(connectionId, database, 'Views');
+      const views = await this.loadObjectType(connectionId, database, 'views');
       objects.push(...views.map(obj => this.mapToSearchable(obj, 'view', 'View')));
 
       // Get stored procedures
-      const procs = await this.loadObjectType(connectionId, database, 'Stored Procedures');
+      const procs = await this.loadObjectType(connectionId, database, 'procedures');
       objects.push(...procs.map(obj => this.mapToSearchable(obj, 'procedure', 'Stored Procedure')));
 
       // Get functions
-      const funcs = await this.loadObjectType(connectionId, database, 'Functions');
+      const funcs = await this.loadObjectType(connectionId, database, 'functions');
       objects.push(...funcs.map(obj => this.mapToSearchable(obj, 'function', 'Function')));
 
       this.allObjects.set(objects);
