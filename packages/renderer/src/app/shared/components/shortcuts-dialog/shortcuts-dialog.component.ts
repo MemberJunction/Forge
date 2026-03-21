@@ -170,7 +170,7 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       shortcuts: [
         { keys: '⌘ + Shift + P', description: 'Command Palette' },
         { keys: '⌘ + K', description: 'Quick Command Palette' },
-        { keys: '⌘ + T', description: 'Quick Object Search' },
+        { keys: '⌘ + P / ⌘ + T', description: 'Quick Object Search' },
         { keys: '⌘ + ,', description: 'Open Settings' },
         { keys: '⌘ + B', description: 'Toggle Sidebar' },
       ],
@@ -229,6 +229,11 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       event.preventDefault();
       this.close();
     }
+    // Cmd+? (Cmd+Shift+/) to open shortcuts dialog
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === '/') {
+      event.preventDefault();
+      this.toggle();
+    }
   };
 
   private eventHandler = () => this.open();
@@ -242,6 +247,14 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this.keydownHandler);
     window.removeEventListener('forge:show-shortcuts', this.eventHandler);
+  }
+
+  toggle(): void {
+    if (this.isOpen()) {
+      this.close();
+    } else {
+      this.open();
+    }
   }
 
   open(): void {

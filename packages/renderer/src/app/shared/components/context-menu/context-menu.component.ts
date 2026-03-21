@@ -57,12 +57,12 @@ import { ContextMenuService, ContextMenuItem } from '../../../core/services/cont
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 999;
+        z-index: 10001;
       }
 
       .context-menu {
         position: fixed;
-        z-index: 1000;
+        z-index: 10002;
         min-width: 180px;
         max-width: 280px;
         background-color: var(--bg-elevated);

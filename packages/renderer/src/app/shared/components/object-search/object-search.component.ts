@@ -297,6 +297,11 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
       event.preventDefault();
       this.toggle();
     }
+    // Cmd+P or Ctrl+P to open object search (standard shortcut)
+    if ((event.metaKey || event.ctrlKey) && event.key === 'p' && !event.shiftKey) {
+      event.preventDefault();
+      this.toggle();
+    }
   };
 
   ngOnInit(): void {

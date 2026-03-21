@@ -1,4 +1,4 @@
-import { Component, inject, HostListener, signal, OnInit } from '@angular/core';
+import { Component, inject, HostListener, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -433,7 +433,7 @@ import type { ThemePreference } from '@mj-forge/shared';
         right: 0;
         bottom: 0;
         background-color: rgba(0, 0, 0, 0.5);
-        z-index: 1000;
+        z-index: 10001;
         animation: fadeIn 0.2s ease;
       }
 
@@ -446,7 +446,7 @@ import type { ThemePreference } from '@mj-forge/shared';
         max-width: 90vw;
         background-color: var(--bg-secondary);
         border-left: 1px solid var(--border-primary);
-        z-index: 1001;
+        z-index: 10002;
         display: flex;
         flex-direction: column;
         animation: slideIn 0.25s ease;
@@ -750,13 +750,25 @@ import type { ThemePreference } from '@mj-forge/shared';
     `,
   ],
 })
-export class SettingsPanelComponent implements OnInit {
+export class SettingsPanelComponent implements OnInit, OnDestroy {
   readonly settingsService = inject(SettingsService);
   readonly aiState = inject(AIStateService);
   readonly settings = this.settingsService.settings;
 
   // Track API key inputs per vendor
   readonly apiKeyInputs = signal<Record<string, string>>({});
+
+  private keydownHandler = (event: KeyboardEvent) => {
+    // Cmd+, to toggle settings
+    if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+      event.preventDefault();
+      if (this.settingsService.isOpen()) {
+        this.close();
+      } else {
+        this.settingsService.open();
+      }
+    }
+  };
 
   @HostListener('document:keydown.escape')
   onEscapeKey(): void {
@@ -768,6 +780,11 @@ export class SettingsPanelComponent implements OnInit {
   ngOnInit(): void {
     // Initialize AI state when panel opens
     this.aiState.initialize();
+    document.addEventListener('keydown', this.keydownHandler);
+  }
+
+  ngOnDestroy(): void {
+    document.removeEventListener('keydown', this.keydownHandler);
   }
 
   close(): void {

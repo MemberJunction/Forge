@@ -129,6 +129,11 @@ import {
                 <span>{{ db.name }}</span>
               </button>
             }
+            <mat-divider />
+            <button mat-menu-item (click)="openCreateDatabaseDialog()">
+              <mat-icon>add_circle</mat-icon>
+              <span>New Database...</span>
+            </button>
           </mat-menu>
         </div>
       }
@@ -264,6 +269,7 @@ import {
         padding: var(--spacing-sm) var(--spacing-md);
         padding-top: 28px; /* Space for macOS traffic lights */
         border-bottom: 1px solid var(--border-primary);
+        background-color: var(--bg-tertiary);
         -webkit-app-region: drag; /* Allow dragging window from header */
       }
 
@@ -284,9 +290,10 @@ import {
       }
 
       .logo {
-        font-size: var(--font-size-lg);
-        font-weight: 600;
+        font-size: var(--font-size-xl);
+        font-weight: 700;
         color: var(--text-primary);
+        letter-spacing: 0.5px;
       }
 
       .connection-selector,
@@ -682,7 +689,7 @@ export class SidebarComponent {
         icon: 'add_circle',
         action: () => {
           if (node.connectionId) {
-            this.openCreateDatabaseDialog(node.connectionId);
+            this._openCreateDatabaseDialog(node.connectionId);
           }
         },
       },
@@ -1455,7 +1462,17 @@ ORDER BY __mj_CreatedAt DESC`;
   }
 
   // Database create/rename/delete dialog methods
-  private openCreateDatabaseDialog(connectionId: string): void {
+  /** Public wrapper – uses the active connection when called from the database dropdown menu */
+  openCreateDatabaseDialog(connectionId?: string): void {
+    const connId = connectionId || this.connectionState.activeConnectionId();
+    if (!connId) {
+      this.notification.error('No active connection');
+      return;
+    }
+    this._openCreateDatabaseDialog(connId);
+  }
+
+  private _openCreateDatabaseDialog(connectionId: string): void {
     const dialogData: CreateDatabaseDialogData = {
       connectionId,
     };
