@@ -82,13 +82,16 @@ import { TabStateService, Tab } from '../../core/state/tab.state';
         user-select: none;
         position: relative;
         transition: background-color var(--transition-fast);
+        color: var(--text-secondary);
 
         &:hover {
           background-color: var(--bg-hover);
+          color: var(--text-primary);
         }
 
         &.active {
           background-color: var(--bg-primary);
+          color: var(--text-primary);
 
           &::after {
             content: '';

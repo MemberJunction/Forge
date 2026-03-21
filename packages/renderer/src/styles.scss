@@ -480,6 +480,29 @@ pre {
   --mdc-plain-tooltip-supporting-text-color: var(--text-primary);
 }
 
+// Ensure mat-select and form fields use correct text colors
+.mat-mdc-select {
+  --mat-select-enabled-trigger-text-color: var(--text-primary);
+  --mat-select-trigger-text-color: var(--text-primary);
+}
+
+.mat-mdc-form-field {
+  --mdc-filled-text-field-input-text-color: var(--text-primary);
+  --mdc-outlined-text-field-input-text-color: var(--text-primary);
+  --mdc-filled-text-field-label-text-color: var(--text-secondary);
+  --mdc-outlined-text-field-label-text-color: var(--text-secondary);
+}
+
+// Ensure mat-icon-button uses correct colors
+.mat-mdc-icon-button {
+  --mdc-icon-button-icon-color: var(--text-secondary);
+}
+
+// Ensure mat-button text is readable
+.mat-mdc-button {
+  --mdc-text-button-label-text-color: var(--text-primary);
+}
+
 // ============================================
 // Golden Layout Styles
 // ============================================
@@ -628,13 +651,19 @@ pre {
   position: relative !important;
   z-index: 1 !important;
   margin-right: 1px !important;
-  color: var(--text-secondary) !important;
+  color: var(--text-primary) !important;
+
+  // Ensure ALL text inside tabs inherits the correct color
+  .lm_title,
+  span,
+  * {
+    color: inherit !important;
+  }
 }
 
 // Hover state
 .lm_header .lm_tab:hover {
   background: var(--bg-hover) !important;
-  color: var(--text-primary) !important;
 }
 
 .lm_header .lm_tab:hover .lm_close_tab {
