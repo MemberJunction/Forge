@@ -284,14 +284,14 @@ import {
       }
 
       .app-icon {
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         object-fit: contain;
       }
 
       .logo {
-        font-size: var(--font-size-xl);
-        font-weight: 700;
+        font-size: 18px;
+        font-weight: 800;
         color: var(--text-primary);
         letter-spacing: 0.5px;
       }
@@ -309,12 +309,14 @@ import {
         justify-content: flex-start;
         text-align: left;
         padding: var(--spacing-xs) var(--spacing-sm);
+        color: var(--text-primary) !important;
 
         .mat-icon {
           margin-right: var(--spacing-sm);
           font-size: 18px;
           width: 18px;
           height: 18px;
+          color: var(--text-secondary);
         }
 
         .connection-name,
@@ -323,11 +325,14 @@ import {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          font-weight: 500;
+          font-size: var(--font-size-sm);
         }
 
         .dropdown-icon {
           margin-right: 0;
           margin-left: auto;
+          color: var(--text-muted);
         }
       }
 

@@ -188,12 +188,15 @@ export class ConnectionPoolManager extends BaseSingleton {
     try {
       const request = pool.request();
 
-      // Switch database if specified
+      // Prepend USE [database] and execute as batch (raw T-SQL).
+      // batch() is needed because query() uses sp_executesql which doesn't support USE.
+      let finalSql = sql;
       if (database) {
-        await request.batch(`USE [${database.replace(/\]/g, ']]')}]`);
+        const safeDb = database.replace(/\]/g, ']]');
+        finalSql = `USE [${safeDb}];\n${finalSql}`;
       }
 
-      return await request.query<T>(sql);
+      return await request.batch(finalSql) as IResult<T>;
     } finally {
       if (entry) {
         entry.activeQueries--;

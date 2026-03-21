@@ -57,18 +57,22 @@ export class QueryExecutor extends BaseSingleton {
       // Store the request object for cancellation
       activeQuery.request = sqlRequest;
 
-      // Switch to the specified database
-      if (request.database) {
-        await sqlRequest.batch(`USE [${request.database.replace(/\]/g, ']]')}]`);
-      }
-
       // Check if cancelled before executing
       if (activeQuery.cancelled) {
         return this.createCancelledResult(queryId, startTime);
       }
 
-      // Execute the query
-      const result = await sqlRequest.query(request.sql);
+      // Prepend USE [database] to the SQL and execute as a raw batch.
+      // We use batch() instead of query() because query() uses sp_executesql
+      // which doesn't support USE statements. batch() sends raw T-SQL.
+      let sql = request.sql;
+      if (request.database) {
+        const safeDb = request.database.replace(/\]/g, ']]');
+        sql = `USE [${safeDb}];\n${sql}`;
+      }
+
+      // Execute as a batch (raw T-SQL) to support USE and other batch commands
+      const result = await sqlRequest.batch(sql);
 
       // Check if cancelled
       if (activeQuery.cancelled) {

@@ -1,4 +1,5 @@
 import {
+  ChangeDetectorRef,
   Component,
   ElementRef,
   OnDestroy,
@@ -795,6 +796,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   readonly historyState = inject(QueryHistoryStateService);
   readonly resultsState = inject(QueryResultsStateService);
   readonly aiState = inject(AIStateService);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
@@ -860,6 +862,20 @@ export class QueryComponent implements OnInit, OnDestroy {
       },
       { allowSignalWrites: true }
     );
+
+    // Watch for external database selection changes (e.g. sidebar dropdown)
+    effect(() => {
+      const db = this.connectionState.selectedDatabase();
+      if (db && db !== this.selectedDatabase) {
+        this.selectedDatabase = db;
+        // Also update the tab's stored databaseName to prevent the active-tab
+        // effect from reverting the selection
+        if (this.tabId) {
+          this.tabState.updateTab(this.tabId, { databaseName: db });
+        }
+        this.cdr.markForCheck();
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -1101,6 +1117,11 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   onDatabaseChange(database: string): void {
     this.connectionState.selectDatabase(database);
+    // Update the tab's stored databaseName so the active-tab effect
+    // doesn't revert the selection back to the old value
+    if (this.tabId) {
+      this.tabState.updateTab(this.tabId, { databaseName: database });
+    }
   }
 
   // History panel methods
