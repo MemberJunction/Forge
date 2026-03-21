@@ -526,6 +526,10 @@ export class SidebarComponent {
 
   onNodeClick(node: TreeNode): void {
     this.explorerState.selectNode(node.id);
+    // Also toggle expansion when clicking anywhere on a folder/expandable node
+    if (node.hasChildren) {
+      this.explorerState.toggleNode(node.id);
+    }
   }
 
   onNodeDoubleClick(node: TreeNode): void {

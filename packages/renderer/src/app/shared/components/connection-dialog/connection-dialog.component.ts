@@ -169,6 +169,10 @@ export interface ConnectionDialogResult {
   `,
   styles: [
     `
+      :host {
+        display: block;
+      }
+
       .connection-dialog {
         width: 520px;
       }
@@ -192,23 +196,27 @@ export interface ConnectionDialogResult {
       }
 
       mat-dialog-content {
+        padding-top: 12px !important;
+
         h3 {
           font-size: var(--font-size-xs);
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.05em;
-          margin: 20px 0 12px;
+          margin: 12px 0 12px;
           color: var(--text-secondary);
         }
       }
 
       .full-width {
         width: 100%;
+        margin-bottom: 8px;
       }
 
       .form-row {
         display: flex;
         gap: 12px;
+        margin-bottom: 8px;
       }
 
       .flex-1 {
@@ -226,10 +234,13 @@ export interface ConnectionDialogResult {
       }
 
       mat-divider {
-        margin: 16px 0 !important;
+        margin: 8px 0 !important;
       }
 
       mat-dialog-actions {
+        margin: 0 -24px -24px !important;
+        padding: 12px 24px !important;
+
         button mat-spinner {
           display: inline-block;
         }

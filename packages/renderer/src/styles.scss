@@ -510,11 +510,13 @@ pre {
 // Dialog actions (footer buttons)
 .mat-mdc-dialog-actions {
   padding: 12px 24px 16px !important;
+  margin: 0 !important;
   border-top: 1px solid var(--border-primary);
   background-color: var(--bg-secondary);
   gap: 8px !important;
   min-height: unset !important;
   justify-content: flex-end !important;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 // ---- Form Field Overrides ----
@@ -823,9 +825,10 @@ pre {
     font-size: 15px !important;
     width: 15px !important;
     height: 15px !important;
-    vertical-align: -3px !important;
+    vertical-align: middle !important;
     margin-right: 5px !important;
     opacity: 0.7 !important;
+    display: inline-block !important;
   }
 }
 
