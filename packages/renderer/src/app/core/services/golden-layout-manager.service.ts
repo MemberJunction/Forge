@@ -491,6 +491,17 @@ export class GoldenLayoutManager {
   }
 
   /**
+   * Map tab types to Material icon names
+   */
+  private readonly tabTypeIcons: Record<string, string> = {
+    welcome: 'home',
+    query: 'code',
+    object: 'table_chart',
+    results: 'view_list',
+    erd: 'account_tree',
+  };
+
+  /**
    * Apply visual styles to a tab
    */
   private applyTabStyles(container: ComponentContainer, state: TabComponentState): void {
@@ -504,10 +515,16 @@ export class GoldenLayoutManager {
       tabElement.classList.remove('pinned');
     }
 
-    // Set italic font for temporary tabs
-    const titleElement = tabElement.querySelector('.lm_title') as HTMLElement;
-    if (titleElement) {
-      titleElement.style.fontStyle = state.isPinned ? 'normal' : 'italic';
+    // Inject icon before the title if not already present
+    if (!tabElement.querySelector('.tab-icon')) {
+      const titleElement = tabElement.querySelector('.lm_title') as HTMLElement;
+      if (titleElement) {
+        const iconName = state.icon || this.tabTypeIcons[state.tabType] || 'description';
+        const iconEl = document.createElement('span');
+        iconEl.className = 'tab-icon material-icons';
+        iconEl.textContent = iconName;
+        titleElement.parentElement?.insertBefore(iconEl, titleElement);
+      }
     }
 
     // Add event listeners if not already added
@@ -530,7 +547,6 @@ export class GoldenLayoutManager {
 
     // Handle pin icon
     if (state.isPinned) {
-      // Add pin icon if not present
       if (!tabElement.querySelector('.pin-icon')) {
         const pinIcon = document.createElement('span');
         pinIcon.className = 'pin-icon material-icons';
@@ -540,16 +556,15 @@ export class GoldenLayoutManager {
           right: 4px;
           top: 50%;
           transform: translateY(-50%) rotate(45deg);
-          font-size: 12px;
+          font-size: 11px;
           color: var(--text-secondary);
-          width: 16px;
-          height: 16px;
+          width: 14px;
+          height: 14px;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
         `;
-        // Click on pin to unpin
         pinIcon.addEventListener('click', e => {
           e.stopPropagation();
           this.tabDoubleClicked$.next(state.tabId);
@@ -557,7 +572,6 @@ export class GoldenLayoutManager {
         tabElement.appendChild(pinIcon);
       }
     } else {
-      // Remove pin icon if present
       const pinIcon = tabElement.querySelector('.pin-icon');
       if (pinIcon) {
         pinIcon.remove();

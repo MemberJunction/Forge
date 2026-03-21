@@ -203,7 +203,7 @@ export class TabStateService {
       }
     }
 
-    const title = `Query ${queryTabs.length + 1}`;
+    const title = this.generateQueryTitle(initialSql, queryTabs.length + 1);
 
     return this.openTab({
       type: 'query',
@@ -215,6 +215,42 @@ export class TabStateService {
       isDirty: !!initialSql,
       autoExecute,
     });
+  }
+
+  /**
+   * Generate a smart tab title from SQL content.
+   * Shows a preview of the SQL (e.g., "SELECT...Entity") or falls back to "Query N".
+   */
+  private generateQueryTitle(sql: string | undefined, index: number): string {
+    if (!sql || !sql.trim()) {
+      return `Query ${index}`;
+    }
+
+    // Clean up the SQL: collapse whitespace, trim
+    const cleaned = sql.replace(/\s+/g, ' ').trim();
+
+    // Try to extract a meaningful short title from the SQL
+    // Match SELECT ... FROM [schema].[table]
+    const selectMatch = cleaned.match(
+      /^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
+    );
+    if (selectMatch) {
+      const table = selectMatch[2];
+      return table.length > 20 ? `${table.substring(0, 18)}…` : table;
+    }
+
+    // Match EXEC [schema].[proc]
+    const execMatch = cleaned.match(
+      /^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
+    );
+    if (execMatch) {
+      const proc = execMatch[2];
+      return `Exec ${proc.length > 16 ? proc.substring(0, 14) + '…' : proc}`;
+    }
+
+    // For other SQL, take first 20 chars
+    const preview = cleaned.substring(0, 22);
+    return preview.length < cleaned.length ? `${preview}…` : preview;
   }
 
   clearAutoExecute(tabId: string): void {

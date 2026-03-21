@@ -1091,9 +1091,14 @@ export class QueryComponent implements OnInit, OnDestroy {
         this.resultsState.saveSnapshot(this.tabId, sql, connectionId, database, result);
       }
 
-      // Auto-rename tab using AI if enabled - use this.tabId
-      if (result?.success && this.tabId && this.aiState.autoRenameEnabled()) {
-        this.autoRenameTab(this.tabId, sql, database ?? undefined);
+      // Auto-rename tab after successful execution
+      if (result?.success && this.tabId) {
+        if (this.aiState.autoRenameEnabled()) {
+          this.autoRenameTab(this.tabId, sql, database ?? undefined);
+        } else {
+          // Simple SQL-based rename: extract table/proc name from SQL
+          this.updateTabTitleFromSql(this.tabId, sql);
+        }
       }
     } catch (error) {
       this.result.set({
@@ -1403,6 +1408,41 @@ export class QueryComponent implements OnInit, OnDestroy {
   onCompareResults(_comparison: { base: QueryResultSnapshot; compare: QueryResultSnapshot }): void {
     // Comparison is now handled inline in the result history panel
     // This method is kept for backward compatibility but no longer does anything
+  }
+
+  /**
+   * Update tab title from SQL content (non-AI fallback).
+   * Extracts table/procedure name for a concise title.
+   */
+  private updateTabTitleFromSql(tabId: string, sql: string): void {
+    const cleaned = sql.replace(/\s+/g, ' ').trim();
+
+    // SELECT ... FROM [schema].[table]
+    const selectMatch = cleaned.match(
+      /^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
+    );
+    if (selectMatch) {
+      const table = selectMatch[2];
+      const title = table.length > 20 ? `${table.substring(0, 18)}…` : table;
+      this.tabState.renameTab(tabId, title);
+      return;
+    }
+
+    // EXEC [schema].[proc]
+    const execMatch = cleaned.match(
+      /^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
+    );
+    if (execMatch) {
+      const proc = execMatch[2];
+      this.tabState.renameTab(tabId, `Exec ${proc.length > 16 ? proc.substring(0, 14) + '…' : proc}`);
+      return;
+    }
+
+    // For other SQL, use a short preview
+    if (cleaned.length > 5) {
+      const preview = cleaned.substring(0, 22);
+      this.tabState.renameTab(tabId, preview.length < cleaned.length ? `${preview}…` : preview);
+    }
   }
 
   // Auto-rename tab using AI
