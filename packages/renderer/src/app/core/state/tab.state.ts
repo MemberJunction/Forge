@@ -55,6 +55,12 @@ export class TabStateService {
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /**
+   * Tracks the "clean" content baseline per tab.
+   * When editor content matches this value, the tab is not dirty.
+   */
+  private readonly cleanContentMap = new Map<string, string>();
+
+  /**
    * Generate a unique tab ID using UUID v4
    */
   private generateTabId(): string {
@@ -95,6 +101,7 @@ export class TabStateService {
     }
 
     this._tabs.update(currentTabs => currentTabs.filter(t => t.id !== tabId));
+    this.cleanContentMap.delete(tabId);
 
     // If closing active tab, activate another tab
     if (this._activeTabId() === tabId) {
@@ -124,12 +131,48 @@ export class TabStateService {
     }
   }
 
+  /**
+   * Mark a tab as dirty (has unsaved changes).
+   */
+  markDirty(tabId: string): void {
+    this.updateTab(tabId, { isDirty: true });
+  }
+
+  /**
+   * Mark a tab as clean (no unsaved changes).
+   * Optionally updates the clean baseline to the current content.
+   */
+  markClean(tabId: string): void {
+    const tab = this._tabs().find(t => t.id === tabId);
+    if (tab) {
+      this.cleanContentMap.set(tabId, tab.content ?? '');
+    }
+    this.updateTab(tabId, { isDirty: false });
+  }
+
+  /**
+   * Set the clean content baseline for a tab.
+   * Used to determine if content has changed from its initial/saved state.
+   */
+  setCleanBaseline(tabId: string, content: string): void {
+    this.cleanContentMap.set(tabId, content);
+  }
+
+  /**
+   * Get the clean content baseline for a tab.
+   */
+  getCleanBaseline(tabId: string): string {
+    return this.cleanContentMap.get(tabId) ?? '';
+  }
+
   setTabDirty(tabId: string, isDirty: boolean): void {
     this.updateTab(tabId, { isDirty });
   }
 
   setTabContent(tabId: string, content: string): void {
-    this.updateTab(tabId, { content, isDirty: true });
+    const baseline = this.cleanContentMap.get(tabId) ?? '';
+    const isDirty = content !== baseline;
+    this.updateTab(tabId, { content, isDirty });
   }
 
   /**
@@ -204,17 +247,23 @@ export class TabStateService {
     }
 
     const title = this.generateQueryTitle(initialSql, queryTabs.length + 1);
+    const content = initialSql || '';
 
-    return this.openTab({
+    const tabId = this.openTab({
       type: 'query',
       title,
       icon: 'code',
       connectionId,
       databaseName,
-      content: initialSql || '',
-      isDirty: !!initialSql,
+      content,
+      isDirty: false,
       autoExecute,
     });
+
+    // Set the clean baseline so dirty state is tracked relative to initial content
+    this.cleanContentMap.set(tabId, content);
+
+    return tabId;
   }
 
   /**
@@ -452,17 +501,24 @@ export class TabStateService {
 
       // Convert saved tabs to full Tab objects
       // Use existing IDs if valid, otherwise generate new UUIDs
-      const restoredTabs: Tab[] = savedTabs.map(t => ({
-        id: t.id || this.generateTabId(),
-        type: t.type as TabType,
-        title: t.title,
-        icon: t.type === 'query' ? 'code' : 'description',
-        connectionId,
-        databaseName: t.databaseName,
-        content: t.content,
-        isDirty: t.isDirty,
-        isPinned: t.isPinned,
-      }));
+      const restoredTabs: Tab[] = savedTabs.map(t => {
+        const id = t.id || this.generateTabId();
+        // Set clean baseline for restored query tabs so dirty tracking works
+        if (t.type === 'query') {
+          this.cleanContentMap.set(id, t.content ?? '');
+        }
+        return {
+          id,
+          type: t.type as TabType,
+          title: t.title,
+          icon: t.type === 'query' ? 'code' : 'description',
+          connectionId,
+          databaseName: t.databaseName,
+          content: t.content,
+          isDirty: false, // Restored tabs start clean (baseline matches content)
+          isPinned: t.isPinned,
+        };
+      });
 
       // Add welcome tab if not present
       const hasWelcome = this._tabs().some(t => t.type === 'welcome');

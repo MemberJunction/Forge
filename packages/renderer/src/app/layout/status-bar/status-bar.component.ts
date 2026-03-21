@@ -25,6 +25,9 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
     OverlayModule,
     DockerPanelComponent,
   ],
+  host: {
+    '[style.border-top]': 'connectionColorBorder()',
+  },
   template: `
     <div class="status-bar-container">
       <div class="status-left">
@@ -316,6 +319,14 @@ export class StatusBarComponent implements OnInit {
   readonly dockerStatus = signal<DockerStatus | null>(null);
   readonly containers = signal<DockerContainer[]>([]);
   readonly dockerPanelOpen = signal(false);
+
+  readonly connectionColorBorder = computed(() => {
+    const profile = this.connectionState.activeProfile();
+    if (profile?.color) {
+      return `3px solid ${profile.color}`;
+    }
+    return '';
+  });
 
   readonly runningContainers = computed(() =>
     this.containers().filter(c => c.status === 'running').length

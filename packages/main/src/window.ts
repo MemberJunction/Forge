@@ -2,7 +2,7 @@
  * Window Management
  */
 
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow, screen, nativeTheme } from 'electron';
 import * as path from 'path';
 import Store from 'electron-store';
 
@@ -52,7 +52,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ffffff',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
     webPreferences: {

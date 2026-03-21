@@ -18,6 +18,7 @@ import Fuse from 'fuse.js';
 import { ConnectionStateService } from '../../../core/state/connection.state';
 import { TabStateService } from '../../../core/state/tab.state';
 import { SettingsService } from '../../../core/services/settings.service';
+import { QueryHistoryService } from '../../../core/services/query-history.service';
 import { SchemaDiffDialogComponent } from '../schema-diff-dialog/schema-diff-dialog.component';
 
 export interface Command {
@@ -227,6 +228,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly tabState = inject(TabStateService);
   private readonly settings = inject(SettingsService);
+  private readonly queryHistory = inject(QueryHistoryService);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
 
@@ -257,6 +259,11 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     if ((event.metaKey || event.ctrlKey) && event.key === 'k' && !event.shiftKey) {
       event.preventDefault();
       this.toggle();
+    }
+    // Cmd+H / Ctrl+H for Query History dialog
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'h') {
+      event.preventDefault();
+      this.queryHistory.openHistoryDialog();
     }
   };
 
@@ -368,6 +375,17 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         category: 'query',
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:cancel-query'));
+        },
+      },
+      {
+        id: 'query-history',
+        label: 'Query History',
+        description: 'Search and reuse previously executed queries',
+        icon: 'history',
+        category: 'query',
+        shortcut: '⌘H',
+        action: () => {
+          this.queryHistory.openHistoryDialog();
         },
       },
 
@@ -582,13 +600,9 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         icon: 'contrast',
         category: 'settings',
         action: () => {
-          const root = document.documentElement;
-          const current = root.getAttribute('data-theme');
-          if (current === 'dark' || !current) {
-            root.setAttribute('data-theme', 'light');
-          } else {
-            root.setAttribute('data-theme', 'dark');
-          }
+          const current = this.settings.theme();
+          const next = current === 'dark' ? 'light' : current === 'light' ? 'system' : 'dark';
+          this.settings.updateTheme(next);
         },
       },
 

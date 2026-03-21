@@ -145,7 +145,12 @@ export class QueryExecutor extends BaseSingleton {
         }
       }
 
-      // Add row count message
+      // Add per-result-set row count messages
+      if (resultSets.length > 1) {
+        for (let i = 0; i < resultSets.length; i++) {
+          messages.push(`Result ${i + 1}: (${resultSets[i].rowCount || 0} row(s) returned)`);
+        }
+      }
       const rowsAffected = result.rowsAffected?.reduce((a, b) => a + b, 0) || 0;
       messages.push(`(${rowsAffected} row(s) affected)`);
 

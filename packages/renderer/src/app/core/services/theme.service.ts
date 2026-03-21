@@ -1,38 +1,31 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, computed } from '@angular/core';
+import { SettingsService } from './settings.service';
+import type { ThemePreference } from '@mj-forge/shared';
 
-export type ThemeMode = 'dark' | 'light' | 'system';
+export type ThemeMode = ThemePreference;
 
+/**
+ * Thin adapter around SettingsService for theme operations.
+ * The canonical theme state lives in SettingsService, which handles
+ * Electron nativeTheme IPC, localStorage persistence, and DOM updates.
+ */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private readonly _theme = signal<ThemeMode>('system');
-  readonly theme = this._theme.asReadonly();
+  private readonly settings = inject(SettingsService);
 
-  constructor() {
-    const saved = localStorage.getItem('forge-theme') as ThemeMode | null;
-    if (saved) {
-      this._theme.set(saved);
-      this.applyTheme(saved);
-    }
-  }
+  /** The user's theme preference: 'dark' | 'light' | 'system' */
+  readonly theme = this.settings.theme;
+
+  /** The resolved theme actually applied: 'dark' | 'light' */
+  readonly effectiveTheme = this.settings.effectiveTheme;
 
   setTheme(mode: ThemeMode): void {
-    this._theme.set(mode);
-    localStorage.setItem('forge-theme', mode);
-    this.applyTheme(mode);
+    this.settings.updateTheme(mode);
   }
 
   toggle(): void {
-    const current = this._theme();
+    const current = this.settings.theme();
     const next: ThemeMode = current === 'dark' ? 'light' : current === 'light' ? 'system' : 'dark';
     this.setTheme(next);
-  }
-
-  private applyTheme(mode: ThemeMode): void {
-    const root = document.documentElement;
-    if (mode === 'system') {
-      root.removeAttribute('data-theme');
-    } else {
-      root.setAttribute('data-theme', mode);
-    }
   }
 }

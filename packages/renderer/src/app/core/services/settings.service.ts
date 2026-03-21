@@ -1,4 +1,4 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, NgZone, inject } from '@angular/core';
 import type { AppSettings, ThemePreference } from '@mj-forge/shared';
 import { DEFAULT_SETTINGS } from '@mj-forge/shared';
 
@@ -6,8 +6,18 @@ const STORAGE_KEY = 'mj-forge-settings';
 
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
+  private readonly zone = inject(NgZone);
   private readonly _settings = signal<AppSettings>(this.loadSettings());
   private readonly _isOpen = signal(false);
+
+  /**
+   * The resolved OS theme ('dark' | 'light') as reported by Electron's nativeTheme.
+   * Falls back to matchMedia when running outside Electron (e.g., browser dev).
+   */
+  private readonly _nativeTheme = signal<'dark' | 'light'>(
+    this.detectInitialNativeTheme()
+  );
+  private nativeThemeCleanup: (() => void) | null = null;
 
   // Public readonly signals
   readonly settings = this._settings.asReadonly();
@@ -19,25 +29,24 @@ export class SettingsService {
   readonly querySettings = computed(() => this._settings().query);
   readonly gridSettings = computed(() => this._settings().grid);
 
-  // Computed theme for actual CSS application
-  readonly effectiveTheme = computed(() => {
+  /**
+   * The effective theme that is actually rendered: resolves 'system' to 'dark' or 'light'
+   * using Electron's nativeTheme.
+   */
+  readonly effectiveTheme = computed<'dark' | 'light'>(() => {
     const preference = this._settings().theme;
     if (preference === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      return this._nativeTheme();
     }
     return preference;
   });
 
   constructor() {
+    // Fetch native theme from Electron main process and listen for changes
+    this.initNativeThemeListener();
+
     // Apply initial theme
     this.applyTheme(this._settings().theme);
-
-    // Listen for system theme changes
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      if (this._settings().theme === 'system') {
-        this.applyTheme('system');
-      }
-    });
   }
 
   open(): void {
@@ -145,11 +154,70 @@ export class SettingsService {
     }
   }
 
+  /**
+   * Detect initial native theme synchronously for signal initialization.
+   * Uses matchMedia as a quick sync fallback; Electron IPC will correct it asynchronously.
+   */
+  private detectInitialNativeTheme(): 'dark' | 'light' {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  /**
+   * Initialize native theme detection: query Electron's nativeTheme and listen for changes.
+   * Falls back to matchMedia when running outside Electron.
+   */
+  private initNativeThemeListener(): void {
+    const forge = (window as Window & { forge?: { theme?: { getNative: () => Promise<'dark' | 'light'>; onChanged: (cb: (theme: 'dark' | 'light') => void) => () => void } } }).forge;
+
+    if (forge?.theme) {
+      // Running inside Electron: use nativeTheme via IPC
+      forge.theme.getNative().then(nativeTheme => {
+        this.zone.run(() => {
+          this._nativeTheme.set(nativeTheme);
+          if (this._settings().theme === 'system') {
+            this.applyTheme('system');
+          }
+        });
+      });
+
+      this.nativeThemeCleanup = forge.theme.onChanged((nativeTheme: 'dark' | 'light') => {
+        this.zone.run(() => {
+          this._nativeTheme.set(nativeTheme);
+          if (this._settings().theme === 'system') {
+            this.applyTheme('system');
+          }
+        });
+      });
+    } else {
+      // Fallback for browser dev: use matchMedia
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = (e: MediaQueryListEvent) => {
+        this.zone.run(() => {
+          this._nativeTheme.set(e.matches ? 'dark' : 'light');
+          if (this._settings().theme === 'system') {
+            this.applyTheme('system');
+          }
+        });
+      };
+      mediaQuery.addEventListener('change', handler);
+      this.nativeThemeCleanup = () => mediaQuery.removeEventListener('change', handler);
+    }
+  }
+
+  /**
+   * Apply the theme to the DOM. When preference is 'system', explicitly resolves
+   * to 'dark' or 'light' using Electron's nativeTheme signal, then sets the
+   * data-theme attribute. This ensures reliable theme switching in Electron
+   * where CSS prefers-color-scheme may not reflect the OS setting.
+   */
   private applyTheme(preference: ThemePreference): void {
     const root = document.documentElement;
 
     if (preference === 'system') {
-      root.removeAttribute('data-theme');
+      // Explicitly resolve system to dark/light and set the attribute.
+      // This is more reliable than relying on CSS prefers-color-scheme in Electron.
+      const resolved = this._nativeTheme();
+      root.setAttribute('data-theme', resolved);
     } else {
       root.setAttribute('data-theme', preference);
     }

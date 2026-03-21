@@ -507,9 +507,9 @@ pre {
   overflow-y: auto !important;
 }
 
-// Dialog actions (footer buttons)
+// Dialog actions (footer buttons) — Windows-style: primary action left, Cancel right
 .mat-mdc-dialog-actions {
-  padding: 12px 24px 16px !important;
+  padding: 12px 16px 16px !important;
   margin: 0 !important;
   border-top: 1px solid var(--border-primary);
   background-color: var(--bg-secondary);
@@ -911,6 +911,18 @@ pre {
   opacity: 0.6 !important;
 }
 
+// Dirty (unsaved changes) indicator — small dot before the title
+.lm_header .lm_tab .dirty-indicator {
+  display: inline-block !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background-color: var(--border-focus) !important;
+  margin-right: 5px !important;
+  flex-shrink: 0 !important;
+  vertical-align: middle !important;
+}
+
 .lm_header .lm_tab.pinned .lm_close_tab {
   display: none !important;
 }
@@ -973,6 +985,73 @@ pre {
 // Dim other tabs while dragging for focus
 .lm_dragging .lm_tab:not(.lm_active) {
   opacity: 0.5 !important;
+}
+
+// ============================================
+// Monaco Editor Find Widget Styling
+// ============================================
+
+// Find widget container - match our theme
+.monaco-editor .find-widget {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border-secondary) !important;
+  border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  padding: 4px 8px !important;
+
+  // Input fields
+  .input {
+    background-color: var(--bg-primary) !important;
+    border: 1px solid var(--border-primary) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--text-primary) !important;
+    font-family: var(--font-mono) !important;
+
+    &:focus-within {
+      border-color: var(--border-focus) !important;
+    }
+  }
+
+  // Toggle buttons (Regex, Case, Whole Word)
+  .button.toggle {
+    border-radius: var(--radius-sm) !important;
+
+    &.checked {
+      background-color: var(--accent-primary) !important;
+      color: white !important;
+    }
+  }
+
+  // Match count label
+  .matchesCount {
+    color: var(--text-secondary) !important;
+    font-size: var(--font-size-xs) !important;
+    min-width: 60px !important;
+  }
+
+  // Replace input row
+  .replace-input {
+    background-color: var(--bg-primary) !important;
+  }
+}
+
+// Selection highlight (matching occurrences)
+.monaco-editor .selectionHighlight {
+  background-color: rgba(255, 215, 0, 0.15) !important;
+  border: 1px solid rgba(255, 215, 0, 0.3) !important;
+  border-radius: 2px !important;
+}
+
+// Find match highlight
+.monaco-editor .findMatch {
+  background-color: rgba(255, 150, 50, 0.3) !important;
+  border: 1px solid rgba(255, 150, 50, 0.5) !important;
+}
+
+// Current find match (focused)
+.monaco-editor .currentFindMatch {
+  background-color: rgba(255, 215, 0, 0.4) !important;
+  border: 2px solid var(--accent-primary) !important;
 }
 
 // Ensure CDK overlay (mat-select dropdowns, tooltips, etc.) appears above modals/panels

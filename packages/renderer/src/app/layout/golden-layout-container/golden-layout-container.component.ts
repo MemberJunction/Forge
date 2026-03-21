@@ -24,6 +24,7 @@ import {
   TabShownEvent,
 } from '../../core/services/golden-layout-manager.service';
 import { TabStateService, Tab } from '../../core/state/tab.state';
+import { ConnectionStateService } from '../../core/state/connection.state';
 import { IpcService } from '../../core/services/ipc.service';
 import { WelcomeComponent } from '../../features/welcome/welcome.component';
 import { QueryComponent } from '../../features/query/query.component';
@@ -260,6 +261,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
 
   private readonly layoutManager = inject(GoldenLayoutManager);
   private readonly tabState = inject(TabStateService);
+  private readonly connectionState = inject(ConnectionStateService);
   private readonly appRef = inject(ApplicationRef);
   private readonly environmentInjector = inject(EnvironmentInjector);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -430,6 +432,9 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
    * Create TabComponentState from Tab
    */
   private createTabState(tab: Tab): TabComponentState {
+    const profile = tab.connectionId
+      ? this.connectionState.getProfile(tab.connectionId)
+      : undefined;
     return {
       tabId: tab.id,
       tabType: tab.type,
@@ -438,7 +443,9 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       title: tab.title,
       icon: tab.icon,
       isPinned: tab.isPinned ?? false,
+      isDirty: tab.isDirty ?? false,
       isLoaded: false,
+      connectionColor: profile?.color,
       configuration: {
         content: tab.content,
         autoExecute: tab.autoExecute,
@@ -588,10 +595,15 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       if (!existingTabIds.includes(tab.id)) {
         this.createTabInLayout(tab);
       } else {
-        // Update styling for existing tabs
+        // Update styling for existing tabs (including dirty state and connection color)
+        const profile = tab.connectionId
+          ? this.connectionState.getProfile(tab.connectionId)
+          : undefined;
         this.layoutManager.UpdateTabStyle(tab.id, {
           isPinned: tab.isPinned ?? false,
+          isDirty: tab.isDirty ?? false,
           title: tab.title,
+          connectionColor: profile?.color,
         });
       }
     });

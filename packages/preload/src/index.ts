@@ -389,6 +389,11 @@ export interface ForgeAPI {
     ) => Promise<MJUserRecordLog[]>;
   };
 
+  theme: {
+    getNative: () => Promise<'dark' | 'light'>;
+    onChanged: (callback: (theme: 'dark' | 'light') => void) => () => void;
+  };
+
   menu: {
     // File menu
     onNewConnection: (callback: () => void) => () => void;
@@ -801,6 +806,11 @@ const forgeAPI: ForgeAPI = {
         options,
         mjSchemaName
       ),
+  },
+
+  theme: {
+    getNative: () => ipcRenderer.invoke(IPC_CHANNELS.THEME.GET_NATIVE),
+    onChanged: callback => createEventListener(IPC_CHANNELS.THEME.CHANGED, callback),
   },
 
   menu: {

@@ -137,6 +137,12 @@ export const IPC_CHANNELS = {
     SET: 'settings:set',
   },
 
+  // Theme (native OS theme detection)
+  THEME: {
+    GET_NATIVE: 'theme:get-native',
+    CHANGED: 'theme:changed',
+  },
+
   // App
   APP: {
     GET_VERSION: 'app:get-version',

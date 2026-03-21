@@ -832,9 +832,14 @@ export class SidebarComponent {
         id: 'edit-top',
         label: 'Edit Top 200 Rows',
         icon: 'edit_note',
-        disabled: true,
         action: () => {
-          this.notification.info('Edit rows feature coming soon');
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            this.router.navigate(['/query']);
+          }
         },
       },
       { id: 'div1', label: '', divider: true },
@@ -1013,6 +1018,21 @@ ORDER BY al.__mj_CreatedAt DESC`;
             const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+            this.router.navigate(['/query']);
+          }
+        },
+      },
+      {
+        id: 'edit-top',
+        label: 'Edit Top 200 Rows',
+        icon: 'edit_note',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            this.router.navigate(['/query']);
           }
         },
       },

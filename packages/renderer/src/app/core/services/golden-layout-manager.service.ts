@@ -24,7 +24,9 @@ export interface TabComponentState {
   title: string;
   icon: string;
   isPinned: boolean;
+  isDirty?: boolean;
   isLoaded: boolean;
+  connectionColor?: string;
   configuration: Record<string, unknown>;
 }
 
@@ -545,6 +547,25 @@ export class GoldenLayoutManager {
       });
     }
 
+    // Handle dirty indicator dot
+    if (state.isDirty) {
+      tabElement.classList.add('dirty');
+      if (!tabElement.querySelector('.dirty-indicator')) {
+        const titleElement = tabElement.querySelector('.lm_title') as HTMLElement;
+        if (titleElement) {
+          const dot = document.createElement('span');
+          dot.className = 'dirty-indicator';
+          titleElement.parentElement?.insertBefore(dot, titleElement);
+        }
+      }
+    } else {
+      tabElement.classList.remove('dirty');
+      const dot = tabElement.querySelector('.dirty-indicator');
+      if (dot) {
+        dot.remove();
+      }
+    }
+
     // Handle pin icon
     if (state.isPinned) {
       if (!tabElement.querySelector('.pin-icon')) {
@@ -576,6 +597,13 @@ export class GoldenLayoutManager {
       if (pinIcon) {
         pinIcon.remove();
       }
+    }
+
+    // Apply connection color as a subtle left border
+    if (state.connectionColor) {
+      tabElement.style.borderLeft = `2px solid ${state.connectionColor}`;
+    } else {
+      tabElement.style.borderLeft = '';
     }
   }
 

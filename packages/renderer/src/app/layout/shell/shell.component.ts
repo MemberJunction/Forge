@@ -6,6 +6,7 @@ import { GoldenLayoutContainerComponent } from '../golden-layout-container/golde
 import { StatusBarComponent } from '../status-bar/status-bar.component';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { MenuService } from '../../core/services/menu.service';
+import { QueryHistoryService } from '../../core/services/query-history.service';
 
 @Component({
   selector: 'app-shell',
@@ -67,6 +68,7 @@ import { MenuService } from '../../core/services/menu.service';
 export class ShellComponent implements OnInit, OnDestroy {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly menuService = inject(MenuService);
+  private readonly queryHistory = inject(QueryHistoryService);
 
   readonly sidebarHidden = signal(false);
   private subscriptions: Subscription[] = [];
@@ -79,6 +81,13 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.subscriptions.push(
       this.menuService.toggleSidebar$.subscribe(() => {
         this.sidebarHidden.update(hidden => !hidden);
+      })
+    );
+
+    // Listen for query history from menu (Cmd+Shift+H)
+    this.subscriptions.push(
+      this.menuService.queryHistory$.subscribe(() => {
+        this.queryHistory.openHistoryDialog();
       })
     );
   }

@@ -29,6 +29,7 @@ import { QueryHistoryStateService } from '../../core/state/query-history.state';
 import { QueryResultsStateService } from '../../core/state/query-results.state';
 import { AIStateService } from '../../core/state/ai.state';
 import { QueryExecutionService } from '../../core/services/query-execution.service';
+import { SettingsService } from '../../core/services/settings.service';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
@@ -57,6 +58,22 @@ interface MonacoEditorInstance {
   getModel(): MonacoModel | null;
   onDidChangeModelContent(callback: () => void): void;
   dispose(): void;
+  focus(): void;
+  getAction(actionId: string): MonacoAction | null;
+  trigger(source: string, handlerId: string, payload?: unknown): void;
+  getPosition(): MonacoPosition | null;
+  setPosition(position: MonacoPosition): void;
+  revealLineInCenter(lineNumber: number): void;
+  updateOptions(options: Record<string, unknown>): void;
+}
+
+interface MonacoAction {
+  run(): Promise<void>;
+}
+
+interface MonacoPosition {
+  lineNumber: number;
+  column: number;
 }
 
 interface MonacoSelection {
@@ -68,7 +85,9 @@ interface MonacoModel {
 }
 
 declare const monaco: {
-  editor: MonacoEditor;
+  editor: MonacoEditor & {
+    setTheme(themeName: string): void;
+  };
   languages: {
     registerCompletionItemProvider(
       languageId: string,
@@ -156,6 +175,16 @@ declare const monaco: {
         <button mat-icon-button matTooltip="Query History" (click)="toggleHistory()">
           <mat-icon>history</mat-icon>
         </button>
+        <button mat-icon-button matTooltip="Find (⌘F)" (click)="openFind()">
+          <mat-icon>search</mat-icon>
+        </button>
+        <button mat-icon-button matTooltip="Find & Replace (⌘H)" (click)="openFindReplace()">
+          <mat-icon>find_replace</mat-icon>
+        </button>
+        <button mat-icon-button matTooltip="Go to Line (⌘G)" (click)="goToLine()">
+          <mat-icon>format_list_numbered</mat-icon>
+        </button>
+        <div class="toolbar-divider"></div>
         <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" (click)="formatSql()">
           <mat-icon>auto_fix_high</mat-icon>
         </button>
@@ -165,13 +194,10 @@ declare const monaco: {
 
         @if (activeResultSet()) {
           <div class="toolbar-divider"></div>
-          <button mat-icon-button matTooltip="Quick Export as JSON" (click)="exportAsJson()">
-            <mat-icon>code</mat-icon>
+          <button mat-icon-button matTooltip="Copy All to Clipboard (Tab-separated)" (click)="copyResultsToClipboard()">
+            <mat-icon>content_copy</mat-icon>
           </button>
-          <button mat-icon-button matTooltip="Quick Export as SQL INSERT" (click)="exportAsSqlInsert()">
-            <mat-icon>storage</mat-icon>
-          </button>
-          <button mat-icon-button [matMenuTriggerFor]="exportMenu" matTooltip="Export Results (Save As)">
+          <button mat-icon-button [matMenuTriggerFor]="exportMenu" matTooltip="Export Results">
             <mat-icon>download</mat-icon>
           </button>
           <mat-menu #exportMenu="matMenu">
@@ -186,6 +212,15 @@ declare const monaco: {
             <button mat-menu-item (click)="exportResults('sql')">
               <mat-icon>storage</mat-icon>
               <span>Export as SQL INSERT</span>
+            </button>
+            <mat-divider></mat-divider>
+            <button mat-menu-item (click)="copyResultsToClipboard(false)">
+              <mat-icon>content_copy</mat-icon>
+              <span>Copy to Clipboard</span>
+            </button>
+            <button mat-menu-item (click)="copyResultsToClipboard(true)">
+              <mat-icon>table_chart</mat-icon>
+              <span>Copy with Headers</span>
             </button>
           </mat-menu>
         }
@@ -829,6 +864,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   readonly resultsState = inject(QueryResultsStateService);
   readonly aiState = inject(AIStateService);
   private readonly queryExecution = inject(QueryExecutionService);
+  private readonly settings = inject(SettingsService);
   private readonly cdr = inject(ChangeDetectorRef);
 
   private editor?: MonacoEditorInstance;
@@ -898,6 +934,14 @@ export class QueryComponent implements OnInit, OnDestroy {
       { allowSignalWrites: true }
     );
 
+    // Watch for theme changes and update Monaco editor theme accordingly
+    effect(() => {
+      const theme = this.settings.effectiveTheme();
+      if (typeof monaco !== 'undefined') {
+        monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+      }
+    });
+
     // Watch for external database selection changes (e.g. sidebar dropdown)
     effect(() => {
       const db = this.connectionState.selectedDatabase();
@@ -962,6 +1006,12 @@ export class QueryComponent implements OnInit, OnDestroy {
     if (event.ctrlKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'e') {
       event.preventDefault();
       this.executeQuery();
+      return;
+    }
+    // Cmd+G / Ctrl+G - Go to Line
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'g') {
+      event.preventDefault();
+      this.goToLine();
       return;
     }
   };
@@ -1053,7 +1103,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     this.editor = monaco.editor.create(this.editorContainer.nativeElement, {
       value: '',
       language: 'sql',
-      theme: 'vs-dark',
+      theme: this.settings.effectiveTheme() === 'dark' ? 'vs-dark' : 'vs',
       automaticLayout: true,
       minimap: { enabled: false },
       fontSize: 14,
@@ -1064,6 +1114,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       tabSize: 2,
       insertSpaces: true,
       renderWhitespace: 'selection',
+      // Find widget configuration
+      find: {
+        addExtraSpaceOnTop: true,
+        autoFindInSelection: 'multiline',
+        seedSearchStringFromSelection: 'selection',
+        loop: true,
+      },
+      // Enable selection highlighting (highlights all occurrences of selected text)
+      occurrencesHighlight: 'singleFile',
+      selectionHighlight: true,
     });
 
     // Listen for content changes - use this.tabId for isolation
@@ -1083,6 +1143,10 @@ export class QueryComponent implements OnInit, OnDestroy {
         if (tab.content) {
           this.editor.setValue(tab.content);
         }
+        // Ensure a clean baseline exists for this tab
+        if (!this.tabState.getCleanBaseline(this.tabId!)) {
+          this.tabState.setCleanBaseline(this.tabId!, tab.content ?? '');
+        }
         // Handle auto-execute for initial load
         if (tab.autoExecute && tab.content) {
           this.tabState.clearAutoExecute(tab.id);
@@ -1098,6 +1162,8 @@ export class QueryComponent implements OnInit, OnDestroy {
         if (activeTab.content) {
           this.editor.setValue(activeTab.content);
         }
+        // Set clean baseline for fallback path
+        this.tabState.setCleanBaseline(activeTab.id, activeTab.content ?? '');
         if (activeTab.autoExecute && activeTab.content) {
           this.tabState.clearAutoExecute(activeTab.id);
           this.executeQuery();
@@ -1381,6 +1447,44 @@ export class QueryComponent implements OnInit, OnDestroy {
     this.notification.success(`Exported ${resultSet.rows.length} INSERT statements`);
   }
 
+  /**
+   * Copy all result rows to clipboard as tab-separated values.
+   * @param includeHeaders Whether to include the column header row (default: true)
+   */
+  async copyResultsToClipboard(includeHeaders = true): Promise<void> {
+    const resultSet = this.activeResultSet();
+    if (!resultSet?.rows?.length || !resultSet?.columns?.length) {
+      this.notification.warning('No results to copy');
+      return;
+    }
+
+    const lines: string[] = [];
+
+    if (includeHeaders) {
+      lines.push(resultSet.columns.map(col => col.name).join('\t'));
+    }
+
+    for (const row of resultSet.rows) {
+      const values = resultSet.columns.map(col => {
+        const val = row[col.name];
+        if (val === null || val === undefined) return '';
+        if (val instanceof Date) return val.toISOString();
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+      });
+      lines.push(values.join('\t'));
+    }
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      this.notification.success(
+        `Copied ${resultSet.rows.length} row${resultSet.rows.length > 1 ? 's' : ''} to clipboard`
+      );
+    } catch {
+      this.notification.error('Failed to copy to clipboard');
+    }
+  }
+
   private getTableNameFromSql(): string | null {
     const sql = this.getLastExecutedSql();
     if (!sql) return null;
@@ -1504,6 +1608,35 @@ export class QueryComponent implements OnInit, OnDestroy {
         columns: resultSet.columns,
       });
     }
+  }
+
+  /**
+   * Open Monaco's built-in Find widget.
+   * Supports regex, case sensitivity, whole word, and find-in-selection.
+   */
+  openFind(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'actions.find', undefined);
+  }
+
+  /**
+   * Open Monaco's built-in Find & Replace widget.
+   * Supports regex-based replacement with capture group references ($1, $2, etc).
+   */
+  openFindReplace(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'editor.action.startFindReplaceAction', undefined);
+  }
+
+  /**
+   * Open Monaco's Go to Line dialog (Ctrl+G).
+   */
+  goToLine(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'editor.action.gotoLine', undefined);
   }
 
   // SQL Formatting
