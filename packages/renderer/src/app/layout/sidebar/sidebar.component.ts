@@ -499,6 +499,7 @@ export class SidebarComponent {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 
@@ -506,6 +507,7 @@ export class SidebarComponent {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 

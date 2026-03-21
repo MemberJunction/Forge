@@ -412,6 +412,7 @@ export class WelcomeComponent implements OnInit {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 
@@ -449,6 +450,7 @@ export class WelcomeComponent implements OnInit {
         port: container.ports?.[0]?.external || 1433,
       } as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 

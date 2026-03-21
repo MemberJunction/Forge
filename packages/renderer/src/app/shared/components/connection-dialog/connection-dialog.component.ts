@@ -197,6 +197,8 @@ export interface ConnectionDialogResult {
 
       mat-dialog-content {
         padding-top: 12px !important;
+        overflow-y: auto;
+        max-height: calc(80vh - 160px) !important;
 
         h3 {
           font-size: var(--font-size-xs);
@@ -238,7 +240,7 @@ export interface ConnectionDialogResult {
       }
 
       mat-dialog-actions {
-        margin: 0 -24px -24px !important;
+        margin: 0 -24px 0 !important;
         padding: 12px 24px !important;
 
         button mat-spinner {
