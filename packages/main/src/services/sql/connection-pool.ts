@@ -336,7 +336,9 @@ export class ConnectionPoolManager extends BaseSingleton {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           // Close connections idle for more than 10 minutes with no active queries
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            this.closePool(id);
+            this.closePool(id).catch(() => {
+              // Already handled inside closePool — guard against unexpected rejection
+            });
           }
         }
       },

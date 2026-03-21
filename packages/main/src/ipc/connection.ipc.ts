@@ -43,7 +43,11 @@ export function registerConnectionHandlers(): void {
 
   // Delete connection
   ipcMain.handle(IPC_CHANNELS.CONNECTION.DELETE, async (_event, id: string): Promise<void> => {
-    await poolManager.closePool(id);
+    try {
+      await poolManager.closePool(id);
+    } catch {
+      // Pool may already be closed — continue with profile deletion
+    }
     await profileStore.delete(id);
   });
 
