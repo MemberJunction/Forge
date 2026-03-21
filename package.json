@@ -17,7 +17,7 @@
     "build:stream": "turbo run build --log-order=stream",
     "dev": "npm run build && concurrently -k \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "npm run start --workspace=@mj-forge/renderer",
-    "dev:main": "wait-on http://localhost:4200 && NODE_ENV=development npm run start --workspace=@mj-forge/main",
+    "dev:main": "wait-on http://localhost:4200 && unset ELECTRON_RUN_AS_NODE && NODE_ENV=development npm run start --workspace=@mj-forge/main",
     "start": "turbo run start",
     "watch": "turbo run watch",
     "test": "turbo run test",
