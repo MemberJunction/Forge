@@ -25,15 +25,18 @@ export interface Tab {
 export class TabStateService {
   private readonly ipc = inject(IpcService);
 
-  private readonly _tabs = signal<Tab[]>([
-    {
-      id: 'welcome',
-      type: 'welcome',
-      title: 'Welcome',
-      icon: 'home',
-    },
-  ]);
-  private readonly _activeTabId = signal<string>('welcome');
+  /**
+   * Whether the user has explicitly dismissed the welcome tab.
+   * Persisted in localStorage so we don't re-add it on every launch.
+   */
+  private welcomeDismissed = localStorage.getItem('forge:welcomeDismissed') === 'true';
+
+  private readonly _tabs = signal<Tab[]>(
+    this.welcomeDismissed
+      ? []
+      : [{ id: 'welcome', type: 'welcome', title: 'Welcome', icon: 'home' }]
+  );
+  private readonly _activeTabId = signal<string>(this.welcomeDismissed ? '' : 'welcome');
 
   // Public readonly signals
   readonly tabs = this._tabs.asReadonly();
@@ -95,9 +98,11 @@ export class TabStateService {
     const index = tabs.findIndex(t => t.id === tabId);
     if (index === -1) return;
 
-    // Don't allow closing welcome tab if it's the only tab
-    if (tabs.length === 1 && tabs[0].type === 'welcome') {
-      return;
+    // Track when user explicitly closes the welcome tab
+    const closingTab = tabs[index];
+    if (closingTab.type === 'welcome') {
+      this.welcomeDismissed = true;
+      localStorage.setItem('forge:welcomeDismissed', 'true');
     }
 
     this._tabs.update(currentTabs => currentTabs.filter(t => t.id !== tabId));
@@ -110,6 +115,8 @@ export class TabStateService {
         // Prefer the tab to the left, or the first tab
         const newIndex = Math.min(index, newTabs.length - 1);
         this._activeTabId.set(newTabs[newIndex].id);
+      } else {
+        this._activeTabId.set('');
       }
     }
     // Auto-save tabs
@@ -383,16 +390,29 @@ export class TabStateService {
     return this._tabs().filter(t => t.isDirty);
   }
 
-  closeAllTabs(): void {
-    this._tabs.set([
-      {
-        id: 'welcome',
-        type: 'welcome',
-        title: 'Welcome',
-        icon: 'home',
-      },
-    ]);
+  /**
+   * Show the Welcome tab. Re-adds it if user previously dismissed it.
+   */
+  showWelcome(): void {
+    // If welcome tab already exists, just activate it
+    const existing = this._tabs().find(t => t.type === 'welcome');
+    if (existing) {
+      this._activeTabId.set(existing.id);
+      return;
+    }
+
+    // Re-add welcome tab and clear dismissed flag
+    this.welcomeDismissed = false;
+    localStorage.removeItem('forge:welcomeDismissed');
+
+    const welcomeTab: Tab = { id: 'welcome', type: 'welcome', title: 'Welcome', icon: 'home' };
+    this._tabs.update(tabs => [welcomeTab, ...tabs]);
     this._activeTabId.set('welcome');
+  }
+
+  closeAllTabs(): void {
+    this._tabs.set([]);
+    this._activeTabId.set('');
   }
 
   closeOtherTabs(tabId: string): void {
@@ -520,13 +540,12 @@ export class TabStateService {
         };
       });
 
-      // Add welcome tab if not present
-      const hasWelcome = this._tabs().some(t => t.type === 'welcome');
-      if (hasWelcome) {
-        const welcomeTab = this._tabs().find(t => t.type === 'welcome')!;
-        this._tabs.set([welcomeTab, ...restoredTabs]);
+      // Preserve welcome tab if it exists and hasn't been dismissed
+      const existingWelcome = this._tabs().find(t => t.type === 'welcome');
+      if (existingWelcome) {
+        this._tabs.set([existingWelcome, ...restoredTabs]);
       } else {
-        this._tabs.update(tabs => [...tabs, ...restoredTabs]);
+        this._tabs.set(restoredTabs);
       }
 
       // Restore active tab if it exists

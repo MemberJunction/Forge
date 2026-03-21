@@ -467,6 +467,16 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => this.tabState.previousTab(),
       },
 
+      // View
+      {
+        id: 'show-welcome',
+        label: 'Show Welcome Tab',
+        description: 'Open the Welcome tab',
+        icon: 'home',
+        category: 'view',
+        action: () => this.tabState.showWelcome(),
+      },
+
       // Tab management
       {
         id: 'close-all-tabs',
