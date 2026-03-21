@@ -304,12 +304,16 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
     }
   };
 
+  private openEventHandler = () => this.open();
+
   ngOnInit(): void {
     document.addEventListener('keydown', this.keydownHandler);
+    window.addEventListener('forge:open-object-search', this.openEventHandler);
   }
 
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this.keydownHandler);
+    window.removeEventListener('forge:open-object-search', this.openEventHandler);
   }
 
   toggle(): void {

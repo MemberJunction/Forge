@@ -504,6 +504,24 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         isEnabled: () => this.connectionState.isConnected(),
       },
 
+      // ERD
+      {
+        id: 'open-erd',
+        label: 'Open ERD Diagram',
+        description: 'Show entity relationship diagram for current database',
+        icon: 'account_tree',
+        category: 'view',
+        shortcut: '⌘E',
+        action: () => {
+          const connId = this.connectionState.activeConnectionId();
+          const db = this.connectionState.selectedDatabase();
+          if (connId && db) {
+            this.tabState.openErdTab(connId, db);
+          }
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
       // Help
       {
         id: 'show-shortcuts',

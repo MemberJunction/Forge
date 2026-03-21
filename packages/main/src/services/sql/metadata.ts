@@ -9,6 +9,7 @@ import type {
   TableInfo,
   ViewInfo,
   ProcedureInfo,
+  FunctionInfo,
   ObjectDefinition,
   ColumnInfo,
   IndexInfo,
@@ -40,6 +41,7 @@ export class MetadataService extends BaseSingleton {
   private tableCache: ObjectCache<TableInfo[]>;
   private viewCache: ObjectCache<ViewInfo[]>;
   private procedureCache: ObjectCache<ProcedureInfo[]>;
+  private functionCache: ObjectCache<FunctionInfo[]>;
 
   constructor() {
     super();
@@ -51,6 +53,7 @@ export class MetadataService extends BaseSingleton {
     this.tableCache = new ObjectCache({ ttlMs: 60000 });
     this.viewCache = new ObjectCache({ ttlMs: 60000 });
     this.procedureCache = new ObjectCache({ ttlMs: 60000 });
+    this.functionCache = new ObjectCache({ ttlMs: 60000 });
   }
 
   /**
@@ -179,6 +182,30 @@ export class MetadataService extends BaseSingleton {
     const result = await this.poolManager.query<ProcedureInfo>(connectionId, sql);
 
     this.procedureCache.set(cacheKey, result.recordset);
+    return result.recordset;
+  }
+
+  /**
+   * List user-defined functions in a database
+   */
+  async listFunctions(
+    connectionId: string,
+    database: string,
+    forceRefresh = false
+  ): Promise<FunctionInfo[]> {
+    const cacheKey = `functions:${connectionId}:${database}`;
+
+    if (!forceRefresh) {
+      const cached = this.functionCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    const sql = TsqlBuilder.listFunctions(database);
+    const result = await this.poolManager.query<FunctionInfo>(connectionId, sql);
+
+    this.functionCache.set(cacheKey, result.recordset);
     return result.recordset;
   }
 
@@ -1273,6 +1300,7 @@ export class MetadataService extends BaseSingleton {
     this.tableCache.invalidatePrefix(`tables:${connectionId}`);
     this.viewCache.invalidatePrefix(`views:${connectionId}`);
     this.procedureCache.invalidatePrefix(`procedures:${connectionId}`);
+    this.functionCache.invalidatePrefix(`functions:${connectionId}`);
   }
 
   /**

@@ -86,6 +86,14 @@ export interface ProcedureInfo {
   modifiedAt?: string;
 }
 
+export interface FunctionInfo {
+  schema: string;
+  name: string;
+  type: 'Scalar' | 'Table-valued' | 'Inline Table-valued';
+  createdAt?: string;
+  modifiedAt?: string;
+}
+
 export interface ColumnInfo {
   name: string;
   dataType: string;

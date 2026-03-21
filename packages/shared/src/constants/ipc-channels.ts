@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
     GET_VOLUMES: 'docker:get-volumes',
     START_CONTAINER: 'docker:start-container',
     STOP_CONTAINER: 'docker:stop-container',
+    CREATE_CONTAINER: 'docker:create-container',
   },
 
   // Database Operations

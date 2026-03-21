@@ -136,6 +136,13 @@ interface ForgeAPI {
     getVolumes: () => Promise<DockerVolume[]>;
     startContainer: (containerId: string) => Promise<void>;
     stopContainer: (containerId: string) => Promise<void>;
+    createContainer: (options: {
+      name: string;
+      password: string;
+      port: number;
+      image?: string;
+      acceptEula?: boolean;
+    }) => Promise<{ success: boolean; containerId?: string; error?: string }>;
   };
   database: {
     list: (connectionId: string) => Promise<DatabaseInfo[]>;
@@ -512,6 +519,16 @@ export class IpcService {
 
   stopDockerContainer(containerId: string): Observable<void> {
     return from(this.api.docker.stopContainer(containerId));
+  }
+
+  createDockerContainer(options: {
+    name: string;
+    password: string;
+    port: number;
+    image?: string;
+    acceptEula?: boolean;
+  }): Observable<{ success: boolean; containerId?: string; error?: string }> {
+    return from(this.api.docker.createContainer(options));
   }
 
   // Database methods

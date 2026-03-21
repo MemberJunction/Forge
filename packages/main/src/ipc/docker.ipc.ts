@@ -56,4 +56,21 @@ export function registerDockerHandlers(): void {
       await dockerDetector.stopContainer(containerId);
     }
   );
+
+  // Create a new SQL Server container
+  ipcMain.handle(
+    IPC_CHANNELS.DOCKER.CREATE_CONTAINER,
+    async (
+      _event,
+      options: {
+        name: string;
+        password: string;
+        port: number;
+        image?: string;
+        acceptEula?: boolean;
+      }
+    ) => {
+      return dockerDetector.createContainer(options);
+    }
+  );
 }

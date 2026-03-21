@@ -76,8 +76,12 @@ export function registerExplorerHandlers(): void {
       }
 
       if (parentPath === 'functions') {
-        // For now, return empty - we can add function support later
-        return [];
+        const functions = await metadataService.listFunctions(connectionId, databaseName);
+        return functions.map(f => ({
+          name: f.name,
+          type: 'function' as const,
+          schema: f.schema,
+        }));
       }
 
       return [];

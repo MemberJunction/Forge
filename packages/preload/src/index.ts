@@ -95,6 +95,13 @@ export interface ForgeAPI {
     getVolumes: () => Promise<DockerVolume[]>;
     startContainer: (containerId: string) => Promise<void>;
     stopContainer: (containerId: string) => Promise<void>;
+    createContainer: (options: {
+      name: string;
+      password: string;
+      port: number;
+      image?: string;
+      acceptEula?: boolean;
+    }) => Promise<{ success: boolean; containerId?: string; error?: string }>;
   };
 
   database: {
@@ -504,6 +511,8 @@ const forgeAPI: ForgeAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.START_CONTAINER, containerId),
     stopContainer: containerId =>
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.STOP_CONTAINER, containerId),
+    createContainer: options =>
+      ipcRenderer.invoke(IPC_CHANNELS.DOCKER.CREATE_CONTAINER, options),
   },
 
   database: {

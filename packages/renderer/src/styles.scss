@@ -786,23 +786,46 @@ pre {
   background: var(--border-focus) !important;
 }
 
-// Drag proxy styling
+// Drag proxy — floating tab preview
 .lm_dragProxy {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-focus) !important;
-  box-shadow: var(--shadow-lg) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  opacity: 0.92 !important;
+  z-index: 9999 !important;
+
+  .lm_header {
+    border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+  }
+
+  .lm_tab {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+  }
 }
 
-// Drop target highlight
+// Drop target highlight — clear visual indicator
 .lm_dropTargetIndicator {
-  background: var(--bg-active) !important;
+  background: color-mix(in srgb, var(--border-focus) 15%, transparent) !important;
   border: 2px dashed var(--border-focus) !important;
+  border-radius: var(--radius-md) !important;
+  transition: all 0.15s ease !important;
 }
 
-// Tab placeholder during drag
+// Tab drop placeholder — insertion marker
 .lm_tabDropPlaceholder {
-  background: var(--bg-active) !important;
-  border: 1px dashed var(--border-focus) !important;
+  background: color-mix(in srgb, var(--border-focus) 25%, transparent) !important;
+  border: 2px solid var(--border-focus) !important;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+  min-width: 40px !important;
+  margin: 0 2px !important;
+}
+
+// Dim other tabs while dragging for focus
+.lm_dragging .lm_tab:not(.lm_active) {
+  opacity: 0.5 !important;
 }
 
 // Ensure CDK overlay (mat-select dropdowns, tooltips, etc.) appears above modals/panels

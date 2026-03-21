@@ -302,6 +302,30 @@ ORDER BY s.name, p.name;`;
   }
 
   /**
+   * Generate query to list user-defined functions
+   */
+  static listFunctions(database: string): string {
+    return `
+USE ${this.escapeIdentifier(database)};
+SELECT
+  s.name as [schema],
+  o.name as name,
+  CASE o.type
+    WHEN 'FN' THEN 'Scalar'
+    WHEN 'IF' THEN 'Inline Table-valued'
+    WHEN 'TF' THEN 'Table-valued'
+    ELSE o.type_desc
+  END as [type],
+  o.create_date as createdAt,
+  o.modify_date as modifiedAt
+FROM sys.objects o
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE o.type IN ('FN', 'IF', 'TF')
+  AND o.is_ms_shipped = 0
+ORDER BY s.name, o.name;`;
+  }
+
+  /**
    * Generate query to get object definition
    */
   static getObjectDefinition(database: string, schema: string, name: string): string {
