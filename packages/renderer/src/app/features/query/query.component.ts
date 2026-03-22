@@ -137,10 +137,11 @@ declare const monaco: {
   template: `
     <div class="query-container">
       <!-- Toolbar -->
-      <div class="query-toolbar">
+      <div class="query-toolbar" role="toolbar" aria-label="Query actions">
         <button
           mat-icon-button
           matTooltip="Execute (F5 or Ctrl+E)"
+          aria-label="Execute query"
           [disabled]="executing()"
           (click)="executeQuery()"
         >
@@ -153,6 +154,7 @@ declare const monaco: {
         <button
           mat-icon-button
           matTooltip="Cancel"
+          aria-label="Cancel query"
           [disabled]="!executing()"
           (click)="cancelQuery()"
         >
@@ -164,6 +166,7 @@ declare const monaco: {
           <mat-select
             [(ngModel)]="selectedDatabase"
             placeholder="Select Database"
+            aria-label="Select database"
             (selectionChange)="onDatabaseChange($event.value)"
           >
             @for (db of connectionState.databases(); track db.name) {
@@ -174,23 +177,23 @@ declare const monaco: {
 
         <div class="toolbar-spacer"></div>
 
-        <button mat-icon-button matTooltip="Query History" (click)="toggleHistory()">
+        <button mat-icon-button matTooltip="Query History" aria-label="Query History" (click)="toggleHistory()">
           <mat-icon>history</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Find (⌘F)" (click)="openFind()">
+        <button mat-icon-button matTooltip="Find (⌘F)" aria-label="Find" (click)="openFind()">
           <mat-icon>search</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Find & Replace (⌘H)" (click)="openFindReplace()">
+        <button mat-icon-button matTooltip="Find & Replace (⌘H)" aria-label="Find and Replace" (click)="openFindReplace()">
           <mat-icon>find_replace</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Go to Line (⌘G)" (click)="goToLine()">
+        <button mat-icon-button matTooltip="Go to Line (⌘G)" aria-label="Go to Line" (click)="goToLine()">
           <mat-icon>format_list_numbered</mat-icon>
         </button>
         <div class="toolbar-divider"></div>
-        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" (click)="formatSql()">
+        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" aria-label="Format SQL" (click)="formatSql()">
           <mat-icon>auto_fix_high</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Show Execution Plan" (click)="showExecutionPlan()">
+        <button mat-icon-button matTooltip="Show Execution Plan" aria-label="Show Execution Plan" (click)="showExecutionPlan()">
           <mat-icon>account_tree</mat-icon>
         </button>
 

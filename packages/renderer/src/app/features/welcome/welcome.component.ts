@@ -387,7 +387,7 @@ export class WelcomeComponent implements OnInit {
     if (!this.dockerStatus) return 'Checking...';
     if (!this.dockerStatus.isAvailable) return 'Docker not available';
     if (this.sqlContainers.length === 0) return 'No SQL Server containers';
-    const running = this.sqlContainers.filter(c => c.status === 'running').length;
+    const running = this.sqlContainers.filter(c => c.state === 'running').length;
     return `${running}/${this.sqlContainers.length} running`;
   }
 
@@ -464,7 +464,7 @@ export class WelcomeComponent implements OnInit {
 
   openDocs(event: Event): void {
     event.preventDefault();
-    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge').subscribe();
+    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge/wiki').subscribe();
   }
 
   openGitHub(event: Event): void {

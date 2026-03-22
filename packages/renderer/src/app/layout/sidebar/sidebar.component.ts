@@ -6,6 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatDialog } from '@angular/material/dialog';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state';
@@ -47,6 +48,7 @@ import {
     MatTooltipModule,
     MatMenuModule,
     MatDividerModule,
+    MatProgressSpinnerModule,
     ConfirmDialogComponent,
     InputDialogComponent,
   ],
@@ -58,7 +60,7 @@ import {
           <img class="app-icon" src="assets/icons/mj-logo.png" alt="MJ Forge" />
           <span class="logo">Forge</span>
         </div>
-        <button mat-icon-button matTooltip="New Connection" (click)="openConnectionDialog()">
+        <button mat-icon-button matTooltip="New Connection" aria-label="New Connection" (click)="openConnectionDialog()">
           <mat-icon>add</mat-icon>
         </button>
       </div>
@@ -106,11 +108,16 @@ import {
             mat-button
             [matMenuTriggerFor]="databaseMenu"
             class="database-button"
+            aria-label="Select Database"
             [disabled]="connectionState.loadingDatabases()"
           >
-            <mat-icon svgIcon="database-cylinder"></mat-icon>
+            @if (connectionState.loadingDatabases()) {
+              <mat-spinner diameter="16" />
+            } @else {
+              <mat-icon svgIcon="database-cylinder"></mat-icon>
+            }
             <span class="database-name">
-              {{ connectionState.selectedDatabase() || 'Select Database' }}
+              {{ connectionState.loadingDatabases() ? 'Loading...' : (connectionState.selectedDatabase() || 'Select Database') }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
@@ -149,7 +156,7 @@ import {
             <button mat-stroked-button (click)="openConnectionDialog()">Connect to Server</button>
           </div>
         } @else if (explorerState.hasNodes()) {
-          <div class="tree-container">
+          <div class="tree-container" role="tree" aria-label="Database Explorer">
             @for (node of explorerState.rootNodes(); track node.id) {
               <ng-container *ngTemplateOutlet="treeNode; context: { $implicit: node, level: 0 }" />
             }
@@ -166,11 +173,19 @@ import {
       <ng-template #treeNode let-node let-level="level">
         <div
           class="tree-item"
+          role="treeitem"
+          [attr.aria-expanded]="node.hasChildren ? node.isExpanded : null"
+          [attr.aria-level]="level + 1"
+          [attr.aria-label]="node.name + ' (' + node.type + ')'"
+          [attr.aria-selected]="node.id === explorerState.selectedNodeId()"
+          tabindex="0"
           [class.selected]="node.id === explorerState.selectedNodeId()"
           [style.padding-left.px]="level * 16 + 8"
           (click)="onNodeClick(node)"
           (dblclick)="onNodeDoubleClick(node)"
           (contextmenu)="onNodeRightClick(node, $event)"
+          (keydown.enter)="onNodeDoubleClick(node)"
+          (keydown.space)="onNodeClick(node); $event.preventDefault()"
         >
           @if (node.hasChildren) {
             <button class="expand-btn" (click)="toggleExpand(node, $event)">
@@ -216,6 +231,7 @@ import {
           <button
             mat-icon-button
             matTooltip="New Query"
+            aria-label="New Query"
             (click)="newQuery()"
             [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
           >
@@ -224,6 +240,7 @@ import {
           <button
             mat-icon-button
             matTooltip="Refresh"
+            aria-label="Refresh Explorer"
             (click)="refresh()"
             [disabled]="!connectionState.isConnected()"
           >
@@ -232,6 +249,7 @@ import {
           <button
             mat-icon-button
             matTooltip="Backup Database"
+            aria-label="Backup Database"
             (click)="openBackup()"
             [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
           >
@@ -240,6 +258,7 @@ import {
           <button
             mat-icon-button
             matTooltip="Restore Database"
+            aria-label="Restore Database"
             (click)="openRestore()"
             [disabled]="!connectionState.isConnected()"
           >
@@ -375,6 +394,7 @@ import {
         padding: 4px 8px;
         cursor: pointer;
         user-select: none;
+        outline: none;
 
         &:hover {
           background-color: var(--bg-hover);
@@ -382,6 +402,12 @@ import {
 
         &.selected {
           background-color: var(--bg-active);
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--status-info);
+          outline-offset: -2px;
+          border-radius: var(--radius-sm);
         }
       }
 

@@ -94,10 +94,16 @@ export interface ServerFileBrowserResult {
                 <mat-spinner diameter="40"></mat-spinner>
               </div>
             }
-            @if (entries().length === 0 && !loading()) {
+            @if (error() && !loading()) {
+              <div class="empty-state error-state">
+                <mat-icon>error_outline</mat-icon>
+                <span>{{ error() }}</span>
+                <button mat-stroked-button (click)="refresh()">Retry</button>
+              </div>
+            } @else if (entries().length === 0 && !loading()) {
               <div class="empty-state">
                 <mat-icon>folder_off</mat-icon>
-                <span>{{ error() || 'This folder is empty' }}</span>
+                <span>This folder is empty</span>
               </div>
             }
             @for (entry of entries(); track entry.path) {
@@ -242,6 +248,7 @@ export interface ServerFileBrowserResult {
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: var(--spacing-sm);
         padding: var(--spacing-xl);
         color: var(--text-muted);
 
@@ -249,7 +256,14 @@ export interface ServerFileBrowserResult {
           font-size: 48px;
           width: 48px;
           height: 48px;
-          margin-bottom: var(--spacing-md);
+        }
+
+        &.error-state {
+          color: var(--status-error);
+
+          mat-icon {
+            color: var(--status-error);
+          }
         }
       }
 
