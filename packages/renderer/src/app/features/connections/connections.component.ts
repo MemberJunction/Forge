@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -14,6 +14,8 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService } from '../../core/state/explorer.state';
+import { NotificationService } from '../../core/services/notification.service';
+import { ConfirmDialogComponent } from '../../shared/components/dialog/confirm-dialog.component';
 import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
 
 @Component({
@@ -32,6 +34,7 @@ import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
     MatCardModule,
     MatDividerModule,
     MatTooltipModule,
+    ConfirmDialogComponent,
   ],
   template: `
     <div class="connections-container">
@@ -190,6 +193,7 @@ import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
         </mat-card>
       </div>
     </div>
+    <app-confirm-dialog #deleteDialog (confirmed)="onDeleteConfirmed()" />
   `,
   styles: [
     `
@@ -365,6 +369,10 @@ export class ConnectionsComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
+  @ViewChild('deleteDialog') deleteDialog!: ConfirmDialogComponent;
+  private readonly notification = inject(NotificationService);
+  private pendingDeleteProfileId: string | null = null;
+
   selectedProfileId = signal<string | null>(null);
   isEditing = signal(false);
   testing = signal(false);
@@ -410,9 +418,26 @@ export class ConnectionsComponent {
     };
   }
 
-  async deleteProfile(profileId: string, event: Event): Promise<void> {
+  deleteProfile(profileId: string, event: Event): void {
     event.stopPropagation();
+    const profile = this.connectionState.profiles().find(p => p.id === profileId);
+    this.pendingDeleteProfileId = profileId;
+    this.deleteDialog.open({
+      title: 'Delete Connection',
+      message: `Are you sure you want to delete "${profile?.name || 'this connection'}"? This cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+  }
+
+  async onDeleteConfirmed(): Promise<void> {
+    const profileId = this.pendingDeleteProfileId;
+    this.pendingDeleteProfileId = null;
+    if (!profileId) return;
+
     await this.connectionState.deleteProfile(profileId);
+    this.notification.success('Connection deleted');
     if (this.selectedProfileId() === profileId) {
       this.newConnection();
     }

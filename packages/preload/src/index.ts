@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { IPC_CHANNELS } from '@mj-forge/shared';
+import { IPC_CHANNELS, CHAT_IPC_CHANNELS } from '@mj-forge/shared';
 import type {
   ConnectionProfile,
   TestConnectionResult,
@@ -60,6 +60,11 @@ import type {
   AnalysisResponse,
   SQLGenerationRequest,
   SQLGenerationResponse,
+  // Chat types
+  ChatRequest,
+  ChatStreamChunk,
+  Conversation,
+  ToolDefinition,
   // Server file system types
   ServerDrive,
   ServerFileEntry,
@@ -278,6 +283,19 @@ export interface ForgeAPI {
     cancelRequest: (requestId: string) => Promise<boolean>;
   };
 
+  chat: {
+    getTools: () => Promise<ToolDefinition[]>;
+    listConversations: () => Promise<Conversation[]>;
+    getConversation: (id: string) => Promise<Conversation | null>;
+    createConversation: (title?: string) => Promise<Conversation>;
+    deleteConversation: (id: string) => Promise<boolean>;
+    renameConversation: (id: string, title: string) => Promise<Conversation | null>;
+    sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>;
+    confirmTool: (conversationId: string, toolCallId: string, confirmed: boolean) => Promise<{ confirmed: boolean }>;
+    cancelStream: (conversationId: string) => Promise<{ cancelled: boolean }>;
+    onStreamChunk: (callback: (chunk: ChatStreamChunk) => void) => () => void;
+  };
+
   serverFs: {
     getDrives: (connectionId: string) => Promise<ServerDrive[]>;
     listDirectory: (
@@ -438,6 +456,7 @@ export interface ForgeAPI {
     // View menu
     onShowWelcome: (callback: () => void) => () => void;
     onToggleSidebar: (callback: () => void) => () => void;
+    onToggleChat: (callback: () => void) => () => void;
     onToggleResults: (callback: () => void) => () => void;
 
     // Window menu
@@ -494,6 +513,7 @@ const MENU_CHANNELS = {
   // View menu
   SHOW_WELCOME: 'menu:show-welcome',
   TOGGLE_SIDEBAR: 'menu:toggle-sidebar',
+  TOGGLE_CHAT: 'menu:toggle-chat',
   TOGGLE_RESULTS: 'menu:toggle-results',
 
   // Window menu
@@ -705,6 +725,20 @@ const forgeAPI: ForgeAPI = {
     cancelRequest: requestId => ipcRenderer.invoke(IPC_CHANNELS.AI.CANCEL_REQUEST, requestId),
   },
 
+  chat: {
+    getTools: () => ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_TOOLS),
+    listConversations: () => ipcRenderer.invoke(CHAT_IPC_CHANNELS.LIST_CONVERSATIONS),
+    getConversation: id => ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_CONVERSATION, id),
+    createConversation: title => ipcRenderer.invoke(CHAT_IPC_CHANNELS.CREATE_CONVERSATION, title),
+    deleteConversation: id => ipcRenderer.invoke(CHAT_IPC_CHANNELS.DELETE_CONVERSATION, id),
+    renameConversation: (id, title) => ipcRenderer.invoke(CHAT_IPC_CHANNELS.RENAME_CONVERSATION, id, title),
+    sendMessage: request => ipcRenderer.invoke(CHAT_IPC_CHANNELS.SEND_MESSAGE, request),
+    confirmTool: (conversationId, toolCallId, confirmed) =>
+      ipcRenderer.invoke(CHAT_IPC_CHANNELS.CONFIRM_TOOL, conversationId, toolCallId, confirmed),
+    cancelStream: conversationId => ipcRenderer.invoke(CHAT_IPC_CHANNELS.CANCEL_STREAM, conversationId),
+    onStreamChunk: callback => createEventListener(CHAT_IPC_CHANNELS.STREAM_CHUNK, callback),
+  },
+
   serverFs: {
     getDrives: connectionId => ipcRenderer.invoke(IPC_CHANNELS.SERVER_FS.GET_DRIVES, connectionId),
     listDirectory: (connectionId, path, includeFiles) =>
@@ -869,6 +903,7 @@ const forgeAPI: ForgeAPI = {
     // View menu
     onShowWelcome: callback => createEventListener(MENU_CHANNELS.SHOW_WELCOME, callback),
     onToggleSidebar: callback => createEventListener(MENU_CHANNELS.TOGGLE_SIDEBAR, callback),
+    onToggleChat: callback => createEventListener(MENU_CHANNELS.TOGGLE_CHAT, callback),
     onToggleResults: callback => createEventListener(MENU_CHANNELS.TOGGLE_RESULTS, callback),
 
     // Window menu

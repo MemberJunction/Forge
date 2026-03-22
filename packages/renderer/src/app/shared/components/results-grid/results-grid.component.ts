@@ -177,6 +177,12 @@ interface FkPreviewData {
       }
 
       <div class="grid-wrapper">
+        @if (rowData.length === 0 && columnDefs.length > 0) {
+          <div class="empty-results">
+            <mat-icon>search_off</mat-icon>
+            <span>Query executed successfully — 0 rows returned</span>
+          </div>
+        }
         <ag-grid-angular
           class="ag-theme-quartz-dark"
           [theme]="'legacy'"
@@ -468,6 +474,28 @@ interface FkPreviewData {
       .grid-wrapper {
         flex: 1;
         overflow: hidden;
+        position: relative;
+      }
+
+      .empty-results {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+        z-index: 1;
+
+        mat-icon {
+          font-size: 32px;
+          width: 32px;
+          height: 32px;
+          opacity: 0.5;
+        }
       }
 
       ag-grid-angular {

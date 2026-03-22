@@ -60,6 +60,11 @@ import type {
   AnalysisResponse,
   SQLGenerationRequest,
   SQLGenerationResponse,
+  // Chat types
+  ChatRequest,
+  ChatStreamChunk,
+  Conversation,
+  ToolDefinition,
   // Server file system types
   ServerDrive,
   ServerFileEntry,
@@ -288,6 +293,18 @@ interface ForgeAPI {
     generateSQL: (request: SQLGenerationRequest) => Promise<SQLGenerationResponse>;
     cancelRequest: (requestId: string) => Promise<boolean>;
   };
+  chat: {
+    getTools: () => Promise<ToolDefinition[]>;
+    listConversations: () => Promise<Conversation[]>;
+    getConversation: (id: string) => Promise<Conversation | null>;
+    createConversation: (title?: string) => Promise<Conversation>;
+    deleteConversation: (id: string) => Promise<boolean>;
+    renameConversation: (id: string, title: string) => Promise<Conversation | null>;
+    sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>;
+    confirmTool: (conversationId: string, toolCallId: string, confirmed: boolean) => Promise<{ confirmed: boolean }>;
+    cancelStream: (conversationId: string) => Promise<{ cancelled: boolean }>;
+    onStreamChunk: (callback: (chunk: ChatStreamChunk) => void) => () => void;
+  };
   serverFs: {
     getDrives: (connectionId: string) => Promise<ServerDrive[]>;
     listDirectory: (
@@ -421,6 +438,7 @@ interface ForgeAPI {
     onDatabaseProperties: (callback: () => void) => () => void;
     onShowWelcome: (callback: () => void) => () => void;
     onToggleSidebar: (callback: () => void) => () => void;
+    onToggleChat: (callback: () => void) => () => void;
     onToggleResults: (callback: () => void) => () => void;
     onNextTab: (callback: () => void) => () => void;
     onPreviousTab: (callback: () => void) => () => void;
@@ -1038,5 +1056,48 @@ export class IpcService {
 
   cancelAIRequest(requestId: string): Observable<boolean> {
     return from(this.api.ai.cancelRequest(requestId));
+  }
+
+  // Chat methods
+  getChatTools(): Observable<ToolDefinition[]> {
+    return from(this.api.chat.getTools());
+  }
+
+  listConversations(): Observable<Conversation[]> {
+    return from(this.api.chat.listConversations());
+  }
+
+  getConversation(id: string): Observable<Conversation | null> {
+    return from(this.api.chat.getConversation(id));
+  }
+
+  createConversation(title?: string): Observable<Conversation> {
+    return from(this.api.chat.createConversation(title));
+  }
+
+  deleteConversation(id: string): Observable<boolean> {
+    return from(this.api.chat.deleteConversation(id));
+  }
+
+  renameConversation(id: string, title: string): Observable<Conversation | null> {
+    return from(this.api.chat.renameConversation(id, title));
+  }
+
+  sendChatMessage(request: ChatRequest): Observable<{ started: boolean }> {
+    return from(this.api.chat.sendMessage(request));
+  }
+
+  confirmChatTool(conversationId: string, toolCallId: string, confirmed: boolean): Observable<{ confirmed: boolean }> {
+    return from(this.api.chat.confirmTool(conversationId, toolCallId, confirmed));
+  }
+
+  cancelChatStream(conversationId: string): Observable<{ cancelled: boolean }> {
+    return from(this.api.chat.cancelStream(conversationId));
+  }
+
+  onChatStreamChunk(callback: (chunk: ChatStreamChunk) => void): () => void {
+    return this.api.chat.onStreamChunk((chunk: ChatStreamChunk) => {
+      this.zone.run(() => callback(chunk));
+    });
   }
 }

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -250,6 +250,13 @@ export class ConfirmDialogComponent {
 
   @Output() confirmed = new EventEmitter<void>();
   @Output() cancelled = new EventEmitter<void>();
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey(): void {
+    if (this._isOpen()) {
+      this.cancel();
+    }
+  }
 
   confirmDisabled(): boolean {
     const cfg = this._config();

@@ -102,7 +102,7 @@ export function createMenu(): void {
           },
         },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        { role: 'quit' },
       ],
     },
 
@@ -300,6 +300,14 @@ export function createMenu(): void {
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:toggle-sidebar');
+          },
+        },
+        {
+          label: 'Toggle AI Chat',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:toggle-chat');
           },
         },
         {

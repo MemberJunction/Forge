@@ -362,6 +362,29 @@ import type { ThemePreference } from '@mj-forge/shared';
                         />
                       </div>
 
+                      <!-- Model selector -->
+                      @if (vendor.models.length > 0) {
+                        <div class="setting-item model-selector">
+                          <div class="setting-info">
+                            <label>Preferred Model</label>
+                            <span class="setting-description">Model used for AI features</span>
+                          </div>
+                          <mat-form-field appearance="outline" class="model-select-field">
+                            <mat-select
+                              [value]="getPreferredModel(vendor.id) || vendor.models[0].id"
+                              (selectionChange)="aiState.setPreferredModel(vendor.id, $event.value)"
+                            >
+                              @for (model of vendor.models; track model.id) {
+                                <mat-option [value]="model.id">
+                                  {{ model.name }}
+                                  <span class="model-tier">{{ model.costTier }}</span>
+                                </mat-option>
+                              }
+                            </mat-select>
+                          </mat-form-field>
+                        </div>
+                      }
+
                       <div class="api-key-section">
                         <mat-form-field appearance="outline" class="api-key-input">
                           <mat-label>API Key</mat-label>
@@ -699,6 +722,27 @@ import type { ThemePreference } from '@mj-forge/shared';
         }
       }
 
+      .model-selector {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .model-select-field {
+        width: 100%;
+        margin-top: var(--spacing-xs);
+
+        ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+          display: none;
+        }
+      }
+
+      .model-tier {
+        font-size: 10px;
+        text-transform: uppercase;
+        opacity: 0.6;
+        margin-left: 8px;
+      }
+
       .api-key-section {
         display: flex;
         flex-direction: column;
@@ -829,6 +873,11 @@ export class SettingsPanelComponent implements OnInit, OnDestroy {
   getVendorConfigured(vendorId: string): boolean {
     const vs = this.aiState.getVendorSettings(vendorId);
     return vs?.apiKeyConfigured ?? false;
+  }
+
+  getPreferredModel(vendorId: string): string | undefined {
+    const vs = this.aiState.getVendorSettings(vendorId);
+    return vs?.preferredModelId;
   }
 
   updateApiKeyInput(vendorId: string, value: string): void {

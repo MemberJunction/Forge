@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ConnectionStateService } from '../state/connection.state';
+import { AIStateService } from '../state/ai.state';
 import { IpcService } from './ipc.service';
 import type { ObjectMetadata, ColumnInfo } from '@mj-forge/shared';
 import { firstValueFrom } from 'rxjs';
@@ -22,6 +23,7 @@ interface TableInfo {
 @Injectable({ providedIn: 'root' })
 export class SqlIntellisenseService {
   private readonly connectionState = inject(ConnectionStateService);
+  private readonly aiState = inject(AIStateService);
   private readonly ipc = inject(IpcService);
 
   // Cache of loaded metadata
@@ -29,6 +31,10 @@ export class SqlIntellisenseService {
   private viewsCache = new Map<string, string[]>();
   private proceduresCache = new Map<string, string[]>();
   private functionsCache = new Map<string, string[]>();
+
+  // Ghost text state
+  private ghostTextAbortController: AbortController | null = null;
+  private ghostTextDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Monaco completion item kinds
   private readonly CompletionItemKind = {
@@ -340,9 +346,232 @@ export class SqlIntellisenseService {
   }
 
   private extractTableName(text: string): string | null {
-    // Match table name before the dot
+    // Match table name or alias before the dot
     const match = text.match(/(\[?\w+\]?(?:\.\[?\w+\]?)?)\s*\.$/);
     return match ? match[1] : null;
+  }
+
+  /**
+   * Extract table aliases from the full query text.
+   * Returns a map of alias → table name.
+   */
+  private extractAliases(fullText: string): Map<string, string> {
+    const aliases = new Map<string, string>();
+    // Match: FROM|JOIN schema.table alias, or FROM|JOIN schema.table AS alias
+    const pattern = /\b(?:FROM|JOIN)\s+(\[?\w+\]?(?:\.\[?\w+\]?)?)\s+(?:AS\s+)?(\w+)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(fullText)) !== null) {
+      const tableName = match[1].replace(/[\[\]]/g, '');
+      const alias = match[2].toLowerCase();
+      // Skip SQL keywords that might be mistaken for aliases
+      if (!this.isKeyword(alias)) {
+        aliases.set(alias, tableName);
+      }
+    }
+    return aliases;
+  }
+
+  private isKeyword(word: string): boolean {
+    const kw = word.toUpperCase();
+    return ['WHERE', 'ON', 'SET', 'AND', 'OR', 'NOT', 'IN', 'AS', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
+      'FULL', 'CROSS', 'ORDER', 'GROUP', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT', 'INTO',
+      'VALUES', 'BEGIN', 'END', 'THEN', 'ELSE', 'WHEN', 'CASE', 'WITH', 'SELECT'].includes(kw);
+  }
+
+  /**
+   * Enhanced column completions that resolve aliases
+   */
+  async getColumnCompletionsWithAlias(
+    prefix: string,
+    fullText: string,
+    range: unknown
+  ): Promise<unknown[]> {
+    const aliases = this.extractAliases(fullText);
+    const cleanPrefix = prefix.replace(/[\[\]]/g, '').toLowerCase();
+
+    // Check if prefix is an alias
+    const resolvedTable = aliases.get(cleanPrefix);
+    if (resolvedTable) {
+      return this.getColumnCompletions(resolvedTable, range);
+    }
+
+    // Fallback to direct table name lookup
+    return this.getColumnCompletions(prefix, range);
+  }
+
+  /**
+   * Context-aware completions using full query text
+   */
+  async getContextAwareCompletions(
+    model: { getValue: () => string; getLineContent: (n: number) => string; getWordUntilPosition: (p: unknown) => { startColumn: number; endColumn: number } },
+    position: { lineNumber: number; column: number }
+  ): Promise<{ suggestions: unknown[] }> {
+    const word = model.getWordUntilPosition(position);
+    const range = {
+      startLineNumber: position.lineNumber,
+      endLineNumber: position.lineNumber,
+      startColumn: word.startColumn,
+      endColumn: word.endColumn,
+    };
+
+    const lineContent = model.getLineContent(position.lineNumber);
+    const textBeforeCursor = lineContent.substring(0, position.column - 1);
+    const fullText = model.getValue();
+    const suggestions: unknown[] = [];
+
+    if (this.isAfterFrom(textBeforeCursor) || this.isAfterJoin(textBeforeCursor)) {
+      suggestions.push(...(await this.getTableCompletions(range)));
+      suggestions.push(...(await this.getViewCompletions(range)));
+    } else if (this.isAfterDot(textBeforeCursor)) {
+      const prefix = this.extractTableName(textBeforeCursor);
+      if (prefix) {
+        suggestions.push(...(await this.getColumnCompletionsWithAlias(prefix, fullText, range)));
+      }
+    } else if (this.isAfterExec(textBeforeCursor)) {
+      suggestions.push(...(await this.getProcedureCompletions(range)));
+    } else if (this.isInWhereClause(textBeforeCursor, fullText)) {
+      // In WHERE clause: suggest columns from referenced tables
+      const aliases = this.extractAliases(fullText);
+      for (const tableName of aliases.values()) {
+        suggestions.push(...(await this.getColumnCompletions(tableName, range)));
+      }
+      suggestions.push(...this.getKeywordCompletions(range));
+    } else {
+      suggestions.push(...this.getKeywordCompletions(range));
+      suggestions.push(...this.getSnippetCompletions(range));
+      suggestions.push(...(await this.getTableCompletions(range)));
+    }
+
+    return { suggestions };
+  }
+
+  private isInWhereClause(textBeforeCursor: string, fullText: string): boolean {
+    // Check if cursor is after WHERE keyword and before next clause keyword
+    const textUpper = fullText.toUpperCase();
+    const cursorOffset = fullText.indexOf(textBeforeCursor) + textBeforeCursor.length;
+    const whereIndex = textUpper.lastIndexOf('WHERE', cursorOffset);
+    if (whereIndex === -1) return false;
+
+    // Make sure there's no GROUP BY, ORDER BY, etc. between WHERE and cursor
+    const textBetween = textUpper.substring(whereIndex, cursorOffset);
+    return !/(GROUP BY|ORDER BY|HAVING|UNION|EXCEPT|INTERSECT)/i.test(textBetween);
+  }
+
+  /**
+   * Register AI ghost text inline completion provider (Tier 2)
+   */
+  registerGhostTextProvider(monacoInstance: unknown): void {
+    const m = monacoInstance as {
+      languages: {
+        registerInlineCompletionsProvider: (lang: string, provider: unknown) => { dispose: () => void };
+      };
+    };
+    if (!m?.languages?.registerInlineCompletionsProvider) return;
+
+    m.languages.registerInlineCompletionsProvider('sql', {
+      provideInlineCompletions: async (
+        model: { getValue: () => string; getLineContent: (n: number) => string },
+        position: { lineNumber: number; column: number },
+        _context: unknown,
+        token: { isCancellationRequested: boolean }
+      ) => {
+        // Only provide ghost text if AI is configured
+        if (!this.aiState.hasConfiguredVendors() || !this.aiState.queryAssistEnabled()) {
+          return { items: [] };
+        }
+
+        const lineContent = model.getLineContent(position.lineNumber);
+        const textBeforeCursor = lineContent.substring(0, position.column - 1);
+
+        // Don't suggest for empty lines or very short input
+        if (textBeforeCursor.trim().length < 3) {
+          return { items: [] };
+        }
+
+        // Cancel previous request
+        this.ghostTextAbortController?.abort();
+        this.ghostTextAbortController = new AbortController();
+
+        // Debounce: wait 500ms before making the request
+        if (this.ghostTextDebounceTimer) {
+          clearTimeout(this.ghostTextDebounceTimer);
+        }
+
+        return new Promise((resolve) => {
+          this.ghostTextDebounceTimer = setTimeout(async () => {
+            if (token.isCancellationRequested) {
+              resolve({ items: [] });
+              return;
+            }
+
+            try {
+              const fullText = model.getValue();
+              const textAfterCursor = lineContent.substring(position.column - 1);
+
+              // Get table context from aliases for a focused prompt
+              const aliases = this.extractAliases(fullText);
+              const tableNames = [...aliases.values()].slice(0, 5);
+
+              // Build a minimal context for the LLM
+              const connectionId = this.connectionState.activeConnectionId();
+              const database = this.connectionState.selectedDatabase();
+              const cacheKey = connectionId && database ? `${connectionId}:${database}` : '';
+              const tables = cacheKey ? (this.tablesCache.get(cacheKey) || []) : [];
+
+              // Only include schemas for referenced tables
+              const relevantTables = tables.filter(t =>
+                tableNames.some(tn => {
+                  const parts = tn.split('.');
+                  const name = parts[parts.length - 1].toLowerCase();
+                  return t.name.toLowerCase() === name;
+                })
+              );
+
+              const schemaContext = relevantTables.map(t =>
+                `${t.schema}.${t.name}: ${t.columns.map(c => c.name).join(', ')}`
+              ).join('\n');
+
+              const result = await this.aiState.generateSQL({
+                prompt: `Complete this SQL query. Return ONLY the completion text (what comes after the cursor), no explanations:\n\nDatabase: ${database || 'unknown'}\nTables:\n${schemaContext}\n\nQuery so far:\n${fullText.substring(0, fullText.indexOf(textBeforeCursor) + textBeforeCursor.length)}█${textAfterCursor}`,
+                database: database || undefined,
+              });
+
+              if (token.isCancellationRequested || !result?.sql) {
+                resolve({ items: [] });
+                return;
+              }
+
+              // Clean up the suggestion
+              let suggestion = result.sql.trim();
+              // Remove any markdown code fences
+              suggestion = suggestion.replace(/^```sql\n?/i, '').replace(/\n?```$/i, '').trim();
+
+              if (!suggestion) {
+                resolve({ items: [] });
+                return;
+              }
+
+              resolve({
+                items: [{
+                  insertText: suggestion,
+                  range: {
+                    startLineNumber: position.lineNumber,
+                    startColumn: position.column,
+                    endLineNumber: position.lineNumber,
+                    endColumn: position.column,
+                  },
+                }],
+              });
+            } catch {
+              resolve({ items: [] });
+            }
+          }, 500);
+        });
+      },
+      freeInlineCompletions: () => {
+        // Cleanup
+      },
+    });
   }
 
   /**

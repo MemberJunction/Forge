@@ -1128,14 +1128,14 @@ export class MetadataService extends BaseSingleton {
           rc.FullRecordJSON AS fullRecordJSON,
           rc.Status AS status,
           rc.Comments AS comments,
-          CONVERT(VARCHAR(30), rc.__mj_CreatedAt, 126) AS createdAt,
+          CONVERT(VARCHAR(30), rc.CreatedAt, 126) AS createdAt,
           CAST(rc.UserID AS NVARCHAR(36)) AS userId,
           u.Name AS userName
         FROM [${mj}].[RecordChange] rc
         LEFT JOIN [${mj}].[Entity] e ON rc.EntityID = e.ID
         LEFT JOIN [${mj}].[User] u ON rc.UserID = u.ID
         ${whereClause}
-        ORDER BY rc.__mj_CreatedAt DESC
+        ORDER BY rc.CreatedAt DESC
       `;
 
       const result = await this.poolManager.query<MJRecordChange>(connectionId, sql);
@@ -1183,13 +1183,13 @@ export class MetadataService extends BaseSingleton {
           al.RecordID AS recordId,
           al.Description AS description,
           al.Details AS details,
-          CONVERT(VARCHAR(30), al.__mj_CreatedAt, 126) AS createdAt
+          CONVERT(VARCHAR(30), al.CreatedAt, 126) AS createdAt
         FROM [${mj}].[AuditLog] al
         LEFT JOIN [${mj}].[User] u ON al.UserID = u.ID
         LEFT JOIN [${mj}].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
         LEFT JOIN [${mj}].[Entity] e ON al.EntityID = e.ID
         ${whereClause}
-        ORDER BY al.__mj_CreatedAt DESC
+        ORDER BY al.CreatedAt DESC
       `;
 
       const result = await this.poolManager.query<MJAuditLog>(connectionId, sql);

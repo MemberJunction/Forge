@@ -12,6 +12,7 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
+import { ChatStateService } from '../../core/state/chat.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { TablePropertiesService } from '../../core/services/table-properties.service';
 import { firstValueFrom } from 'rxjs';
@@ -265,6 +266,17 @@ import {
           >
             <mat-icon>restore</mat-icon>
           </button>
+          <span class="action-spacer"></span>
+          <button
+            mat-icon-button
+            class="ai-sidebar-btn"
+            [class.active]="chatState.panelOpen()"
+            [matTooltip]="chatState.panelOpen() ? 'Close AI Assistant' : 'Open AI Assistant'"
+            aria-label="Toggle AI Assistant"
+            (click)="chatState.togglePanel()"
+          >
+            <mat-icon>auto_awesome</mat-icon>
+          </button>
         </div>
       </div>
 
@@ -497,8 +509,30 @@ import {
 
         .action-buttons {
           display: flex;
+          align-items: center;
           justify-content: space-around;
           padding: var(--spacing-sm);
+        }
+      }
+
+      .action-spacer {
+        width: 1px;
+        height: 20px;
+        background: var(--border-primary);
+        flex-shrink: 0;
+      }
+
+      .ai-sidebar-btn {
+        color: var(--text-secondary);
+        transition: color var(--transition-fast), background-color var(--transition-fast);
+
+        &:hover {
+          color: var(--accent-primary);
+        }
+
+        &.active {
+          color: var(--accent-primary);
+          background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
         }
       }
     `,
@@ -515,6 +549,7 @@ export class SidebarComponent {
   private readonly contextMenu = inject(ContextMenuService);
   private readonly notification = inject(NotificationService);
   private readonly tableProperties = inject(TablePropertiesService);
+  readonly chatState = inject(ChatStateService);
   private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
 
@@ -1004,13 +1039,13 @@ SELECT TOP 100
   rc.ChangesDescription,
   rc.Status,
   u.Name AS ChangedBy,
-  rc.__mj_CreatedAt AS ChangedAt,
+  rc.CreatedAt AS ChangedAt,
   rc.ChangesJSON
 FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
-ORDER BY rc.__mj_CreatedAt DESC`;
+ORDER BY rc.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1032,13 +1067,13 @@ SELECT TOP 100
   al.RecordID,
   u.Name AS UserName,
   al.Description,
-  al.__mj_CreatedAt AS AuditedAt
+  al.CreatedAt AS AuditedAt
 FROM [__mj].[AuditLog] al
 LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
-ORDER BY al.__mj_CreatedAt DESC`;
+ORDER BY al.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1375,13 +1410,13 @@ SELECT TOP 100
   rc.ChangesDescription,
   rc.Status,
   u.Name AS ChangedBy,
-  rc.__mj_CreatedAt AS ChangedAt,
+  rc.CreatedAt AS ChangedAt,
   rc.ChangesJSON
 FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
-ORDER BY rc.__mj_CreatedAt DESC`;
+ORDER BY rc.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1400,15 +1435,33 @@ SELECT TOP 100
   u.Name AS UserName,
   al.RecordID,
   al.Description,
-  al.__mj_CreatedAt AS AuditedAt
+  al.CreatedAt AS AuditedAt
 FROM [__mj].[AuditLog] al
 LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
-ORDER BY al.__mj_CreatedAt DESC`;
+ORDER BY al.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      { id: 'div-erd', label: '', divider: true },
+      {
+        id: 'show-relationships',
+        label: 'Show Relationships (ERD)',
+        icon: 'account_tree',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.schema && node.tableName) {
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openErdTab(
+              node.connectionId,
+              node.databaseName,
+              node.tableName,
+              node.schema
+            );
+            this.router.navigate(['/erd']);
           }
         },
       },
@@ -1452,11 +1505,11 @@ SELECT TOP 200
   rc.ChangesDescription,
   rc.Status,
   u.Name AS ChangedBy,
-  rc.__mj_CreatedAt AS ChangedAt
+  rc.CreatedAt AS ChangedAt
 FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
-ORDER BY rc.__mj_CreatedAt DESC`;
+ORDER BY rc.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1487,12 +1540,12 @@ SELECT TOP 200
   al.RecordID,
   u.Name AS UserName,
   al.Description,
-  al.__mj_CreatedAt AS AuditedAt
+  al.CreatedAt AS AuditedAt
 FROM [__mj].[AuditLog] al
 LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
-ORDER BY al.__mj_CreatedAt DESC`;
+ORDER BY al.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }

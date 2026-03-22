@@ -5,8 +5,11 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { GoldenLayoutContainerComponent } from '../golden-layout-container/golden-layout-container.component';
 import { StatusBarComponent } from '../status-bar/status-bar.component';
+import { ChatPanelComponent } from '../../features/chat/chat-panel.component';
+import { TourOverlayComponent } from '../../shared/components/tour-overlay/tour-overlay.component';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
+import { ChatStateService } from '../../core/state/chat.state';
 import { MenuService } from '../../core/services/menu.service';
 import { QueryHistoryService } from '../../core/services/query-history.service';
 import { IpcService } from '../../core/services/ipc.service';
@@ -15,7 +18,7 @@ import { NotificationService } from '../../core/services/notification.service';
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, SidebarComponent, GoldenLayoutContainerComponent, StatusBarComponent],
+  imports: [CommonModule, MatDialogModule, SidebarComponent, GoldenLayoutContainerComponent, StatusBarComponent, ChatPanelComponent, TourOverlayComponent],
   template: `
     <div class="shell">
       @if (!sidebarHidden()) {
@@ -25,6 +28,8 @@ import { NotificationService } from '../../core/services/notification.service';
         <app-golden-layout-container class="content-area" />
         <app-status-bar class="status-bar" />
       </div>
+      <app-chat-panel />
+      <app-tour-overlay />
     </div>
   `,
   styles: [
@@ -72,6 +77,7 @@ import { NotificationService } from '../../core/services/notification.service';
 export class ShellComponent implements OnInit, OnDestroy {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly tabState = inject(TabStateService);
+  private readonly chatState = inject(ChatStateService);
   private readonly menuService = inject(MenuService);
   private readonly queryHistory = inject(QueryHistoryService);
   private readonly ipc = inject(IpcService);
@@ -134,6 +140,13 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.subscriptions.push(
       this.menuService.newDatabase$.subscribe(() => {
         this.showNewDatabaseDialog();
+      })
+    );
+
+    // Listen for AI chat toggle from menu (Cmd+Shift+I)
+    this.subscriptions.push(
+      this.menuService.toggleChat$.subscribe(() => {
+        this.chatState.togglePanel();
       })
     );
   }

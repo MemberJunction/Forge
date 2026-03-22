@@ -31,6 +31,7 @@ import { AIStateService } from '../../core/state/ai.state';
 import { QueryExecutionService } from '../../core/services/query-execution.service';
 import { SettingsService } from '../../core/services/settings.service';
 import { MenuService } from '../../core/services/menu.service';
+import { SqlIntellisenseService } from '../../core/services/sql-intellisense.service';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
@@ -874,6 +875,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   private readonly settings = inject(SettingsService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly menuService = inject(MenuService);
+  private readonly intellisense = inject(SqlIntellisenseService);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
@@ -1267,6 +1269,9 @@ export class QueryComponent implements OnInit, OnDestroy {
     });
 
     this.loadAutoCompleteObjects();
+
+    // Register AI ghost text provider (Tier 2 autocomplete)
+    this.intellisense.registerGhostTextProvider(monaco);
   }
 
   private async loadAutoCompleteObjects(): Promise<void> {
