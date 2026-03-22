@@ -1081,3 +1081,59 @@ pre {
 .cdk-overlay-container {
   z-index: 10100 !important;
 }
+
+// ===== Global Animations & Transitions =====
+
+// Smooth dialog open animation
+.cdk-overlay-pane {
+  animation: fadeSlideIn 0.15s ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Panel slide-in from right
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+// Panel slide-in from left
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+// Subtle fade in
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+// Focus visible ring for all buttons (keyboard-only)
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--status-info);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

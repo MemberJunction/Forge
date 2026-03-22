@@ -185,11 +185,13 @@ interface FkPreviewData {
           [defaultColDef]="defaultColDef"
           [rowSelection]="rowSelectionOptions"
           [suppressClipboardPaste]="true"
-          [animateRows]="false"
+          [animateRows]="true"
           [suppressRowHoverHighlight]="false"
           [rowBuffer]="20"
           [quickFilterText]="filterText()"
           [enableCellTextSelection]="true"
+          [enableRangeSelection]="false"
+          [suppressMultiSort]="false"
           (gridReady)="onGridReady($event)"
           (cellClicked)="onCellClicked($event)"
           (cellContextMenu)="onCellContextMenu($event)"
@@ -1150,6 +1152,7 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
   defaultColDef: ColDef = {
     sortable: true,
     filter: true,
+    floatingFilter: true,
     resizable: true,
     minWidth: 80,
     suppressSizeToFit: false,
@@ -1224,18 +1227,27 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
       cellClass: (params: CellClassParams) => this.getCellClass(params.value, column),
     };
 
-    // Set column width based on data type
+    // Set column width and filter based on data type
     if (this.isNumericType(column.type)) {
       colDef.width = 120;
       colDef.type = 'numericColumn';
+      colDef.filter = 'agNumberColumnFilter';
     } else if (this.isBooleanType(column.type)) {
       colDef.width = 80;
     } else if (this.isDateType(column.type)) {
       colDef.width = 180;
+      colDef.filter = 'agDateColumnFilter';
     } else if (column.maxLength && column.maxLength < 50) {
       colDef.width = Math.max(100, column.maxLength * 8);
+      colDef.filter = 'agTextColumnFilter';
     } else {
       colDef.minWidth = 150;
+      colDef.filter = 'agTextColumnFilter';
+    }
+
+    // Pin primary key columns to the left for easy reference
+    if (column.isPrimaryKey) {
+      colDef.pinned = 'left';
     }
 
     return colDef;

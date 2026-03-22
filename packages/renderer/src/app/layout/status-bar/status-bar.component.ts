@@ -340,7 +340,7 @@ export class StatusBarComponent implements OnInit {
   });
 
   readonly runningContainers = computed(() =>
-    this.containers().filter(c => c.status === 'running').length
+    this.containers().filter(c => c.state === 'running').length
   );
 
   readonly dockerTooltip = computed(() => {
