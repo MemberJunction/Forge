@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnInit, HostListener, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { MatIconRegistry } from '@angular/material/icon';
@@ -86,6 +86,16 @@ export class AppComponent implements OnInit {
       'database-cylinder',
       this.sanitizer.bypassSecurityTrustResourceUrl('assets/icons/database-cylinder.svg')
     );
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(event: BeforeUnloadEvent): void {
+    const hasDirtyTabs = this.tabState.tabs().some(tab => tab.isDirty);
+    if (hasDirtyTabs) {
+      event.preventDefault();
+      // Modern browsers ignore custom messages but still show confirmation
+      event.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+    }
   }
 
   async ngOnInit(): Promise<void> {
