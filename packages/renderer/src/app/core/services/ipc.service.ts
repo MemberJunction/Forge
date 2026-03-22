@@ -641,6 +641,25 @@ export class IpcService {
     return from(this.api.explorer.getTableTriggers(connectionId, databaseName, schema, tableName));
   }
 
+  getDefinition(
+    connectionId: string,
+    databaseName: string,
+    objectType: string,
+    name: string,
+    schema: string
+  ): Observable<ObjectDefinition> {
+    return from(this.api.explorer.getDefinition(connectionId, databaseName, schema, name, objectType));
+  }
+
+  scriptTableCreate(
+    connectionId: string,
+    databaseName: string,
+    schema: string,
+    tableName: string
+  ): Observable<string> {
+    return from(this.api.explorer.scriptTableAsCreate(connectionId, databaseName, schema, tableName));
+  }
+
   // Query methods
   executeQuery(request: QueryRequest): Observable<QueryResult> {
     return from(this.api.query.execute(request));

@@ -20,7 +20,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatInputModule } from '@angular/material/input';
 import { MatDividerModule } from '@angular/material/divider';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
@@ -30,6 +30,7 @@ import { QueryResultsStateService } from '../../core/state/query-results.state';
 import { AIStateService } from '../../core/state/ai.state';
 import { QueryExecutionService } from '../../core/services/query-execution.service';
 import { SettingsService } from '../../core/services/settings.service';
+import { MenuService } from '../../core/services/menu.service';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
@@ -866,9 +867,11 @@ export class QueryComponent implements OnInit, OnDestroy {
   private readonly queryExecution = inject(QueryExecutionService);
   private readonly settings = inject(SettingsService);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly menuService = inject(MenuService);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
+  private menuSubscriptions: Subscription[] = [];
 
   /**
    * The tab ID this component instance is bound to.
@@ -967,12 +970,34 @@ export class QueryComponent implements OnInit, OnDestroy {
     document.addEventListener('keydown', this.handleKeydown);
     // Listen for snippet insertion events
     window.addEventListener('forge:insert-snippet', this.handleInsertSnippet);
+
+    // Subscribe to menu service events (only act when THIS tab is active)
+    const guard = (fn: () => void) => () => {
+      const active = this.tabState.activeTab();
+      if (this.tabId && active?.id === this.tabId) fn();
+    };
+
+    this.menuSubscriptions.push(
+      this.menuService.executeQuery$.subscribe(guard(() => this.executeQuery())),
+      this.menuService.executeSelection$.subscribe(guard(() => this.executeQuery())),
+      this.menuService.cancelQuery$.subscribe(guard(() => this.cancelQuery())),
+      this.menuService.find$.subscribe(guard(() => this.openFind())),
+      this.menuService.replace$.subscribe(guard(() => this.openFindReplace())),
+      this.menuService.formatSql$.subscribe(guard(() => this.formatSql())),
+      this.menuService.toggleComment$.subscribe(guard(() => this.toggleComment())),
+      this.menuService.closeTab$.subscribe(guard(() => this.tabState.closeTab(this.tabId!))),
+      this.menuService.saveQuery$.subscribe(guard(() => this.saveQueryToFile())),
+      this.menuService.saveQueryAs$.subscribe(guard(() => this.saveQueryToFile())),
+      this.menuService.exportResults$.subscribe(guard(() => this.exportResults('csv'))),
+      this.menuService.openQuery$.subscribe(guard(() => this.openQueryFromFile())),
+    );
   }
 
   ngOnDestroy(): void {
     this.editor?.dispose();
     document.removeEventListener('keydown', this.handleKeydown);
     window.removeEventListener('forge:insert-snippet', this.handleInsertSnippet);
+    this.menuSubscriptions.forEach(s => s.unsubscribe());
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
     }
@@ -1667,6 +1692,67 @@ export class QueryComponent implements OnInit, OnDestroy {
     if (!this.editor) return;
     this.editor.focus();
     this.editor.trigger('keyboard', 'editor.action.gotoLine', undefined);
+  }
+
+  /**
+   * Toggle line comment via Monaco action (Ctrl+/).
+   */
+  toggleComment(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'editor.action.commentLine', undefined);
+  }
+
+  /**
+   * Save the current query SQL to a .sql file via native dialog.
+   */
+  async saveQueryToFile(): Promise<void> {
+    if (!this.editor) return;
+    const sql = this.editor.getValue();
+    if (!sql.trim()) {
+      this.notification.warning('No query to save');
+      return;
+    }
+    try {
+      const result = await firstValueFrom(this.ipc.showSaveDialog({
+        title: 'Save Query',
+        defaultPath: 'query.sql',
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      }));
+      if (result?.filePath) {
+        await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, sql));
+        this.notification.success('Query saved');
+      }
+    } catch {
+      this.notification.error('Failed to save query');
+    }
+  }
+
+  /**
+   * Open a .sql file and load its contents into the editor.
+   */
+  async openQueryFromFile(): Promise<void> {
+    try {
+      const result = await firstValueFrom(this.ipc.showOpenDialog({
+        title: 'Open Query',
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      }));
+      if (result?.filePaths?.length) {
+        const content = await firstValueFrom(this.ipc.readWorkspaceFile(result.filePaths[0]));
+        if (this.editor) {
+          this.editor.setValue(content);
+        }
+      }
+    } catch {
+      this.notification.error('Failed to open query file');
+    }
   }
 
   // SQL Formatting

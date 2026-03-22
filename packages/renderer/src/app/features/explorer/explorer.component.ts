@@ -1,13 +1,16 @@
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { firstValueFrom } from 'rxjs';
 import { TabStateService } from '../../core/state/tab.state';
-import { ExplorerStateService } from '../../core/state/explorer.state';
-import type { ObjectMetadata } from '@mj-forge/shared';
+import { IpcService } from '../../core/services/ipc.service';
+import { NotificationService } from '../../core/services/notification.service';
+import type { ColumnInfo, IndexInfo } from '@mj-forge/shared';
 
 @Component({
   selector: 'app-explorer',
@@ -19,6 +22,7 @@ import type { ObjectMetadata } from '@mj-forge/shared';
     MatTabsModule,
     MatTableModule,
     MatTooltipModule,
+    MatProgressSpinnerModule,
   ],
   template: `
     <div class="explorer-container">
@@ -26,107 +30,118 @@ import type { ObjectMetadata } from '@mj-forge/shared';
         @if (tab.type === 'object' && tab.metadata) {
           <div class="object-details">
             <div class="object-header">
-              <mat-icon>{{ getObjectIcon(getMetadataType(tab.metadata)) }}</mat-icon>
+              <mat-icon>{{ getObjectIcon(tab.metadata['objectType']) }}</mat-icon>
               <div class="object-info">
                 <h2>{{ tab.title }}</h2>
                 <span class="object-type">{{ tab.metadata['objectType'] }}</span>
               </div>
               <div class="header-actions">
-                <button mat-icon-button matTooltip="Script as CREATE">
+                <button mat-icon-button matTooltip="Script as CREATE" (click)="scriptCreate()">
                   <mat-icon>code</mat-icon>
                 </button>
-                <button mat-icon-button matTooltip="Refresh">
+                <button mat-icon-button matTooltip="Refresh" (click)="refresh()">
                   <mat-icon>refresh</mat-icon>
                 </button>
               </div>
             </div>
 
-            <mat-tab-group>
-              <mat-tab label="Columns">
-                <div class="tab-content">
-                  @if (objectDetails?.columns?.length) {
-                    <table mat-table [dataSource]="objectDetails!.columns!" class="columns-table">
-                      <ng-container matColumnDef="name">
-                        <th mat-header-cell *matHeaderCellDef>Name</th>
-                        <td mat-cell *matCellDef="let col">{{ col.name }}</td>
-                      </ng-container>
-                      <ng-container matColumnDef="dataType">
-                        <th mat-header-cell *matHeaderCellDef>Data Type</th>
-                        <td mat-cell *matCellDef="let col">{{ col.dataType }}</td>
-                      </ng-container>
-                      <ng-container matColumnDef="nullable">
-                        <th mat-header-cell *matHeaderCellDef>Nullable</th>
-                        <td mat-cell *matCellDef="let col">
-                          <mat-icon>{{ col.isNullable ? 'check' : 'close' }}</mat-icon>
-                        </td>
-                      </ng-container>
-                      <ng-container matColumnDef="primaryKey">
-                        <th mat-header-cell *matHeaderCellDef>PK</th>
-                        <td mat-cell *matCellDef="let col">
-                          @if (col.isPrimaryKey) {
-                            <mat-icon class="pk-icon">key</mat-icon>
-                          }
-                        </td>
-                      </ng-container>
-                      <tr mat-header-row *matHeaderRowDef="columnDisplayedColumns"></tr>
-                      <tr mat-row *matRowDef="let row; columns: columnDisplayedColumns"></tr>
-                    </table>
-                  } @else {
-                    <div class="empty-state">
-                      <mat-icon>view_column</mat-icon>
-                      <p>No columns</p>
-                    </div>
-                  }
-                </div>
-              </mat-tab>
+            @if (loading()) {
+              <div class="loading-state">
+                <mat-spinner diameter="32"></mat-spinner>
+                <p>Loading object details...</p>
+              </div>
+            } @else {
+              <mat-tab-group>
+                <mat-tab label="Columns ({{ columns().length }})">
+                  <div class="tab-content">
+                    @if (columns().length) {
+                      <table mat-table [dataSource]="columns()" class="columns-table">
+                        <ng-container matColumnDef="name">
+                          <th mat-header-cell *matHeaderCellDef>Name</th>
+                          <td mat-cell *matCellDef="let col">{{ col.name }}</td>
+                        </ng-container>
+                        <ng-container matColumnDef="dataType">
+                          <th mat-header-cell *matHeaderCellDef>Data Type</th>
+                          <td mat-cell *matCellDef="let col">{{ col.dataType }}</td>
+                        </ng-container>
+                        <ng-container matColumnDef="nullable">
+                          <th mat-header-cell *matHeaderCellDef>Nullable</th>
+                          <td mat-cell *matCellDef="let col">
+                            <mat-icon>{{ col.isNullable ? 'check' : 'close' }}</mat-icon>
+                          </td>
+                        </ng-container>
+                        <ng-container matColumnDef="primaryKey">
+                          <th mat-header-cell *matHeaderCellDef>PK</th>
+                          <td mat-cell *matCellDef="let col">
+                            @if (col.isPrimaryKey) {
+                              <mat-icon class="pk-icon">key</mat-icon>
+                            }
+                          </td>
+                        </ng-container>
+                        <ng-container matColumnDef="default">
+                          <th mat-header-cell *matHeaderCellDef>Default</th>
+                          <td mat-cell *matCellDef="let col">{{ col.defaultValue || '' }}</td>
+                        </ng-container>
+                        <tr mat-header-row *matHeaderRowDef="columnDisplayedColumns"></tr>
+                        <tr mat-row *matRowDef="let row; columns: columnDisplayedColumns"></tr>
+                      </table>
+                    } @else {
+                      <div class="empty-state">
+                        <mat-icon>view_column</mat-icon>
+                        <p>No columns found</p>
+                      </div>
+                    }
+                  </div>
+                </mat-tab>
 
-              <mat-tab label="Indexes">
-                <div class="tab-content">
-                  @if (objectDetails?.indexes?.length) {
-                    <table mat-table [dataSource]="objectDetails!.indexes!" class="indexes-table">
-                      <ng-container matColumnDef="name">
-                        <th mat-header-cell *matHeaderCellDef>Name</th>
-                        <td mat-cell *matCellDef="let idx">{{ idx.name }}</td>
-                      </ng-container>
-                      <ng-container matColumnDef="type">
-                        <th mat-header-cell *matHeaderCellDef>Type</th>
-                        <td mat-cell *matCellDef="let idx">{{ idx.type }}</td>
-                      </ng-container>
-                      <ng-container matColumnDef="columns">
-                        <th mat-header-cell *matHeaderCellDef>Columns</th>
-                        <td mat-cell *matCellDef="let idx">{{ idx.columns?.join(', ') }}</td>
-                      </ng-container>
-                      <ng-container matColumnDef="unique">
-                        <th mat-header-cell *matHeaderCellDef>Unique</th>
-                        <td mat-cell *matCellDef="let idx">
-                          <mat-icon>{{ idx.isUnique ? 'check' : 'close' }}</mat-icon>
-                        </td>
-                      </ng-container>
-                      <tr mat-header-row *matHeaderRowDef="indexDisplayedColumns"></tr>
-                      <tr mat-row *matRowDef="let row; columns: indexDisplayedColumns"></tr>
-                    </table>
-                  } @else {
-                    <div class="empty-state">
-                      <mat-icon>format_list_numbered</mat-icon>
-                      <p>No indexes</p>
-                    </div>
-                  }
-                </div>
-              </mat-tab>
+                <mat-tab label="Indexes ({{ indexes().length }})">
+                  <div class="tab-content">
+                    @if (indexes().length) {
+                      <table mat-table [dataSource]="indexes()" class="indexes-table">
+                        <ng-container matColumnDef="name">
+                          <th mat-header-cell *matHeaderCellDef>Name</th>
+                          <td mat-cell *matCellDef="let idx">{{ idx.name }}</td>
+                        </ng-container>
+                        <ng-container matColumnDef="type">
+                          <th mat-header-cell *matHeaderCellDef>Type</th>
+                          <td mat-cell *matCellDef="let idx">{{ idx.type }}</td>
+                        </ng-container>
+                        <ng-container matColumnDef="columns">
+                          <th mat-header-cell *matHeaderCellDef>Columns</th>
+                          <td mat-cell *matCellDef="let idx">{{ idx.columns?.join(', ') }}</td>
+                        </ng-container>
+                        <ng-container matColumnDef="unique">
+                          <th mat-header-cell *matHeaderCellDef>Unique</th>
+                          <td mat-cell *matCellDef="let idx">
+                            <mat-icon>{{ idx.isUnique ? 'check' : 'close' }}</mat-icon>
+                          </td>
+                        </ng-container>
+                        <tr mat-header-row *matHeaderRowDef="indexDisplayedColumns"></tr>
+                        <tr mat-row *matRowDef="let row; columns: indexDisplayedColumns"></tr>
+                      </table>
+                    } @else {
+                      <div class="empty-state">
+                        <mat-icon>format_list_numbered</mat-icon>
+                        <p>No indexes</p>
+                      </div>
+                    }
+                  </div>
+                </mat-tab>
 
-              <mat-tab label="Definition">
-                <div class="tab-content">
-                  @if (objectDetails?.definition) {
-                    <pre class="sql-definition">{{ objectDetails!.definition }}</pre>
-                  } @else {
-                    <div class="empty-state">
-                      <mat-icon>code</mat-icon>
-                      <p>No definition available</p>
-                    </div>
-                  }
-                </div>
-              </mat-tab>
-            </mat-tab-group>
+                <mat-tab label="Definition">
+                  <div class="tab-content">
+                    @if (definition()) {
+                      <pre class="sql-definition">{{ definition() }}</pre>
+                    } @else {
+                      <div class="empty-state">
+                        <mat-icon>code</mat-icon>
+                        <p>No definition available for tables. Available for views, procedures, and functions.</p>
+                      </div>
+                    }
+                  </div>
+                </mat-tab>
+              </mat-tab-group>
+            }
           </div>
         } @else {
           <div class="no-selection">
@@ -240,6 +255,16 @@ import type { ObjectMetadata } from '@mj-forge/shared';
         margin: 0;
       }
 
+      .loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: var(--spacing-md);
+        color: var(--text-secondary);
+      }
+
       .no-selection,
       .empty-state {
         display: flex;
@@ -281,26 +306,136 @@ import type { ObjectMetadata } from '@mj-forge/shared';
 })
 export class ExplorerComponent {
   private readonly tabState = inject(TabStateService);
-  private readonly explorerState = inject(ExplorerStateService);
+  private readonly ipc = inject(IpcService);
+  private readonly notification = inject(NotificationService);
 
   readonly activeTab = this.tabState.activeTab;
-  readonly columnDisplayedColumns = ['name', 'dataType', 'nullable', 'primaryKey'];
+  readonly columnDisplayedColumns = ['name', 'dataType', 'nullable', 'primaryKey', 'default'];
   readonly indexDisplayedColumns = ['name', 'type', 'columns', 'unique'];
 
-  // This would normally be loaded from the service
-  objectDetails: ObjectMetadata | null = null;
+  readonly loading = signal(false);
+  readonly columns = signal<ColumnInfo[]>([]);
+  readonly indexes = signal<IndexInfo[]>([]);
+  readonly definition = signal<string | null>(null);
 
-  getObjectIcon(objectType: string): string {
+  private loadedTabId: string | null = null;
+
+  constructor() {
+    // Watch for active tab changes and load details when an object tab becomes active
+    effect(() => {
+      const tab = this.activeTab();
+      if (tab?.type === 'object' && tab.metadata && tab.id !== this.loadedTabId) {
+        this.loadedTabId = tab.id;
+        this.loadObjectDetails(
+          tab.connectionId!,
+          tab.databaseName!,
+          tab.metadata['objectName'] as string,
+          tab.metadata['objectType'] as string
+        );
+      }
+    });
+  }
+
+  private async loadObjectDetails(
+    connectionId: string,
+    databaseName: string,
+    objectName: string,
+    objectType: string
+  ): Promise<void> {
+    this.loading.set(true);
+    this.columns.set([]);
+    this.indexes.set([]);
+    this.definition.set(null);
+
+    // Determine schema from tab metadata or parse from objectName
+    const tab = this.activeTab();
+    let schema = (tab?.metadata?.['schema'] as string) || 'dbo';
+    let name = objectName;
+    if (objectName.includes('.')) {
+      const parts = objectName.split('.');
+      schema = parts[0].replace(/[\[\]]/g, '');
+      name = parts[1].replace(/[\[\]]/g, '');
+    }
+
+    try {
+      // Load columns and indexes in parallel for tables/views
+      const isTableOrView = ['table', 'view', 'mj_entity'].includes(objectType.toLowerCase());
+
+      if (isTableOrView) {
+        const [cols, idxs] = await Promise.all([
+          firstValueFrom(this.ipc.getTableColumns(connectionId, databaseName, schema, name)).catch(() => []),
+          firstValueFrom(this.ipc.getTableIndexes(connectionId, databaseName, schema, name)).catch(() => []),
+        ]);
+        this.columns.set(cols);
+        this.indexes.set(idxs);
+      }
+
+      // Load definition for views, procedures, functions
+      if (!['table', 'mj_entity'].includes(objectType.toLowerCase())) {
+        try {
+          const def = await firstValueFrom(this.ipc.getDefinition(connectionId, databaseName, objectType, name, schema));
+          this.definition.set(def?.definition || null);
+        } catch {
+          // No definition available
+        }
+      }
+    } catch {
+      this.notification.error('Failed to load object details');
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  async scriptCreate(): Promise<void> {
+    const tab = this.activeTab();
+    if (!tab?.connectionId || !tab.databaseName || !tab.metadata) return;
+
+    const objectName = tab.metadata['objectName'] as string;
+
+    try {
+      let schema = (tab.metadata['schema'] as string) || 'dbo';
+      let name = objectName;
+      if (objectName.includes('.')) {
+        const parts = objectName.split('.');
+        schema = parts[0].replace(/[\[\]]/g, '');
+        name = parts[1].replace(/[\[\]]/g, '');
+      }
+
+      const script = await firstValueFrom(
+        this.ipc.scriptTableCreate(tab.connectionId, tab.databaseName, schema, name)
+      );
+
+      // Open in a new query tab
+      this.tabState.openQueryTab(tab.connectionId, tab.databaseName, script);
+    } catch {
+      this.notification.error('Failed to generate CREATE script');
+    }
+  }
+
+  refresh(): void {
+    this.loadedTabId = null; // Force reload
+    const tab = this.activeTab();
+    if (tab?.type === 'object' && tab.metadata) {
+      this.loadedTabId = tab.id;
+      this.loadObjectDetails(
+        tab.connectionId!,
+        tab.databaseName!,
+        tab.metadata['objectName'] as string,
+        tab.metadata['objectType'] as string
+      );
+    }
+  }
+
+  getObjectIcon(objectType: unknown): string {
     const icons: Record<string, string> = {
       table: 'table_chart',
       view: 'view_list',
       procedure: 'functions',
       function: 'calculate',
+      mj_entity: 'dataset',
+      mj_query: 'code',
+      mj_application: 'app_shortcut',
     };
-    return icons[objectType?.toLowerCase()] || 'description';
-  }
-
-  getMetadataType(metadata: Record<string, unknown>): string {
-    return (metadata?.['objectType'] as string) || '';
+    return icons[String(objectType).toLowerCase()] || 'description';
   }
 }

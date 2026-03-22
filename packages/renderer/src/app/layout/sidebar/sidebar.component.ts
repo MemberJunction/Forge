@@ -537,16 +537,37 @@ export class SidebarComponent {
   onNodeDoubleClick(node: TreeNode): void {
     if (node.hasChildren) {
       this.explorerState.toggleNode(node.id);
-    } else if (node.connectionId && node.databaseName && node.metadata) {
-      // Open object details tab
-      this.tabState.openObjectTab(
-        node.connectionId,
-        node.databaseName,
-        node.metadata.name,
-        node.metadata.type
-      );
-      this.router.navigate(['/explorer']);
+      return;
     }
+
+    if (!node.connectionId || !node.databaseName || !node.metadata) return;
+
+    // MJ entity: open SELECT TOP 1000 query
+    if (node.type === 'mj_entity') {
+      const schema = node.metadata.schema || '__mj';
+      const baseTable = (node as TreeNode & { tableName?: string }).tableName || node.metadata.name;
+      const sql = `SELECT TOP 1000 * FROM [${schema}].[${baseTable}]`;
+      this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+      this.router.navigate(['/query']);
+      return;
+    }
+
+    // MJ saved query: open query SQL in editor
+    if (node.type === 'mj_query' && node.metadata.definition) {
+      this.tabState.openQueryTab(node.connectionId, node.databaseName, node.metadata.definition);
+      this.router.navigate(['/query']);
+      return;
+    }
+
+    // Standard database objects: open object details tab
+    this.tabState.openObjectTab(
+      node.connectionId,
+      node.databaseName,
+      node.metadata.name,
+      node.metadata.type,
+      node.metadata.schema || node.schema || 'dbo'
+    );
+    this.router.navigate(['/explorer']);
   }
 
   toggleExpand(node: TreeNode, event: Event): void {

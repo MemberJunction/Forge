@@ -317,7 +317,8 @@ export class TabStateService {
     connectionId: string,
     databaseName: string,
     objectName: string,
-    objectType: string
+    objectType: string,
+    schema = 'dbo'
   ): string {
     // Check if tab already exists
     const existing = this._tabs().find(
@@ -339,7 +340,7 @@ export class TabStateService {
       icon: this.getIconForObjectType(objectType),
       connectionId,
       databaseName,
-      metadata: { objectName, objectType },
+      metadata: { objectName, objectType, schema },
     });
   }
 
