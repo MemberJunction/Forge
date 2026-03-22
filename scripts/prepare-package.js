@@ -33,17 +33,16 @@ console.log('Preparing workspace packages for packaging...');
 for (const pkg of workspacePackages) {
   const srcDir = path.join(rootDir, 'packages', pkg);
   const destDir = path.join(nodeModulesDir, pkg);
-  const symlinkPath = destDir;
 
   // Check if it's a symlink and remove it
   try {
-    const stats = fs.lstatSync(symlinkPath);
+    const stats = fs.lstatSync(destDir);
     if (stats.isSymbolicLink()) {
-      console.log(`Removing symlink: ${symlinkPath}`);
-      fs.unlinkSync(symlinkPath);
+      console.log(`Removing symlink: ${destDir}`);
+      fs.unlinkSync(destDir);
     } else if (stats.isDirectory()) {
-      console.log(`Directory already exists: ${symlinkPath}`);
-      fs.rmSync(symlinkPath, { recursive: true });
+      console.log(`Directory already exists: ${destDir}`);
+      fs.rmSync(destDir, { recursive: true });
     }
   } catch (err) {
     // Path doesn't exist, that's fine

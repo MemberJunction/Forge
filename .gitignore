@@ -46,4 +46,4 @@ tmp/
 temp/
 e2e
 playwright-report
-test-results
+test-results.package.json.bak
