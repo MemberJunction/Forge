@@ -4,6 +4,7 @@
  */
 
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import type { QueryHistoryEntry, QueryHistoryFilter } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 
@@ -64,7 +65,7 @@ export class QueryHistoryStateService {
     }
 
     try {
-      const entries = await this.ipc.getQueryHistory(this._filter()).toPromise();
+      const entries = await firstValueFrom(this.ipc.getQueryHistory(this._filter()));
       this._entries.set(entries || []);
     } catch (error) {
       console.error('Failed to load query history:', error);
@@ -87,7 +88,7 @@ export class QueryHistoryStateService {
    */
   async clearHistory(): Promise<void> {
     try {
-      await this.ipc.clearQueryHistory().toPromise();
+      await firstValueFrom(this.ipc.clearQueryHistory());
       this._entries.set([]);
     } catch (error) {
       console.error('Failed to clear query history:', error);
@@ -100,7 +101,7 @@ export class QueryHistoryStateService {
    */
   async deleteEntry(id: string): Promise<boolean> {
     try {
-      const result = await this.ipc.deleteQueryHistoryEntry(id).toPromise();
+      const result = await firstValueFrom(this.ipc.deleteQueryHistoryEntry(id));
       if (result) {
         this._entries.update(entries => entries.filter(e => e.id !== id));
       }

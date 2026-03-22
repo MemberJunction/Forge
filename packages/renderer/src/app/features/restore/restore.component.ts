@@ -12,7 +12,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatCardModule } from '@angular/material/card';
 import { MatStepperModule } from '@angular/material/stepper';
 import { MatTableModule } from '@angular/material/table';
-import { Subscription } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { NotificationService } from '../../core/services/notification.service';
@@ -526,8 +526,8 @@ export class RestoreComponent implements OnInit, OnDestroy {
   }
 
   async browseBackupFile(): Promise<void> {
-    const result = await this.ipc
-      .showOpenDialog({
+    const result = await firstValueFrom(
+      this.ipc.showOpenDialog({
         title: 'Select Backup File',
         properties: ['openFile'],
         filters: [
@@ -535,7 +535,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
           { name: 'All Files', extensions: ['*'] },
         ],
       })
-      .toPromise();
+    );
 
     if (result && !result.canceled && result.filePaths?.[0]) {
       this.formData.backupPath = result.filePaths[0];
@@ -544,8 +544,8 @@ export class RestoreComponent implements OnInit, OnDestroy {
 
   async browseFilePath(file: FileMapping): Promise<void> {
     const isLog = file.type === 'L';
-    const result = await this.ipc
-      .showSaveDialog({
+    const result = await firstValueFrom(
+      this.ipc.showSaveDialog({
         title: `Select Location for ${file.logicalName}`,
         defaultPath: file.newPath,
         filters: [
@@ -555,7 +555,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
           },
         ],
       })
-      .toPromise();
+    );
 
     if (result && !result.canceled && result.filePath) {
       file.newPath = result.filePath;
@@ -568,9 +568,9 @@ export class RestoreComponent implements OnInit, OnDestroy {
 
     this.loadingFiles.set(true);
     try {
-      const files = await this.ipc
-        .getRestoreFileList(connectionId, this.formData.backupPath)
-        .toPromise();
+      const files = await firstValueFrom(
+        this.ipc.getRestoreFileList(connectionId, this.formData.backupPath)
+      );
 
       this.fileMappings =
         files?.map(f => ({
@@ -659,7 +659,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
     };
 
     try {
-      await this.ipc.startRestore(request).toPromise();
+      await firstValueFrom(this.ipc.startRestore(request));
     } catch (error) {
       this.restoring.set(false);
       this.notification.error(error instanceof Error ? error.message : 'Failed to start restore');
@@ -668,7 +668,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
 
   async cancelRestore(): Promise<void> {
     if (this.currentRestoreId) {
-      await this.ipc.cancelRestore(this.currentRestoreId).toPromise();
+      await firstValueFrom(this.ipc.cancelRestore(this.currentRestoreId));
       this.restoring.set(false);
       this.notification.info('Restore cancelled');
     }

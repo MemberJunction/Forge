@@ -8,6 +8,7 @@ import { CdkOverlayOrigin, OverlayModule } from '@angular/cdk/overlay';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { SettingsService } from '../../core/services/settings.service';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { QueryExecutionService } from '../../core/services/query-execution.service';
 import { DockerPanelComponent } from '../../shared/components/docker-panel/docker-panel.component';
@@ -399,11 +400,11 @@ export class StatusBarComponent implements OnInit {
     if (!this.ipc.isAvailable) return;
 
     try {
-      const status = await this.ipc.detectDocker().toPromise();
+      const status = await firstValueFrom(this.ipc.detectDocker());
       this.dockerStatus.set(status ?? null);
 
       if (status?.isAvailable && status?.isRunning) {
-        const containers = await this.ipc.getDockerContainers().toPromise();
+        const containers = await firstValueFrom(this.ipc.getDockerContainers());
         this.containers.set(containers?.filter(c => c.isSqlServer) ?? []);
       } else {
         this.containers.set([]);

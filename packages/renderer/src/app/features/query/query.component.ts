@@ -1309,7 +1309,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     // Prevent concurrent execution — cancel previous query if still running
     if (this.executing() && this.currentQueryId) {
-      this.ipc.cancelQuery(this.currentQueryId).toPromise().catch(() => {});
+      firstValueFrom(this.ipc.cancelQuery(this.currentQueryId)).catch(() => {});
     }
 
     this.executing.set(true);
@@ -1324,14 +1324,14 @@ export class QueryComponent implements OnInit, OnDestroy {
     this.queryExecution.startExecution(this.tabId || this.currentQueryId, tabTitle);
 
     try {
-      const result = await this.ipc
-        .executeQuery({
+      const result = await firstValueFrom(
+        this.ipc.executeQuery({
           connectionId,
           database: database || undefined,
           sql,
           queryId,
         })
-        .toPromise();
+      );
 
       // Only update results if this is still the current query (not stale)
       if (this.currentQueryId !== queryId) return;
@@ -1374,7 +1374,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   async cancelQuery(): Promise<void> {
     if (this.currentQueryId) {
-      await this.ipc.cancelQuery(this.currentQueryId).toPromise();
+      await firstValueFrom(this.ipc.cancelQuery(this.currentQueryId));
       this.notification.info('Query cancelled');
     }
   }
@@ -1458,14 +1458,14 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     try {
-      const result = await this.ipc
-        .exportQueryResults(resultSet, {
+      const result = await firstValueFrom(
+        this.ipc.exportQueryResults(resultSet, {
           format,
           includeHeaders: true,
           prettyPrint: true,
           tableName: 'QueryResults',
         })
-        .toPromise();
+      );
 
       if (result?.success) {
         this.notification.success(`Exported ${result.rowsExported} rows to ${result.filePath}`);
@@ -1820,14 +1820,14 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     try {
       const planSql = `SET SHOWPLAN_TEXT ON;\n${sql}\nSET SHOWPLAN_TEXT OFF;`;
-      const result = await this.ipc
-        .executeQuery({
+      const result = await firstValueFrom(
+        this.ipc.executeQuery({
           connectionId,
           database: database || undefined,
           sql: planSql,
           queryId: `plan-${Date.now()}`,
         })
-        .toPromise();
+      );
 
       this.result.set(result ?? null);
       this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');

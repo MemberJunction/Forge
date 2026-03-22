@@ -12,6 +12,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
 
@@ -181,12 +182,12 @@ export class RenameDatabaseDialogComponent {
     this.error.set(null);
 
     try {
-      const result = await this.ipc
-        .renameDatabase(this.data.connectionId, {
+      const result = await firstValueFrom(
+        this.ipc.renameDatabase(this.data.connectionId, {
           currentName: this.data.databaseName,
           newName: this.newName.trim(),
         })
-        .toPromise();
+      );
 
       if (result?.success) {
         this.notification.success(`Database renamed to "${this.newName.trim()}"`);

@@ -13,6 +13,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import type { RecoveryModel } from '@mj-forge/shared';
@@ -163,12 +164,12 @@ export class CreateDatabaseDialogComponent {
     this.error.set(null);
 
     try {
-      const result = await this.ipc
-        .createDatabase(this.data.connectionId, {
+      const result = await firstValueFrom(
+        this.ipc.createDatabase(this.data.connectionId, {
           name: this.dbName.trim(),
           recoveryModel: this.recoveryModel,
         })
-        .toPromise();
+      );
 
       if (result?.success) {
         this.notification.success(`Database "${this.dbName.trim()}" created successfully`);

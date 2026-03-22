@@ -14,6 +14,7 @@ import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TablePropertiesService } from '../../core/services/table-properties.service';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConfirmDialogComponent } from '../../shared/components/dialog/confirm-dialog.component';
 import { InputDialogComponent } from '../../shared/components/dialog/input-dialog.component';
@@ -1651,9 +1652,9 @@ ORDER BY __mj_CreatedAt DESC`;
     }
 
     try {
-      const result = await this.ipc
-        .renameDatabase(connectionId, { currentName: oldName, newName })
-        .toPromise();
+      const result = await firstValueFrom(
+        this.ipc.renameDatabase(connectionId, { currentName: oldName, newName })
+      );
 
       if (result?.success) {
         this.notification.success(`Database renamed to "${newName}"`);
@@ -1691,9 +1692,9 @@ ORDER BY __mj_CreatedAt DESC`;
     }
 
     try {
-      const result = await this.ipc
-        .deleteDatabase(connectionId, { name: databaseName, closeConnections: true })
-        .toPromise();
+      const result = await firstValueFrom(
+        this.ipc.deleteDatabase(connectionId, { name: databaseName, closeConnections: true })
+      );
 
       if (result?.success) {
         this.notification.success(`Database "${databaseName}" deleted`);

@@ -7,6 +7,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
@@ -401,11 +402,11 @@ export class DockerPanelComponent implements OnInit {
 
     this.loading.set(true);
     try {
-      const status = await this.ipc.detectDocker().toPromise();
+      const status = await firstValueFrom(this.ipc.detectDocker());
       this.dockerStatus.set(status ?? null);
 
       if (status?.isAvailable && status?.isRunning) {
-        const containers = await this.ipc.getDockerContainers().toPromise();
+        const containers = await firstValueFrom(this.ipc.getDockerContainers());
         this.containers.set(containers?.filter(c => c.isSqlServer) ?? []);
       } else {
         this.containers.set([]);
@@ -421,7 +422,7 @@ export class DockerPanelComponent implements OnInit {
   async startContainer(container: DockerContainer): Promise<void> {
     this.actionInProgress.set(container.id);
     try {
-      await this.ipc.startDockerContainer(container.id).toPromise();
+      await firstValueFrom(this.ipc.startDockerContainer(container.id));
       this.notification.success(`Started container: ${container.name}`);
       await this.refresh();
     } catch (error) {
@@ -435,7 +436,7 @@ export class DockerPanelComponent implements OnInit {
   async stopContainer(container: DockerContainer): Promise<void> {
     this.actionInProgress.set(container.id);
     try {
-      await this.ipc.stopDockerContainer(container.id).toPromise();
+      await firstValueFrom(this.ipc.stopDockerContainer(container.id));
       this.notification.success(`Stopped container: ${container.name}`);
       await this.refresh();
     } catch (error) {
@@ -461,14 +462,14 @@ export class DockerPanelComponent implements OnInit {
 
     this.creating.set(true);
     try {
-      const result = await this.ipc
-        .createDockerContainer({
+      const result = await firstValueFrom(
+        this.ipc.createDockerContainer({
           name: this.newContainerName,
           password: this.newContainerPassword,
           port: this.newContainerPort || 1433,
           acceptEula: true,
         })
-        .toPromise();
+      );
 
       if (result?.success) {
         this.notification.success(`Container "${this.newContainerName}" created and started`);

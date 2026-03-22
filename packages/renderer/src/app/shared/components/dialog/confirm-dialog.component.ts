@@ -22,6 +22,9 @@ export interface ConfirmDialogConfig {
       <div class="dialog-overlay" (click)="cancel()">
         <div
           class="dialog-container"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-labelledby]="'confirm-dialog-title'"
           [class]="config()?.type || 'info'"
           (click)="$event.stopPropagation()"
         >
@@ -39,7 +42,7 @@ export interface ConfirmDialogConfig {
                 }
               }
             </mat-icon>
-            <h3>{{ config()?.title }}</h3>
+            <h3 id="confirm-dialog-title">{{ config()?.title }}</h3>
           </header>
 
           <div class="dialog-body">
@@ -51,6 +54,7 @@ export interface ConfirmDialogConfig {
                 </p>
                 <input
                   type="text"
+                  [attr.aria-label]="'Type ' + config()?.confirmationInput + ' to confirm'"
                   [value]="inputValue()"
                   (input)="onInputChange($event)"
                   (keydown.enter)="onConfirm()"

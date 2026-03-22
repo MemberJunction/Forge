@@ -6,6 +6,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService } from '../../core/state/explorer.state';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import {
   ConnectionDialogComponent,
@@ -399,10 +400,10 @@ export class WelcomeComponent implements OnInit {
 
   private async checkDocker(): Promise<void> {
     try {
-      const status = await this.ipc.detectDocker().toPromise();
+      const status = await firstValueFrom(this.ipc.detectDocker());
       this.dockerStatus = status ?? null;
       if (this.dockerStatus?.isAvailable) {
-        const containers = await this.ipc.getDockerContainers().toPromise();
+        const containers = await firstValueFrom(this.ipc.getDockerContainers());
         this.sqlContainers = containers?.filter(c => c.isSqlServer) ?? [];
       }
     } catch {
@@ -457,7 +458,7 @@ export class WelcomeComponent implements OnInit {
   }
 
   async startContainer(container: DockerContainer): Promise<void> {
-    await this.ipc.startDockerContainer(container.id).toPromise();
+    await firstValueFrom(this.ipc.startDockerContainer(container.id));
     await this.checkDocker();
   }
 

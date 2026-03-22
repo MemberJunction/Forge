@@ -11,7 +11,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatCardModule } from '@angular/material/card';
 import { MatStepperModule } from '@angular/material/stepper';
-import { Subscription } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { NotificationService } from '../../core/services/notification.service';
@@ -392,8 +392,8 @@ export class BackupComponent implements OnInit, OnDestroy {
   }
 
   async browseBackupPath(): Promise<void> {
-    const result = await this.ipc
-      .showSaveDialog({
+    const result = await firstValueFrom(
+      this.ipc.showSaveDialog({
         title: 'Save Backup File',
         defaultPath: `${this.formData.database}_backup.bak`,
         filters: [
@@ -401,7 +401,7 @@ export class BackupComponent implements OnInit, OnDestroy {
           { name: 'All Files', extensions: ['*'] },
         ],
       })
-      .toPromise();
+    );
 
     if (result && !result.canceled && result.filePath) {
       this.formData.backupPath = result.filePath;
@@ -473,7 +473,7 @@ export class BackupComponent implements OnInit, OnDestroy {
     };
 
     try {
-      await this.ipc.startBackup(request).toPromise();
+      await firstValueFrom(this.ipc.startBackup(request));
     } catch (error) {
       this.backing.set(false);
       this.notification.error(error instanceof Error ? error.message : 'Failed to start backup');
@@ -482,7 +482,7 @@ export class BackupComponent implements OnInit, OnDestroy {
 
   async cancelBackup(): Promise<void> {
     if (this.currentBackupId) {
-      await this.ipc.cancelBackup(this.currentBackupId).toPromise();
+      await firstValueFrom(this.ipc.cancelBackup(this.currentBackupId));
       this.backing.set(false);
       this.notification.info('Backup cancelled');
     }

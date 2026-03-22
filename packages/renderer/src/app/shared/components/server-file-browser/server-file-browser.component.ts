@@ -13,6 +13,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import type { ServerDrive, ServerFileEntry } from '@mj-forge/shared';
 
@@ -365,7 +366,7 @@ export class ServerFileBrowserComponent implements OnInit {
     this.error.set('');
 
     try {
-      const drives = await this.ipc.getServerDrives(this.data.connectionId).toPromise();
+      const drives = await firstValueFrom(this.ipc.getServerDrives(this.data.connectionId));
       this.drives.set(drives || []);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load drives');
@@ -380,9 +381,9 @@ export class ServerFileBrowserComponent implements OnInit {
     this.selectedEntry.set(null);
 
     try {
-      const entries = await this.ipc
-        .listServerDirectory(this.data.connectionId, path, true)
-        .toPromise();
+      const entries = await firstValueFrom(
+        this.ipc.listServerDirectory(this.data.connectionId, path, true)
+      );
 
       // Filter by file extension if specified
       let filteredEntries = entries || [];

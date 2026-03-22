@@ -21,7 +21,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
-import { Subscription } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import {
@@ -417,7 +417,7 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
 
   private async loadDefaultPath(): Promise<void> {
     try {
-      const paths = await this.ipc.getServerDefaultPaths(this.data.connectionId).toPromise();
+      const paths = await firstValueFrom(this.ipc.getServerDefaultPaths(this.data.connectionId));
       if (paths?.backupPath) {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         this.formData.backupPath = `${paths.backupPath}${this.data.databaseName}_${timestamp}.bak`;
@@ -430,9 +430,9 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
   private async loadBackupHistory(): Promise<void> {
     this.loadingHistory.set(true);
     try {
-      const history = await this.ipc
-        .getBackupHistory(this.data.connectionId, this.data.databaseName)
-        .toPromise();
+      const history = await firstValueFrom(
+        this.ipc.getBackupHistory(this.data.connectionId, this.data.databaseName)
+      );
       this.backupHistory.set(history || []);
     } catch {
       // Ignore errors
@@ -495,7 +495,7 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
     };
 
     try {
-      await this.ipc.startBackup(request).toPromise();
+      await firstValueFrom(this.ipc.startBackup(request));
     } catch (error) {
       this.backing.set(false);
       this.notification.error(error instanceof Error ? error.message : 'Failed to start backup');
@@ -506,7 +506,7 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
     if (this.backing()) {
       const backupId = this.progress()?.backupId;
       if (backupId) {
-        this.ipc.cancelBackup(backupId).toPromise();
+        firstValueFrom(this.ipc.cancelBackup(backupId));
       }
     }
     this.dialogRef.close();
