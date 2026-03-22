@@ -47,31 +47,40 @@ import type { ToolCallResult } from '@mj-forge/shared';
       <!-- Header -->
       <div class="chat-header">
         <span class="chat-icon">✨</span>
-        <h3>AI Assistant</h3>
-        <span class="badge">AI</span>
-        <button class="chat-header-btn" (click)="state.toggleConversations()" title="Conversations">☰</button>
+        <div class="conv-selector" (click)="toggleConvDropdown($event)">
+          @if (renamingConv()) {
+            <input class="conv-rename-input"
+                   #renameInput
+                   [value]="renameValue"
+                   (input)="renameValue = $any($event.target).value"
+                   (keydown.enter)="confirmRename()"
+                   (keydown.escape)="cancelRename()"
+                   (blur)="confirmRename()"
+                   (click)="$event.stopPropagation()" />
+          } @else {
+            <span class="conv-selector-name">{{ state.activeConversation()?.title || 'New Chat' }}</span>
+            <span class="conv-chevron" [class.open]="convDropdownOpen()">▾</span>
+          }
+        </div>
+        <button class="chat-header-btn" (click)="state.newConversation()" title="New Chat">+</button>
         @if (!isTabMode) {
           <button class="chat-header-btn" (click)="popOutToTab()" title="Open as tab">⧉</button>
-        }
-        @if (!isTabMode) {
           <button class="chat-header-btn" (click)="chatState.closePanel()" title="Close">✕</button>
         }
       </div>
 
-      <!-- New Chat button -->
-      <div class="new-chat-btn" (click)="state.newConversation()">+ New Chat</div>
-
-      <!-- Conversation list -->
-      @if (state.conversationsExpanded()) {
-        <div class="chat-conversations">
+      <!-- Conversation dropdown -->
+      @if (convDropdownOpen()) {
+        <div class="conv-dropdown">
           @for (conv of state.conversations(); track conv.id) {
             <div class="conv-item"
                  [class.active]="conv.id === state.activeConversationId()"
-                 (click)="state.selectConversation(conv.id)">
+                 (click)="selectConv(conv.id)">
               <span class="conv-title">{{ conv.title }}</span>
               <div class="conv-actions">
                 <span class="conv-date">{{ formatDate(conv.updatedAt) }}</span>
-                <button class="conv-delete" (click)="deleteConv($event, conv.id)" title="Delete">✕</button>
+                <button class="conv-action-btn" (click)="startRename($event, conv)" title="Rename">✎</button>
+                <button class="conv-action-btn delete" (click)="deleteConv($event, conv.id)" title="Delete">✕</button>
               </div>
             </div>
           }
@@ -268,43 +277,64 @@ import type { ToolCallResult } from '@mj-forge/shared';
       flex-shrink: 0;
     }
     .chat-icon { font-size: 16px; }
-    .chat-header h3 { font-size: 13px; font-weight: 600; flex: 1; margin: 0; }
-    .badge {
-      background: var(--accent);
-      color: white;
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-weight: 600;
-    }
     .chat-header-btn {
       background: none;
       border: none;
       color: var(--text-secondary);
       cursor: pointer;
       font-size: 16px;
-      padding: 2px;
+      padding: 2px 4px;
+      border-radius: 4px;
     }
-    .chat-header-btn:hover { color: var(--text-primary); }
+    .chat-header-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 
-    .new-chat-btn {
-      padding: 8px 14px;
-      font-size: 12px;
-      cursor: pointer;
-      color: var(--accent);
+    /* Conversation selector dropdown trigger */
+    .conv-selector {
+      flex: 1;
       display: flex;
       align-items: center;
-      gap: 6px;
-      border-bottom: 1px solid var(--border-primary);
+      gap: 4px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      min-width: 0;
+    }
+    .conv-selector:hover { background: var(--bg-hover); }
+    .conv-selector-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .conv-chevron {
+      font-size: 12px;
+      color: var(--text-muted);
+      transition: transform 0.15s ease;
       flex-shrink: 0;
     }
-    .new-chat-btn:hover { background: var(--bg-hover); }
+    .conv-chevron.open { transform: rotate(180deg); }
+    .conv-rename-input {
+      flex: 1;
+      background: var(--bg-primary);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      outline: none;
+      min-width: 0;
+    }
 
-    .chat-conversations {
+    /* Conversation dropdown list */
+    .conv-dropdown {
       border-bottom: 1px solid var(--border-primary);
-      max-height: 160px;
+      max-height: 240px;
       overflow-y: auto;
       flex-shrink: 0;
+      background: var(--bg-secondary);
     }
     .conv-item {
       padding: 8px 14px;
@@ -314,23 +344,26 @@ import type { ToolCallResult } from '@mj-forge/shared';
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
     }
     .conv-item:hover { background: var(--bg-hover); }
     .conv-item.active { background: var(--bg-active); color: var(--text-primary); }
     .conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .conv-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .conv-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
     .conv-date { font-size: 10px; color: var(--text-muted); }
-    .conv-delete {
+    .conv-action-btn {
       background: none;
       border: none;
       color: var(--text-muted);
       cursor: pointer;
       font-size: 12px;
-      padding: 0;
+      padding: 2px 4px;
+      border-radius: 3px;
       opacity: 0;
     }
-    .conv-item:hover .conv-delete { opacity: 1; }
-    .conv-delete:hover { color: var(--status-error); }
+    .conv-item:hover .conv-action-btn { opacity: 1; }
+    .conv-action-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+    .conv-action-btn.delete:hover { color: var(--status-error); }
     .conv-empty { padding: 12px 14px; font-size: 12px; color: var(--text-muted); text-align: center; }
 
     .chat-messages-wrapper {
@@ -699,10 +732,16 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly expandedTools = signal(new Set<string>());
   readonly panelWidth = signal(400);
 
+  // Conversation dropdown & rename
+  readonly convDropdownOpen = signal(false);
+  readonly renamingConv = signal(false);
+  renameValue = '';
+  private renameConvId: string | null = null;
+  private dropdownCleanup: (() => void) | null = null;
+
   // Smart auto-scroll state
   readonly showScrollToBottom = signal(false);
   private userScrolledUp = false;
-  private autoScrollEnabled = true;
 
   // Per-instance state for tab mode
   private instanceState: ChatInstanceState | null = null;
@@ -745,6 +784,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   ngOnDestroy(): void {
     this.instanceState?.destroy();
+    this.dropdownCleanup?.();
   }
 
   private async loadSavedWidth(): Promise<void> {
@@ -790,8 +830,89 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.tabState.openChatTab(this.state.activeConversationId() || undefined);
   }
 
+  // -- Conversation dropdown --
+
+  toggleConvDropdown(event: Event): void {
+    event.stopPropagation();
+    if (this.renamingConv()) return; // don't toggle while renaming inline
+    const opening = !this.convDropdownOpen();
+    this.convDropdownOpen.set(opening);
+
+    if (opening) {
+      // Close on outside click
+      setTimeout(() => {
+        const clickHandler = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          if (!target.closest('.conv-dropdown') && !target.closest('.conv-selector')) {
+            this.closeConvDropdown();
+            cleanup();
+          }
+        };
+        const cleanup = () => {
+          document.removeEventListener('click', clickHandler);
+          this.dropdownCleanup = null;
+        };
+        this.dropdownCleanup = cleanup;
+        document.addEventListener('click', clickHandler);
+      }, 0);
+    } else {
+      this.dropdownCleanup?.();
+    }
+  }
+
+  private closeConvDropdown(): void {
+    this.convDropdownOpen.set(false);
+    this.dropdownCleanup?.();
+  }
+
+  selectConv(id: string): void {
+    this.state.selectConversation(id);
+    this.closeConvDropdown();
+  }
+
+  startRename(event: Event, conv: { id: string; title: string }): void {
+    event.stopPropagation();
+    this.renameConvId = conv.id;
+    this.renameValue = conv.title;
+    this.closeConvDropdown();
+    // If renaming the active conversation, show inline rename in header
+    if (conv.id === this.state.activeConversationId()) {
+      this.renamingConv.set(true);
+      setTimeout(() => {
+        const input = document.querySelector('.conv-rename-input') as HTMLInputElement;
+        if (input) { input.focus(); input.select(); }
+      }, 50);
+    } else {
+      // Switch to it first, then rename inline
+      this.state.selectConversation(conv.id);
+      this.renamingConv.set(true);
+      setTimeout(() => {
+        const input = document.querySelector('.conv-rename-input') as HTMLInputElement;
+        if (input) { input.focus(); input.select(); }
+      }, 50);
+    }
+  }
+
+  confirmRename(): void {
+    if (this.renameConvId && this.renameValue.trim()) {
+      this.doRenameConversation(this.renameConvId, this.renameValue.trim());
+    }
+    this.renamingConv.set(false);
+    this.renameConvId = null;
+  }
+
+  cancelRename(): void {
+    this.renamingConv.set(false);
+    this.renameConvId = null;
+  }
+
+  private doRenameConversation(id: string, title: string): void {
+    this.state.renameConversation(id, title);
+  }
+
   ngAfterViewChecked(): void {
-    if (this.autoScrollEnabled && !this.userScrolledUp && this.messagesContainer) {
+    // Only auto-scroll during active streaming and when user hasn't scrolled up
+    if (this.state.streaming() && !this.userScrolledUp && this.messagesContainer) {
       const el = this.messagesContainer.nativeElement;
       el.scrollTop = el.scrollHeight;
     }
@@ -806,7 +927,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.userScrolledUp = false;
       this.showScrollToBottom.set(false);
     } else if (this.state.streaming()) {
-      // User scrolled up during streaming
+      // User scrolled up during streaming — show jump button
       this.userScrolledUp = true;
       this.showScrollToBottom.set(true);
     }
@@ -831,16 +952,17 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!this.inputText.trim()) return;
     this.userScrolledUp = false;
     this.showScrollToBottom.set(false);
-    this.autoScrollEnabled = true;
     this.state.sendMessage(this.inputText);
     this.inputText = '';
+    // Scroll to bottom after DOM updates with new message
+    setTimeout(() => this.scrollToBottom(), 50);
   }
 
   sendSuggestion(text: string): void {
     this.userScrolledUp = false;
     this.showScrollToBottom.set(false);
-    this.autoScrollEnabled = true;
     this.state.sendMessage(text);
+    setTimeout(() => this.scrollToBottom(), 50);
   }
 
   deleteConv(event: Event, id: string): void {

@@ -280,6 +280,18 @@ export class ChatInstanceState {
     }
   }
 
+  async renameConversation(id: string, title: string): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+    this._conversations.update(convs =>
+      convs.map(c => c.id === id ? { ...c, title } : c)
+    );
+    try {
+      await firstValueFrom(this.ipc.renameConversation(id, title));
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+    }
+  }
+
   cancelStream(): void {
     const conversationId = this._activeConversationId();
     if (!conversationId || !this.ipc.isAvailable) return;
