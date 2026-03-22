@@ -36,6 +36,7 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  ObjectDefinition,
   AppState,
   TabState,
   FileTreeNode,
@@ -140,6 +141,13 @@ export interface ForgeAPI {
       databaseName: string,
       path: string
     ) => Promise<ObjectMetadata[]>;
+    getDefinition: (
+      connectionId: string,
+      databaseName: string,
+      schema: string,
+      name: string,
+      objectType: string
+    ) => Promise<ObjectDefinition>;
     getTableColumns: (
       connectionId: string,
       databaseName: string,
@@ -553,6 +561,15 @@ const forgeAPI: ForgeAPI = {
       ),
     refreshNode: (connectionId, databaseName, path) =>
       ipcRenderer.invoke(IPC_CHANNELS.EXPLORER.REFRESH_NODE, connectionId, databaseName, path),
+    getDefinition: (connectionId, databaseName, schema, name, objectType) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.EXPLORER.GET_DEFINITION,
+        connectionId,
+        databaseName,
+        schema,
+        name,
+        objectType
+      ),
     getTableColumns: (connectionId, databaseName, schema, tableName) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.EXPLORER.GET_TABLE_COLUMNS,

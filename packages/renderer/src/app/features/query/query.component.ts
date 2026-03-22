@@ -300,10 +300,11 @@ declare const monaco: {
         <!-- Editor and Results -->
         <div class="query-content">
           <!-- Editor -->
-          <div class="editor-pane" [style.height.%]="editorHeight()">
+          <div class="editor-pane" [style.height.%]="resultsHidden() ? 100 : editorHeight()">
             <div #editorContainer class="editor-container"></div>
           </div>
 
+          @if (!resultsHidden()) {
           <!-- Resize handle -->
           <div class="resize-handle" (mousedown)="startResize($event)"></div>
 
@@ -433,6 +434,7 @@ declare const monaco: {
               }
             }
           </div>
+          }
         </div>
       </div>
 
@@ -885,6 +887,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   result = signal<QueryResult | null>(null);
   activeTab = signal('result-0');
   editorHeight = signal(50);
+  resultsHidden = signal(false);
   showHistory = signal(false);
   historySearchText = '';
 
@@ -990,6 +993,7 @@ export class QueryComponent implements OnInit, OnDestroy {
       this.menuService.saveQueryAs$.subscribe(guard(() => this.saveQueryToFile())),
       this.menuService.exportResults$.subscribe(guard(() => this.exportResults('csv'))),
       this.menuService.openQuery$.subscribe(guard(() => this.openQueryFromFile())),
+      this.menuService.toggleResults$.subscribe(guard(() => this.resultsHidden.update(h => !h))),
     );
   }
 
