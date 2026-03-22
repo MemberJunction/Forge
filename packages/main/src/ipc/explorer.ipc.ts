@@ -2,7 +2,6 @@
  * Explorer IPC Handlers
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type {
   TableInfo,
@@ -19,12 +18,13 @@ import type {
   TableProperties,
 } from '@mj-forge/shared';
 import { MetadataService } from '../services/sql/metadata';
+import { safeHandle } from './safe-handle';
 
 export function registerExplorerHandlers(): void {
   const metadataService = MetadataService.getInstance();
 
   // Get children for a path (tables, views, procedures, functions)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_CHILDREN,
     async (
       _event,
@@ -89,7 +89,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get object details
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_OBJECT_DETAILS,
     async (
       _event,
@@ -108,7 +108,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Refresh node — invalidates cache and re-fetches children
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.REFRESH_NODE,
     async (
       _event,
@@ -144,7 +144,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get tables
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLES,
     async (_event, connectionId: string, database: string): Promise<TableInfo[]> => {
       return metadataService.listTables(connectionId, database);
@@ -152,7 +152,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get views
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_VIEWS,
     async (_event, connectionId: string, database: string): Promise<ViewInfo[]> => {
       return metadataService.listViews(connectionId, database);
@@ -160,7 +160,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get procedures
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_PROCEDURES,
     async (_event, connectionId: string, database: string): Promise<ProcedureInfo[]> => {
       return metadataService.listProcedures(connectionId, database);
@@ -168,7 +168,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get object definition
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_DEFINITION,
     async (
       _event,
@@ -183,7 +183,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Refresh
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.REFRESH,
     async (_event, connectionId: string): Promise<void> => {
       metadataService.invalidateConnection(connectionId);
@@ -191,7 +191,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table columns
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_COLUMNS,
     async (
       _event,
@@ -205,7 +205,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table indexes
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_INDEXES,
     async (
       _event,
@@ -219,7 +219,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table foreign keys
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_KEYS,
     async (
       _event,
@@ -233,7 +233,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table constraints
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_CONSTRAINTS,
     async (
       _event,
@@ -247,7 +247,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table triggers
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_TRIGGERS,
     async (
       _event,
@@ -261,7 +261,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table properties (comprehensive)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_PROPERTIES,
     async (
       _event,
@@ -276,7 +276,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get extended properties
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_EXTENDED_PROPERTIES,
     async (
       _event,
@@ -291,7 +291,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get enriched column metadata (with PK/FK info)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_ENRICHED_COLUMNS,
     async (_event, connectionId: string, database: string, schema: string, table: string) => {
       console.log(`[Explorer] Getting enriched column metadata for ${database}.${schema}.${table}`);
@@ -300,7 +300,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Script table as CREATE
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_CREATE,
     async (
       _event,
@@ -315,7 +315,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Script table as INSERT
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_INSERT,
     async (
       _event,

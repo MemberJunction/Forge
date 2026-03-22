@@ -2,18 +2,18 @@
  * Connection IPC Handlers
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { ConnectionProfile, TestConnectionResult, ActiveConnection } from '@mj-forge/shared';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { ConnectionProfilesStore } from '../services/config/connection-profiles';
+import { safeHandle } from './safe-handle';
 
 export function registerConnectionHandlers(): void {
   const poolManager = ConnectionPoolManager.getInstance();
   const profileStore = ConnectionProfilesStore.getInstance();
 
   // Test connection
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.CONNECTION.TEST,
     async (
       _event,
@@ -29,7 +29,7 @@ export function registerConnectionHandlers(): void {
   );
 
   // Save connection
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.CONNECTION.SAVE,
     async (_event, profile: ConnectionProfile, password?: string): Promise<ConnectionProfile> => {
       console.log(
@@ -42,7 +42,7 @@ export function registerConnectionHandlers(): void {
   );
 
   // Delete connection
-  ipcMain.handle(IPC_CHANNELS.CONNECTION.DELETE, async (_event, id: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.CONNECTION.DELETE, async (_event, id: string): Promise<void> => {
     try {
       await poolManager.closePool(id);
     } catch {
@@ -52,12 +52,12 @@ export function registerConnectionHandlers(): void {
   });
 
   // List connections
-  ipcMain.handle(IPC_CHANNELS.CONNECTION.LIST, async (): Promise<ConnectionProfile[]> => {
+  safeHandle(IPC_CHANNELS.CONNECTION.LIST, async (): Promise<ConnectionProfile[]> => {
     return profileStore.getAll();
   });
 
   // Connect
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.CONNECTION.CONNECT,
     async (_event, id: string): Promise<ActiveConnection> => {
       console.log(`[IPC:CONNECT] Connecting with profile ID: ${id}`);
@@ -82,7 +82,7 @@ export function registerConnectionHandlers(): void {
   );
 
   // Disconnect
-  ipcMain.handle(IPC_CHANNELS.CONNECTION.DISCONNECT, async (_event, id: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.CONNECTION.DISCONNECT, async (_event, id: string): Promise<void> => {
     await poolManager.closePool(id);
   });
 }

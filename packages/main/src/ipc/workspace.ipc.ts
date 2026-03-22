@@ -3,13 +3,14 @@
  * Handles file/folder operations for workspace support
  */
 
-import { ipcMain, dialog, BrowserWindow } from 'electron';
+import { dialog, BrowserWindow } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { watch, FSWatcher } from 'fs';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { FileTreeNode, WorkspaceInfo, WorkspaceSettings } from '@mj-forge/shared';
 import { AppStateStore } from '../services/config/app-state';
+import { safeHandle } from './safe-handle';
 
 const WORKSPACE_SETTINGS_FILE = '.forge.json';
 const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
@@ -25,7 +26,7 @@ export function registerWorkspaceHandlers(): void {
   const appState = AppStateStore.getInstance();
 
   // Open folder and get workspace info
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, async (_event, folderPath?: string): Promise<WorkspaceInfo | null> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, async (_event, folderPath?: string): Promise<WorkspaceInfo | null> => {
     let targetPath = folderPath;
     const mainWindow = getMainWindow();
 
@@ -42,58 +43,53 @@ export function registerWorkspaceHandlers(): void {
       targetPath = result.filePaths[0];
     }
 
-    try {
-      const files = await buildFileTree(targetPath);
-      const settings = await loadWorkspaceSettings(targetPath);
+    const files = await buildFileTree(targetPath);
+    const settings = await loadWorkspaceSettings(targetPath);
 
-      // Save to app state
-      appState.setCurrentWorkspacePath(targetPath);
+    // Save to app state
+    appState.setCurrentWorkspacePath(targetPath);
 
-      // Set up file watcher
-      if (mainWindow) {
-        setupFileWatcher(targetPath, mainWindow);
-      }
-
-      return {
-        path: targetPath,
-        name: path.basename(targetPath),
-        files,
-        settings,
-      };
-    } catch (error) {
-      console.error('Failed to open folder:', error);
-      throw error;
+    // Set up file watcher
+    if (mainWindow) {
+      setupFileWatcher(targetPath, mainWindow);
     }
+
+    return {
+      path: targetPath,
+      name: path.basename(targetPath),
+      files,
+      settings,
+    };
   });
 
   // Get files in a directory
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.GET_FILES, async (_event, dirPath: string): Promise<FileTreeNode[]> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.GET_FILES, async (_event, dirPath: string): Promise<FileTreeNode[]> => {
     return buildFileTree(dirPath);
   });
 
   // Read file contents
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.READ_FILE, async (_event, filePath: string): Promise<string> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.READ_FILE, async (_event, filePath: string): Promise<string> => {
     const content = await fs.readFile(filePath, 'utf-8');
     return content;
   });
 
   // Write file contents
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.WRITE_FILE, async (_event, filePath: string, content: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.WRITE_FILE, async (_event, filePath: string, content: string): Promise<void> => {
     await fs.writeFile(filePath, content, 'utf-8');
   });
 
   // Create new file
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.CREATE_FILE, async (_event, filePath: string, content?: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.CREATE_FILE, async (_event, filePath: string, content?: string): Promise<void> => {
     await fs.writeFile(filePath, content || '', 'utf-8');
   });
 
   // Delete file
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.DELETE_FILE, async (_event, filePath: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.DELETE_FILE, async (_event, filePath: string): Promise<void> => {
     await fs.unlink(filePath);
   });
 
   // Rename file
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.RENAME_FILE, async (_event, oldPath: string, newPath: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.RENAME_FILE, async (_event, oldPath: string, newPath: string): Promise<void> => {
     await fs.rename(oldPath, newPath);
   });
 }

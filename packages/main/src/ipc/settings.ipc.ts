@@ -3,14 +3,14 @@
  * Provides get/set for application settings persisted via electron-store
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import { AppStateStore } from '../services/config/app-state';
+import { safeHandle } from './safe-handle';
 
 export function registerSettingsHandlers(): void {
   const appState = AppStateStore.getInstance();
 
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.SETTINGS.GET,
     async (_event, key?: string): Promise<unknown> => {
       const state = appState.getState();
@@ -21,7 +21,7 @@ export function registerSettingsHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.SETTINGS.SET,
     async (_event, key: string, value: unknown): Promise<void> => {
       appState.setState({ [key]: value });

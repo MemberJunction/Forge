@@ -3,7 +3,6 @@
  * Handles persistence and comparison of query result snapshots
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type {
   QueryResultSnapshot,
@@ -17,12 +16,13 @@ import type {
   QueryResult,
 } from '@mj-forge/shared';
 import { QueryResultsStore } from '../services/config/query-results-store';
+import { safeHandle } from './safe-handle';
 
 export function registerQueryResultsHandlers(): void {
   const resultsStore = QueryResultsStore.getInstance();
 
   // Save a query result snapshot
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.SAVE_SNAPSHOT,
     async (
       _event,
@@ -37,7 +37,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Get snapshots with optional filtering and sorting
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.GET_SNAPSHOTS,
     async (
       _event,
@@ -49,7 +49,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Get a single snapshot by ID
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.GET_SNAPSHOT,
     async (_event, id: string): Promise<QueryResultSnapshot | null> => {
       return resultsStore.getSnapshot(id);
@@ -57,7 +57,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Delete a single snapshot
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.DELETE_SNAPSHOT,
     async (_event, id: string): Promise<boolean> => {
       return resultsStore.deleteSnapshot(id);
@@ -65,7 +65,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Delete multiple snapshots
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.DELETE_SNAPSHOTS,
     async (_event, ids: string[]): Promise<number> => {
       return resultsStore.deleteSnapshots(ids);
@@ -73,7 +73,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Pin a snapshot
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.PIN_SNAPSHOT,
     async (_event, id: string): Promise<boolean> => {
       return resultsStore.pinSnapshot(id);
@@ -81,7 +81,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Unpin a snapshot
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.UNPIN_SNAPSHOT,
     async (_event, id: string): Promise<boolean> => {
       return resultsStore.unpinSnapshot(id);
@@ -89,7 +89,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Set label for a snapshot
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.LABEL_SNAPSHOT,
     async (_event, id: string, label: string): Promise<boolean> => {
       return resultsStore.labelSnapshot(id, label);
@@ -97,7 +97,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Get storage statistics
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.GET_STORAGE_STATS,
     async (): Promise<ResultStorageStats> => {
       return resultsStore.getStorageStats();
@@ -105,7 +105,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Purge snapshots
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.PURGE,
     async (_event, options: PurgeOptions): Promise<PurgeResult> => {
       return resultsStore.purge(options);
@@ -113,7 +113,7 @@ export function registerQueryResultsHandlers(): void {
   );
 
   // Compare two snapshots
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY_RESULTS.COMPARE_SNAPSHOTS,
     async (
       _event,

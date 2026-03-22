@@ -5,12 +5,13 @@
  * and notify the renderer when the OS theme changes.
  */
 
-import { ipcMain, nativeTheme, BrowserWindow } from 'electron';
+import { nativeTheme, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
+import { safeHandle } from './safe-handle';
 
 export function registerThemeHandlers(): void {
   // Get the current native theme (dark or light)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.THEME.GET_NATIVE,
     async (): Promise<'dark' | 'light'> => {
       return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
