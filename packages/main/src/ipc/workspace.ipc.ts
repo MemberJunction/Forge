@@ -3,7 +3,7 @@
  * Handles file/folder operations for workspace support
  */
 
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { watch, FSWatcher } from 'fs';
@@ -17,14 +17,20 @@ const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
 
-export function registerWorkspaceHandlers(mainWindow: Electron.BrowserWindow): void {
+function getMainWindow(): BrowserWindow | undefined {
+  return BrowserWindow.getAllWindows()[0];
+}
+
+export function registerWorkspaceHandlers(): void {
   const appState = AppStateStore.getInstance();
 
   // Open folder and get workspace info
   ipcMain.handle(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, async (_event, folderPath?: string): Promise<WorkspaceInfo | null> => {
     let targetPath = folderPath;
+    const mainWindow = getMainWindow();
 
     if (!targetPath) {
+      if (!mainWindow) return null;
       const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory'],
         title: 'Open Folder',
@@ -44,7 +50,9 @@ export function registerWorkspaceHandlers(mainWindow: Electron.BrowserWindow): v
       appState.setCurrentWorkspacePath(targetPath);
 
       // Set up file watcher
-      setupFileWatcher(targetPath, mainWindow);
+      if (mainWindow) {
+        setupFileWatcher(targetPath, mainWindow);
+      }
 
       return {
         path: targetPath,

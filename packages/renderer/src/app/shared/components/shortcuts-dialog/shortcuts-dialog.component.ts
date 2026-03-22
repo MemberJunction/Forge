@@ -168,29 +168,30 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
     {
       name: 'General',
       shortcuts: [
-        { keys: '⌘ + Shift + P', description: 'Command Palette' },
-        { keys: '⌘ + K', description: 'Quick Command Palette' },
-        { keys: '⌘ + P / ⌘ + T', description: 'Quick Object Search' },
-        { keys: '⌘ + ,', description: 'Open Settings' },
-        { keys: '⌘ + B', description: 'Toggle Sidebar' },
+        { keys: '⌘ + ,', description: 'Settings' },
+        { keys: '⌘ + \\', description: 'Toggle Sidebar' },
+        { keys: '⌘ + Shift + \\', description: 'Toggle Results Panel' },
+        { keys: '⌘ + Shift + ?', description: 'Keyboard Shortcuts' },
       ],
     },
     {
       name: 'Files & Tabs',
       shortcuts: [
         { keys: '⌘ + N', description: 'New Query Tab' },
+        { keys: '⌘ + Shift + N', description: 'New Connection' },
         { keys: '⌘ + W', description: 'Close Current Tab' },
         { keys: '⌘ + S', description: 'Save Query' },
         { keys: '⌘ + Shift + S', description: 'Snippet Library' },
-        { keys: 'Ctrl + Tab', description: 'Next Tab' },
-        { keys: 'Ctrl + Shift + Tab', description: 'Previous Tab' },
+        { keys: '⌘ + Shift + ]', description: 'Next Tab' },
+        { keys: '⌘ + Shift + [', description: 'Previous Tab' },
       ],
     },
     {
       name: 'Query Execution',
       shortcuts: [
-        { keys: 'F5 / Ctrl+E / ⌘+Enter', description: 'Execute Query' },
-        { keys: 'Escape', description: 'Cancel Query' },
+        { keys: '⌘ + Return', description: 'Execute Query' },
+        { keys: '⌘ + Shift + Return', description: 'Execute Selection' },
+        { keys: '⌘ + .', description: 'Cancel Execution' },
         { keys: '⌘ + Shift + F', description: 'Format SQL' },
       ],
     },
@@ -198,7 +199,7 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       name: 'Editor',
       shortcuts: [
         { keys: '⌘ + F', description: 'Find' },
-        { keys: '⌘ + H', description: 'Find and Replace' },
+        { keys: '⌘ + ⌥ + F', description: 'Find and Replace' },
         { keys: '⌘ + /', description: 'Toggle Comment' },
         { keys: '⌘ + Z', description: 'Undo' },
         { keys: '⌘ + Shift + Z', description: 'Redo' },
@@ -207,19 +208,13 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      name: 'Navigation',
-      shortcuts: [
-        { keys: '⌘ + G', description: 'Go to Line' },
-        { keys: '⌘ + P', description: 'Go to File' },
-        { keys: 'Ctrl + G', description: 'Go to Definition' },
-      ],
-    },
-    {
       name: 'Results',
       shortcuts: [
+        { keys: '⌘ + Shift + H', description: 'Result History' },
+        { keys: '⌘ + Shift + C', description: 'Compare Results' },
         { keys: '⌘ + E', description: 'Export Results' },
         { keys: '⌘ + C', description: 'Copy Selected Cells' },
-        { keys: '⌘ + A', description: 'Select All' },
+        { keys: '⌘ + Shift + R', description: 'Rerun Last Query' },
       ],
     },
   ];

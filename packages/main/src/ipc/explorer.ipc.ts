@@ -107,18 +107,38 @@ export function registerExplorerHandlers(): void {
     }
   );
 
-  // Refresh node
+  // Refresh node — invalidates cache and re-fetches children
   ipcMain.handle(
     IPC_CHANNELS.EXPLORER.REFRESH_NODE,
     async (
       _event,
       connectionId: string,
-      _databaseName: string,
-      _path: string
+      databaseName: string,
+      nodePath: string
     ): Promise<ObjectMetadata[]> => {
-      // Invalidate cache and re-fetch
       metadataService.invalidateConnection(connectionId);
-      // Re-use GET_CHILDREN logic
+
+      // Re-fetch using the same logic as GET_CHILDREN
+      if (nodePath === 'tables') {
+        const tables = await metadataService.listTables(connectionId, databaseName);
+        return tables.map(t => ({ name: t.name, type: 'table' as const, schema: t.schema, rowCount: t.rowCount, sizeKb: t.sizeKb }));
+      }
+      if (nodePath === 'views') {
+        const views = await metadataService.listViews(connectionId, databaseName);
+        return views.map(v => ({ name: v.name, type: 'view' as const, schema: v.schema }));
+      }
+      if (nodePath === 'procedures') {
+        const procs = await metadataService.listProcedures(connectionId, databaseName);
+        return procs.map(p => ({ name: p.name, type: 'procedure' as const, schema: p.schema }));
+      }
+      if (nodePath === 'functions') {
+        const functions = await metadataService.listFunctions(connectionId, databaseName);
+        return functions.map(f => ({ name: f.name, type: 'function' as const, schema: f.schema }));
+      }
+      if (nodePath === 'schemas') {
+        const schemas = await metadataService.listSchemas(connectionId, databaseName);
+        return schemas.filter(s => !s.isSystem).map(s => ({ name: s.name, type: 'schema' as const, schema: s.name }));
+      }
       return [];
     }
   );

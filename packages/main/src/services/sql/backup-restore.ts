@@ -139,58 +139,68 @@ export class BackupRestoreService extends BaseSingleton {
    * Read backup file information
    */
   async readBackupInfo(connectionId: string, path: string): Promise<BackupFileInfo> {
-    // Get file list
-    const fileListSql = TsqlBuilder.getBackupFileInfo(path);
-    const fileListResult = await this.poolManager.query<BackupLogicalFile>(
-      connectionId,
-      fileListSql
-    );
+    try {
+      // Get file list
+      const fileListSql = TsqlBuilder.getBackupFileInfo(path);
+      const fileListResult = await this.poolManager.query<BackupLogicalFile>(
+        connectionId,
+        fileListSql
+      );
 
-    // Get header info
-    const headerSql = TsqlBuilder.getBackupHeaderInfo(path);
-    const headerResult = await this.poolManager.query<{
-      DatabaseName: string;
-      BackupType: number;
-      BackupFinishDate: Date;
-      BackupSize: number;
-      CompressedBackupSize: number;
-      ServerName: string;
-      CompatibilityLevel: number;
-      Collation: string;
-    }>(connectionId, headerSql);
+      // Get header info
+      const headerSql = TsqlBuilder.getBackupHeaderInfo(path);
+      const headerResult = await this.poolManager.query<{
+        DatabaseName: string;
+        BackupType: number;
+        BackupFinishDate: Date;
+        BackupSize: number;
+        CompressedBackupSize: number;
+        ServerName: string;
+        CompatibilityLevel: number;
+        Collation: string;
+        RecoveryModel: string;
+      }>(connectionId, headerSql);
 
-    const header = headerResult.recordset[0];
-    const files = fileListResult.recordset.map(f => ({
-      logicalName: f.logicalName,
-      physicalName: f.physicalName,
-      type: f.type as 'D' | 'L',
-      fileType: f.type as 'D' | 'L',
-      fileGroupName: f.fileGroupName,
-      sizeBytes: Number(f.sizeBytes) || 0,
-    }));
+      const header = headerResult.recordset?.[0];
+      if (!header) {
+        throw new Error('Could not read backup header — the file may be corrupt or inaccessible.');
+      }
 
-    // Get backup type string
-    const backupTypeMap: Record<number, string> = {
-      1: 'Full',
-      2: 'Transaction Log',
-      5: 'Differential',
-    };
+      const files = fileListResult.recordset.map(f => ({
+        logicalName: f.logicalName,
+        physicalName: f.physicalName,
+        type: f.type as 'D' | 'L',
+        fileType: f.type as 'D' | 'L',
+        fileGroupName: f.fileGroupName,
+        sizeBytes: Number(f.sizeBytes) || 0,
+      }));
 
-    const backupDateStr = header?.BackupFinishDate?.toISOString() || new Date().toISOString();
-    return {
-      databaseName: header?.DatabaseName || 'Unknown',
-      backupType: backupTypeMap[header?.BackupType || 1] || 'Unknown',
-      backupDate: backupDateStr,
-      backupFinishDate: backupDateStr,
-      backupSizeBytes: Number(header?.BackupSize) || 0,
-      compressedSizeBytes: Number(header?.CompressedBackupSize) || 0,
-      serverVersion: '', // Would need additional query
-      serverName: header?.ServerName || 'Unknown',
-      recoveryModel: header?.Collation || 'FULL', // Default to FULL if not available
-      compatibilityLevel: header?.CompatibilityLevel || 150,
-      collation: header?.Collation || '',
-      files,
-    };
+      // Get backup type string
+      const backupTypeMap: Record<number, string> = {
+        1: 'Full',
+        2: 'Transaction Log',
+        5: 'Differential',
+      };
+
+      const backupDateStr = header.BackupFinishDate?.toISOString() || new Date().toISOString();
+      return {
+        databaseName: header.DatabaseName || 'Unknown',
+        backupType: backupTypeMap[header.BackupType || 1] || 'Unknown',
+        backupDate: backupDateStr,
+        backupFinishDate: backupDateStr,
+        backupSizeBytes: Number(header.BackupSize) || 0,
+        compressedSizeBytes: Number(header.CompressedBackupSize) || 0,
+        serverVersion: '',
+        serverName: header.ServerName || 'Unknown',
+        recoveryModel: header.RecoveryModel || 'FULL',
+        compatibilityLevel: header.CompatibilityLevel || 150,
+        collation: header.Collation || '',
+        files,
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to read backup file info';
+      throw new Error(`Error reading backup info: ${message}`);
+    }
   }
 
   /**
@@ -200,18 +210,23 @@ export class BackupRestoreService extends BaseSingleton {
     connectionId: string,
     backupPath: string
   ): Promise<{ logicalName: string; physicalName: string; type: string }[]> {
-    const fileListSql = TsqlBuilder.getBackupFileInfo(backupPath);
-    const result = await this.poolManager.query<{
-      LogicalName: string;
-      PhysicalName: string;
-      Type: string;
-    }>(connectionId, fileListSql);
+    try {
+      const fileListSql = TsqlBuilder.getBackupFileInfo(backupPath);
+      const result = await this.poolManager.query<{
+        LogicalName: string;
+        PhysicalName: string;
+        Type: string;
+      }>(connectionId, fileListSql);
 
-    return result.recordset.map(f => ({
-      logicalName: f.LogicalName,
-      physicalName: f.PhysicalName,
-      type: f.Type,
-    }));
+      return result.recordset.map(f => ({
+        logicalName: f.LogicalName,
+        physicalName: f.PhysicalName,
+        type: f.Type,
+      }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to read backup file list';
+      throw new Error(`Error reading file list: ${message}`);
+    }
   }
 
   /**
@@ -347,8 +362,8 @@ export class BackupRestoreService extends BaseSingleton {
         const channel =
           type === 'backup' ? IPC_CHANNELS.BACKUP.PROGRESS : IPC_CHANNELS.RESTORE.PROGRESS;
         this.sendToRenderer(channel, progress);
-      } catch {
-        // Ignore progress polling errors
+      } catch (err) {
+        console.warn(`[BackupRestore] Progress poll error for ${operation.operationId}:`, err);
       }
     }, 2000);
   }

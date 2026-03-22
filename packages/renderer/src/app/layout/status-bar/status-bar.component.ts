@@ -147,8 +147,14 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           </button>
         </mat-menu>
 
+        @if (cursorLine() > 0) {
+          <div class="status-item cursor-info" matTooltip="Line:Column">
+            <span>Ln {{ cursorLine() }}, Col {{ cursorColumn() }}</span>
+          </div>
+        }
+
         <div class="status-item version">
-          <span>MJ Forge v1.0.0</span>
+          <span>MJ Forge {{ appVersion() ? 'v' + appVersion() : '' }}</span>
         </div>
       </div>
     </div>
@@ -319,6 +325,11 @@ export class StatusBarComponent implements OnInit {
   readonly dockerStatus = signal<DockerStatus | null>(null);
   readonly containers = signal<DockerContainer[]>([]);
   readonly dockerPanelOpen = signal(false);
+  readonly appVersion = signal('');
+
+  // Cursor position from active editor
+  readonly cursorLine = signal(0);
+  readonly cursorColumn = signal(0);
 
   readonly connectionColorBorder = computed(() => {
     const profile = this.connectionState.activeProfile();
@@ -371,6 +382,17 @@ export class StatusBarComponent implements OnInit {
     await this.checkDockerStatus();
     // Poll Docker status every 30 seconds
     setInterval(() => this.checkDockerStatus(), 30000);
+
+    // Load dynamic version
+    if (this.ipc.isAvailable) {
+      this.ipc.getAppVersion().subscribe(v => this.appVersion.set(v));
+    }
+
+    // Listen for cursor position updates from query editors
+    window.addEventListener('forge:cursor-position', ((e: CustomEvent) => {
+      this.cursorLine.set(e.detail?.line ?? 0);
+      this.cursorColumn.set(e.detail?.column ?? 0);
+    }) as EventListener);
   }
 
   private async checkDockerStatus(): Promise<void> {

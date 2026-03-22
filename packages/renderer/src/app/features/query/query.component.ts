@@ -66,6 +66,7 @@ interface MonacoEditorInstance {
   setPosition(position: MonacoPosition): void;
   revealLineInCenter(lineNumber: number): void;
   updateOptions(options: Record<string, unknown>): void;
+  onDidChangeCursorPosition(callback: (e: { position: MonacoPosition }) => void): { dispose(): void };
 }
 
 interface MonacoAction {
@@ -1165,6 +1166,13 @@ export class QueryComponent implements OnInit, OnDestroy {
       // Enable selection highlighting (highlights all occurrences of selected text)
       occurrencesHighlight: 'singleFile',
       selectionHighlight: true,
+    });
+
+    // Emit cursor position changes for status bar
+    this.editor.onDidChangeCursorPosition((e: { position: MonacoPosition }) => {
+      window.dispatchEvent(new CustomEvent('forge:cursor-position', {
+        detail: { line: e.position.lineNumber, column: e.position.column },
+      }));
     });
 
     // Listen for content changes - use this.tabId for isolation

@@ -13,6 +13,8 @@ import { registerServerFsHandlers } from './server-fs.ipc';
 import { registerAppHandlers } from './app.ipc';
 import { registerAIHandlers } from './ai.ipc';
 import { registerThemeHandlers } from './theme.ipc';
+import { registerWorkspaceHandlers } from './workspace.ipc';
+import { registerSettingsHandlers } from './settings.ipc';
 
 export function registerAllHandlers(): void {
   registerConnectionHandlers();
@@ -26,4 +28,6 @@ export function registerAllHandlers(): void {
   registerAppHandlers();
   registerAIHandlers();
   registerThemeHandlers();
+  registerWorkspaceHandlers();
+  registerSettingsHandlers();
 }

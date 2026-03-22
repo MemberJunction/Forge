@@ -439,7 +439,10 @@ export class WelcomeComponent implements OnInit {
   }
 
   openDockerSection(): void {
-    // Could open a Docker management dialog
+    const section = document.querySelector('.docker-section');
+    if (section) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   connectToContainer(container: DockerContainer): void {
