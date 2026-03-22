@@ -436,6 +436,7 @@ export interface ForgeAPI {
     onDatabaseProperties: (callback: () => void) => () => void;
 
     // View menu
+    onShowWelcome: (callback: () => void) => () => void;
     onToggleSidebar: (callback: () => void) => () => void;
     onToggleResults: (callback: () => void) => () => void;
 
@@ -491,6 +492,7 @@ const MENU_CHANNELS = {
   DATABASE_PROPERTIES: 'menu:database-properties',
 
   // View menu
+  SHOW_WELCOME: 'menu:show-welcome',
   TOGGLE_SIDEBAR: 'menu:toggle-sidebar',
   TOGGLE_RESULTS: 'menu:toggle-results',
 
@@ -865,6 +867,7 @@ const forgeAPI: ForgeAPI = {
       createEventListener(MENU_CHANNELS.DATABASE_PROPERTIES, callback),
 
     // View menu
+    onShowWelcome: callback => createEventListener(MENU_CHANNELS.SHOW_WELCOME, callback),
     onToggleSidebar: callback => createEventListener(MENU_CHANNELS.TOGGLE_SIDEBAR, callback),
     onToggleResults: callback => createEventListener(MENU_CHANNELS.TOGGLE_RESULTS, callback),
 

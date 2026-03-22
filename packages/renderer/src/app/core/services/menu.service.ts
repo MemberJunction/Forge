@@ -205,6 +205,15 @@ export class MenuService implements OnDestroy {
 
     // View menu items
     this.unsubscribers.push(
+      menu.onShowWelcome(() => {
+        this.zone.run(() => {
+          this.tabState.showWelcome();
+          this.router.navigate(['/']);
+        });
+      })
+    );
+
+    this.unsubscribers.push(
       menu.onToggleSidebar(() => {
         this.zone.run(() => this.toggleSidebar$.next());
       })

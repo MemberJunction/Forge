@@ -287,6 +287,14 @@ export function createMenu(): void {
       label: 'View',
       submenu: [
         {
+          label: 'Welcome',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:show-welcome');
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+\\',
           click: () => {

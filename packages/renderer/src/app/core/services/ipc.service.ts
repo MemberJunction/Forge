@@ -419,6 +419,7 @@ interface ForgeAPI {
     onBackup: (callback: () => void) => () => void;
     onRestore: (callback: () => void) => () => void;
     onDatabaseProperties: (callback: () => void) => () => void;
+    onShowWelcome: (callback: () => void) => () => void;
     onToggleSidebar: (callback: () => void) => () => void;
     onToggleResults: (callback: () => void) => () => void;
     onNextTab: (callback: () => void) => () => void;

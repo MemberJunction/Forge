@@ -1,16 +1,18 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatMenuModule, MatMenuTrigger } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
 import { TabStateService, Tab } from '../../core/state/tab.state';
 import { ConnectionStateService } from '../../core/state/connection.state';
 
 @Component({
   selector: 'app-tab-bar',
   standalone: true,
-  imports: [CommonModule, MatIconModule, MatButtonModule, MatTooltipModule],
+  imports: [CommonModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, MatDividerModule],
   template: `
     <div class="tab-bar-container">
       <div class="tabs-scroll">
@@ -21,6 +23,7 @@ import { ConnectionStateService } from '../../core/state/connection.state';
             [class.dirty]="tab.isDirty"
             (click)="activateTab(tab)"
             (auxclick)="onMiddleClick(tab, $event)"
+            (contextmenu)="onContextMenu($event, tab)"
           >
             <mat-icon class="tab-icon">{{ tab.icon }}</mat-icon>
             <span class="tab-title">{{ tab.title }}</span>
@@ -46,6 +49,45 @@ import { ConnectionStateService } from '../../core/state/connection.state';
         </button>
       </div>
     </div>
+
+    <!-- Tab context menu (positioned dynamically) -->
+    <div
+      style="position: fixed; visibility: hidden"
+      [style.left.px]="contextMenuX"
+      [style.top.px]="contextMenuY"
+      [matMenuTriggerFor]="tabContextMenu"
+      #contextMenuTrigger="matMenuTrigger"
+    ></div>
+    <mat-menu #tabContextMenu="matMenu">
+      <button mat-menu-item (click)="closeContextTab()">
+        <mat-icon>close</mat-icon>
+        <span>Close</span>
+      </button>
+      <button mat-menu-item (click)="closeOtherTabs()">
+        <mat-icon>tab_unselected</mat-icon>
+        <span>Close Others</span>
+      </button>
+      <button mat-menu-item (click)="closeTabsToRight()">
+        <mat-icon>chevron_right</mat-icon>
+        <span>Close to the Right</span>
+      </button>
+      <mat-divider></mat-divider>
+      <button mat-menu-item (click)="duplicateTab()">
+        <mat-icon>content_copy</mat-icon>
+        <span>Duplicate</span>
+      </button>
+      @if (contextTab?.isPinned) {
+        <button mat-menu-item (click)="togglePinTab()">
+          <mat-icon>push_pin</mat-icon>
+          <span>Unpin</span>
+        </button>
+      } @else {
+        <button mat-menu-item (click)="togglePinTab()">
+          <mat-icon>push_pin</mat-icon>
+          <span>Pin</span>
+        </button>
+      }
+    </mat-menu>
   `,
   styles: [
     `
@@ -180,6 +222,11 @@ export class TabBarComponent {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly router = inject(Router);
 
+  @ViewChild('contextMenuTrigger') contextMenuTrigger!: MatMenuTrigger;
+  contextMenuX = 0;
+  contextMenuY = 0;
+  contextTab: Tab | null = null;
+
   activateTab(tab: Tab): void {
     this.tabState.activateTab(tab.id);
     this.navigateToTab(tab);
@@ -204,11 +251,59 @@ export class TabBarComponent {
     }
   }
 
+  onContextMenu(event: MouseEvent, tab: Tab): void {
+    event.preventDefault();
+    this.contextTab = tab;
+    this.contextMenuX = event.clientX;
+    this.contextMenuY = event.clientY;
+    this.contextMenuTrigger.openMenu();
+  }
+
+  closeContextTab(): void {
+    if (this.contextTab) {
+      this.tabState.closeTab(this.contextTab.id);
+      const activeTab = this.tabState.activeTab();
+      if (activeTab) this.navigateToTab(activeTab);
+    }
+  }
+
+  closeOtherTabs(): void {
+    if (this.contextTab) {
+      this.tabState.closeOtherTabs(this.contextTab.id);
+      this.navigateToTab(this.contextTab);
+    }
+  }
+
+  closeTabsToRight(): void {
+    if (this.contextTab) {
+      this.tabState.closeTabsToRight(this.contextTab.id);
+      const activeTab = this.tabState.activeTab();
+      if (activeTab) this.navigateToTab(activeTab);
+    }
+  }
+
+  duplicateTab(): void {
+    if (!this.contextTab) return;
+    const tab = this.contextTab;
+    if (tab.type === 'query' && tab.connectionId && tab.databaseName) {
+      const newId = this.tabState.openQueryTab(tab.connectionId, tab.databaseName, tab.content);
+      this.tabState.renameTab(newId, tab.title + ' (copy)');
+      this.router.navigate(['/query']);
+    }
+  }
+
+  togglePinTab(): void {
+    if (this.contextTab) {
+      this.tabState.togglePin(this.contextTab.id);
+    }
+  }
+
   newQueryTab(): void {
     const connId = this.connectionState.activeConnectionId();
     const db = this.connectionState.selectedDatabase();
     if (connId && db) {
       this.tabState.openQueryTab(connId, db);
+      this.router.navigate(['/query']);
     }
   }
 
@@ -226,6 +321,9 @@ export class TabBarComponent {
         break;
       case 'object':
         this.router.navigate(['/explorer']);
+        break;
+      case 'erd':
+        this.router.navigate(['/erd']);
         break;
       default:
         this.router.navigate(['/']);
