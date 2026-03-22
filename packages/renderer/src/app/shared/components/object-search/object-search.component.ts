@@ -222,7 +222,7 @@ interface SearchableObject {
             color: var(--status-success);
           }
           &.icon-function {
-            color: #9c27b0;
+            color: var(--status-info);
           }
         }
 
