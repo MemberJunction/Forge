@@ -4,10 +4,19 @@ import type { ConnectionConfig } from './config';
 
 let currentPool: sql.ConnectionPool | null = null;
 
+/** Escape a SQL identifier for use inside square brackets (doubles any `]` characters) */
+function escId(name: string): string {
+  return name.replace(/\]/g, ']]');
+}
+
 export async function connect(config: ConnectionConfig): Promise<sql.ConnectionPool> {
   // Close existing connection if any
   if (currentPool) {
-    await currentPool.close();
+    try {
+      await currentPool.close();
+    } catch {
+      // Ignore close errors from stale connections
+    }
     currentPool = null;
   }
 
@@ -85,7 +94,7 @@ export async function getTables(
     throw new Error('Not connected to a server.');
   }
 
-  const db = database ? `[${database}].` : '';
+  const db = database ? `[${escId(database)}].` : '';
   const result = await currentPool.request().query(`
     SELECT
       s.name AS [schema],
@@ -93,6 +102,46 @@ export async function getTables(
     FROM ${db}sys.tables t
     INNER JOIN ${db}sys.schemas s ON t.schema_id = s.schema_id
     ORDER BY s.name, t.name
+  `);
+
+  return result.recordset;
+}
+
+export async function getViews(
+  database?: string
+): Promise<Array<{ schema: string; name: string }>> {
+  if (!currentPool) {
+    throw new Error('Not connected to a server.');
+  }
+
+  const db = database ? `[${escId(database)}].` : '';
+  const result = await currentPool.request().query(`
+    SELECT
+      s.name AS [schema],
+      v.name AS [name]
+    FROM ${db}sys.views v
+    INNER JOIN ${db}sys.schemas s ON v.schema_id = s.schema_id
+    ORDER BY s.name, v.name
+  `);
+
+  return result.recordset;
+}
+
+export async function getProcedures(
+  database?: string
+): Promise<Array<{ schema: string; name: string }>> {
+  if (!currentPool) {
+    throw new Error('Not connected to a server.');
+  }
+
+  const db = database ? `[${escId(database)}].` : '';
+  const result = await currentPool.request().query(`
+    SELECT
+      s.name AS [schema],
+      p.name AS [name]
+    FROM ${db}sys.procedures p
+    INNER JOIN ${db}sys.schemas s ON p.schema_id = s.schema_id
+    ORDER BY s.name, p.name
   `);
 
   return result.recordset;
@@ -115,6 +164,9 @@ export async function getConnectionInfo(): Promise<{
   `);
 
   const row = result.recordset[0];
+  if (!row) {
+    throw new Error('Failed to retrieve server information');
+  }
   const versionMatch = row.version.match(/Microsoft SQL Server (\d+)/);
 
   return {

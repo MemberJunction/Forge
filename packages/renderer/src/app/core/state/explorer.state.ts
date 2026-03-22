@@ -164,6 +164,11 @@ export class ExplorerStateService {
       return;
     }
 
+    // Guard against concurrent expand calls (e.g. double-click)
+    if (this._loadingNodeIds().has(nodeId)) {
+      return;
+    }
+
     // Mark as loading
     this._loadingNodeIds.update(ids => new Set([...ids, nodeId]));
     this.updateNode(nodeId, { isLoading: true });
@@ -652,20 +657,23 @@ export class ExplorerStateService {
       },
     ];
 
-    return folders.map(folder => ({
-      id: `mj-folder-${node.connectionId}-${node.databaseName}-${folder.type}`,
-      name: folder.name,
-      type: folder.type,
-      icon: folder.icon,
-      path: (folder as { path?: string }).path || folder.type,
-      hasChildren: true,
-      isExpanded: false,
-      isLoading: false,
-      connectionId: node.connectionId,
-      databaseName: node.databaseName,
-      schema: node.schema,
-      mjInfo: node.mjInfo,
-    }));
+    return folders.map(folder => {
+      const folderPath = (folder as { path?: string }).path || folder.type;
+      return {
+        id: `mj-folder-${node.connectionId}-${node.databaseName}-${folderPath}`,
+        name: folder.name,
+        type: folder.type,
+        icon: folder.icon,
+        path: folderPath,
+        hasChildren: true,
+        isExpanded: false,
+        isLoading: false,
+        connectionId: node.connectionId,
+        databaseName: node.databaseName,
+        schema: node.schema,
+        mjInfo: node.mjInfo,
+      };
+    });
   }
 
   /**

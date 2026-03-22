@@ -102,7 +102,7 @@ export function createMenu(): void {
           },
         },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        { role: 'quit' },
       ],
     },
 
@@ -287,11 +287,27 @@ export function createMenu(): void {
       label: 'View',
       submenu: [
         {
+          label: 'Welcome',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:show-welcome');
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+\\',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:toggle-sidebar');
+          },
+        },
+        {
+          label: 'Toggle AI Chat',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:toggle-chat');
           },
         },
         {

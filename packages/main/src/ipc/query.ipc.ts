@@ -2,7 +2,7 @@
  * Query IPC Handlers
  */
 
-import { ipcMain, dialog } from 'electron';
+import { dialog } from 'electron';
 import * as fs from 'fs';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type {
@@ -19,6 +19,7 @@ import type {
 import { QueryExecutor } from '../services/sql/query-executor';
 import { QueryHistoryStore } from '../services/config/query-history';
 import { ConnectionProfilesStore } from '../services/config/connection-profiles';
+import { safeHandle } from './safe-handle';
 
 export function registerQueryHandlers(): void {
   const queryExecutor = QueryExecutor.getInstance();
@@ -26,7 +27,7 @@ export function registerQueryHandlers(): void {
   const connectionStore = ConnectionProfilesStore.getInstance();
 
   // Execute query
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY.EXECUTE,
     async (_event, request: QueryRequest): Promise<QueryResult> => {
       const startTime = Date.now();
@@ -53,12 +54,12 @@ export function registerQueryHandlers(): void {
   );
 
   // Cancel query
-  ipcMain.handle(IPC_CHANNELS.QUERY.CANCEL, async (_event, queryId: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.QUERY.CANCEL, async (_event, queryId: string): Promise<void> => {
     await queryExecutor.cancel(queryId);
   });
 
   // Get query history
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY.GET_HISTORY,
     async (_event, filter?: QueryHistoryFilter): Promise<QueryHistoryEntry[]> => {
       return historyStore.getHistory(filter);
@@ -66,12 +67,12 @@ export function registerQueryHandlers(): void {
   );
 
   // Clear all history
-  ipcMain.handle(IPC_CHANNELS.QUERY.CLEAR_HISTORY, async (): Promise<void> => {
+  safeHandle(IPC_CHANNELS.QUERY.CLEAR_HISTORY, async (): Promise<void> => {
     historyStore.clearAll();
   });
 
   // Delete single history entry
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY.DELETE_HISTORY_ENTRY,
     async (_event, id: string): Promise<boolean> => {
       return historyStore.deleteEntry(id);
@@ -79,7 +80,7 @@ export function registerQueryHandlers(): void {
   );
 
   // Export results
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY.EXPORT_RESULTS,
     async (_event, resultSet: ResultSet, options: ExportOptions): Promise<ExportResult> => {
       try {
@@ -137,7 +138,7 @@ export function registerQueryHandlers(): void {
   );
 
   // Fetch foreign key referenced record
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.QUERY.FETCH_FK_RECORD,
     async (_event, request: FkRecordRequest): Promise<FkRecordResult> => {
       try {

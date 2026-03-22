@@ -3,13 +3,17 @@
  * Handles file/folder operations for workspace support
  */
 
-import { ipcMain, dialog } from 'electron';
+import { dialog, BrowserWindow } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { watch, FSWatcher } from 'fs';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { FileTreeNode, WorkspaceInfo, WorkspaceSettings } from '@mj-forge/shared';
 import { AppStateStore } from '../services/config/app-state';
+import { createLogger } from '../utils/logger';
+import { safeHandle } from './safe-handle';
+
+const log = createLogger('Workspace');
 
 const WORKSPACE_SETTINGS_FILE = '.forge.json';
 const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
@@ -17,14 +21,35 @@ const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
 
-export function registerWorkspaceHandlers(mainWindow: Electron.BrowserWindow): void {
+/**
+ * Validates that a file path is within the current workspace boundary.
+ * Prevents path traversal attacks (e.g., ../../etc/passwd).
+ */
+function validatePathWithinWorkspace(filePath: string, workspacePath: string | null): void {
+  if (!workspacePath) {
+    throw new Error('No workspace is currently open');
+  }
+  const resolved = path.resolve(filePath);
+  const workspaceResolved = path.resolve(workspacePath);
+  if (!resolved.startsWith(workspaceResolved + path.sep) && resolved !== workspaceResolved) {
+    throw new Error('Access denied: path is outside the workspace boundary');
+  }
+}
+
+function getMainWindow(): BrowserWindow | undefined {
+  return BrowserWindow.getAllWindows()[0];
+}
+
+export function registerWorkspaceHandlers(): void {
   const appState = AppStateStore.getInstance();
 
   // Open folder and get workspace info
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, async (_event, folderPath?: string): Promise<WorkspaceInfo | null> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.OPEN_FOLDER, async (_event, folderPath?: string): Promise<WorkspaceInfo | null> => {
     let targetPath = folderPath;
+    const mainWindow = getMainWindow();
 
     if (!targetPath) {
+      if (!mainWindow) return null;
       const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory'],
         title: 'Open Folder',
@@ -36,56 +61,61 @@ export function registerWorkspaceHandlers(mainWindow: Electron.BrowserWindow): v
       targetPath = result.filePaths[0];
     }
 
-    try {
-      const files = await buildFileTree(targetPath);
-      const settings = await loadWorkspaceSettings(targetPath);
+    const files = await buildFileTree(targetPath);
+    const settings = await loadWorkspaceSettings(targetPath);
 
-      // Save to app state
-      appState.setCurrentWorkspacePath(targetPath);
+    // Save to app state
+    appState.setCurrentWorkspacePath(targetPath);
 
-      // Set up file watcher
+    // Set up file watcher
+    if (mainWindow) {
       setupFileWatcher(targetPath, mainWindow);
-
-      return {
-        path: targetPath,
-        name: path.basename(targetPath),
-        files,
-        settings,
-      };
-    } catch (error) {
-      console.error('Failed to open folder:', error);
-      throw error;
     }
+
+    return {
+      path: targetPath,
+      name: path.basename(targetPath),
+      files,
+      settings,
+    };
   });
 
   // Get files in a directory
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.GET_FILES, async (_event, dirPath: string): Promise<FileTreeNode[]> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.GET_FILES, async (_event, dirPath: string): Promise<FileTreeNode[]> => {
+    validatePathWithinWorkspace(dirPath, appState.getCurrentWorkspacePath());
     return buildFileTree(dirPath);
   });
 
   // Read file contents
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.READ_FILE, async (_event, filePath: string): Promise<string> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.READ_FILE, async (_event, filePath: string): Promise<string> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     const content = await fs.readFile(filePath, 'utf-8');
     return content;
   });
 
   // Write file contents
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.WRITE_FILE, async (_event, filePath: string, content: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.WRITE_FILE, async (_event, filePath: string, content: string): Promise<void> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     await fs.writeFile(filePath, content, 'utf-8');
   });
 
   // Create new file
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.CREATE_FILE, async (_event, filePath: string, content?: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.CREATE_FILE, async (_event, filePath: string, content?: string): Promise<void> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     await fs.writeFile(filePath, content || '', 'utf-8');
   });
 
   // Delete file
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.DELETE_FILE, async (_event, filePath: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.DELETE_FILE, async (_event, filePath: string): Promise<void> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     await fs.unlink(filePath);
   });
 
   // Rename file
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE.RENAME_FILE, async (_event, oldPath: string, newPath: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.WORKSPACE.RENAME_FILE, async (_event, oldPath: string, newPath: string): Promise<void> => {
+    const workspace = appState.getCurrentWorkspacePath();
+    validatePathWithinWorkspace(oldPath, workspace);
+    validatePathWithinWorkspace(newPath, workspace);
     await fs.rename(oldPath, newPath);
   });
 }
@@ -176,7 +206,7 @@ function setupFileWatcher(workspacePath: string, mainWindow: Electron.BrowserWin
 
     activeWatchers.set(workspacePath, watcher);
   } catch (error) {
-    console.error('Failed to set up file watcher:', error);
+    log.error('Failed to set up file watcher:', error);
   }
 }
 

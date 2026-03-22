@@ -6,7 +6,10 @@
 import { ConnectionPool, config as SqlConfig, IResult } from 'mssql';
 import type { ConnectionProfile, TestConnectionResult } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
+import { createLogger } from '../../utils/logger';
 import { ConnectionProfilesStore } from '../config/connection-profiles';
+
+const log = createLogger('PoolManager');
 
 interface PoolEntry {
   pool: ConnectionPool;
@@ -33,13 +36,8 @@ export class ConnectionPoolManager extends BaseSingleton {
     profile: ConnectionProfile,
     password?: string
   ): Promise<TestConnectionResult> {
-    console.log(`[PoolManager:TEST] Testing connection for profile: ${profile.name}`);
-    console.log(
-      `[PoolManager:TEST] Server: ${profile.server}:${profile.port}, User: ${profile.username}`
-    );
-    console.log(
-      `[PoolManager:TEST] Password provided: ${!!password}, Password length: ${password?.length || 0}, first3chars: ${password?.substring(0, 3) || 'N/A'}...`
-    );
+    log.info(`Testing connection for profile: ${profile.name}`);
+    log.debug(`Server: ${profile.server}:${profile.port}, User: ${profile.username}`);
 
     const config: SqlConfig = {
       server: profile.server,
@@ -55,17 +53,15 @@ export class ConnectionPoolManager extends BaseSingleton {
       requestTimeout: 10000,
     };
 
-    console.log(
-      `[PoolManager:TEST] Config: encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}`
-    );
+    log.debug(`Config: encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}`);
 
     let pool: ConnectionPool | null = null;
 
     try {
       pool = new ConnectionPool(config);
-      console.log(`[PoolManager:TEST] Attempting connection...`);
+      log.debug('Attempting test connection...');
       await pool.connect();
-      console.log(`[PoolManager:TEST] Connection successful!`);
+      log.info('Test connection successful');
 
       // Get server info
       const result = await pool.request().query<{
@@ -104,36 +100,32 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Get or create a connection pool for a profile
    */
   async getPool(profileId: string): Promise<ConnectionPool> {
-    console.log(`[PoolManager:GET_POOL] Getting pool for profile ID: ${profileId}`);
+    log.debug(`Getting pool for profile: ${profileId}`);
 
     // Check for existing connected pool
     const existing = this.pools.get(profileId);
     if (existing?.pool.connected) {
-      console.log(`[PoolManager:GET_POOL] Found existing connected pool for: ${profileId}`);
+      log.debug(`Reusing existing pool for: ${profileId}`);
       existing.lastUsed = new Date();
       return existing.pool;
     }
 
-    console.log(`[PoolManager:GET_POOL] No existing pool, creating new one for: ${profileId}`);
+    log.debug(`Creating new pool for: ${profileId}`);
 
     // Get profile and password
     const profile = this.profileStore.getById(profileId);
     if (!profile) {
-      console.error(`[PoolManager:GET_POOL] Profile not found: ${profileId}`);
+      log.error(`Profile not found: ${profileId}`);
       throw new Error('Connection profile not found');
     }
-    console.log(
-      `[PoolManager:GET_POOL] Found profile: name="${profile.name}", server=${profile.server}:${profile.port}, user=${profile.username}`
-    );
+    log.debug(`Found profile: "${profile.name}" at ${profile.server}:${profile.port}`);
 
     const password = await this.profileStore.getPassword(profileId);
     if (!password) {
-      console.error(`[PoolManager:GET_POOL] Password not found in keychain for: ${profileId}`);
+      log.error(`Password not found in keychain for: ${profileId}`);
       throw new Error('Connection password not found in Keychain');
     }
-    console.log(
-      `[PoolManager:GET_POOL] Password retrieved from keychain, length: ${password.length}, first3chars: ${password.substring(0, 3)}...`
-    );
+    log.debug('Password retrieved from keychain');
 
     // Create new pool
     const config: SqlConfig = {
@@ -155,14 +147,12 @@ export class ConnectionPoolManager extends BaseSingleton {
       },
     };
 
-    console.log(
-      `[PoolManager:GET_POOL] Creating pool with config: server=${config.server}:${config.port}, user=${config.user}, db=${config.database}, encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}`
-    );
+    log.debug(`Pool config: server=${config.server}:${config.port}, db=${config.database}, encrypt=${config.options?.encrypt}`);
 
     const pool = new ConnectionPool(config);
-    console.log(`[PoolManager:GET_POOL] Connecting to SQL Server...`);
+    log.info(`Connecting to ${profile.server}:${profile.port}...`);
     await pool.connect();
-    console.log(`[PoolManager:GET_POOL] Connected successfully!`);
+    log.info(`Connected to ${profile.name}`);
 
     this.pools.set(profileId, {
       pool,
@@ -188,12 +178,15 @@ export class ConnectionPoolManager extends BaseSingleton {
     try {
       const request = pool.request();
 
-      // Switch database if specified
+      // Prepend USE [database] and execute as batch (raw T-SQL).
+      // batch() is needed because query() uses sp_executesql which doesn't support USE.
+      let finalSql = sql;
       if (database) {
-        await request.batch(`USE [${database.replace(/\]/g, ']]')}]`);
+        const safeDb = database.replace(/\]/g, ']]');
+        finalSql = `USE [${safeDb}];\n${finalSql}`;
       }
 
-      return await request.query<T>(sql);
+      return await request.batch(finalSql) as IResult<T>;
     } finally {
       if (entry) {
         entry.activeQueries--;
@@ -333,7 +326,9 @@ export class ConnectionPoolManager extends BaseSingleton {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           // Close connections idle for more than 10 minutes with no active queries
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            this.closePool(id);
+            this.closePool(id).catch(() => {
+              // Already handled inside closePool — guard against unexpected rejection
+            });
           }
         }
       },

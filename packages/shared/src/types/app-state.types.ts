@@ -6,7 +6,7 @@ import type { AISettings } from './ai.types';
 
 export interface TabState {
   id: string;
-  type: 'query' | 'results' | 'object' | 'welcome' | 'erd';
+  type: 'query' | 'results' | 'object' | 'welcome' | 'erd' | 'chat';
   title: string;
   content?: string;
   databaseName?: string;
@@ -30,6 +30,8 @@ export interface AppState {
   goldenLayoutConfig?: LayoutConfig;
   /** AI settings */
   aiSettings?: AISettings;
+  /** Chat panel width in pixels */
+  chatPanelWidth?: number;
 }
 
 export interface WorkspaceSettings {
@@ -107,7 +109,7 @@ export interface WorkspaceTab {
   id: string;
 
   /** Tab type */
-  type: 'query' | 'results' | 'object' | 'welcome' | 'erd';
+  type: 'query' | 'results' | 'object' | 'welcome' | 'erd' | 'chat';
 
   /** Display title */
   title: string;

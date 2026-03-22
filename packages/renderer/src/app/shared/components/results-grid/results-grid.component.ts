@@ -4,6 +4,7 @@ import {
   Output,
   EventEmitter,
   OnChanges,
+  OnDestroy,
   SimpleChanges,
   inject,
   signal,
@@ -30,7 +31,7 @@ import {
 import type { ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { NotificationService } from '../../../core/services/notification.service';
 import { IpcService } from '../../../core/services/ipc.service';
-import { firstValueFrom } from 'rxjs';
+import { Subscription, firstValueFrom } from 'rxjs';
 
 interface ColumnStats {
   column: string;
@@ -176,6 +177,12 @@ interface FkPreviewData {
       }
 
       <div class="grid-wrapper">
+        @if (rowData.length === 0 && columnDefs.length > 0) {
+          <div class="empty-results">
+            <mat-icon>search_off</mat-icon>
+            <span>Query executed successfully — 0 rows returned</span>
+          </div>
+        }
         <ag-grid-angular
           class="ag-theme-quartz-dark"
           [theme]="'legacy'"
@@ -184,11 +191,13 @@ interface FkPreviewData {
           [defaultColDef]="defaultColDef"
           [rowSelection]="rowSelectionOptions"
           [suppressClipboardPaste]="true"
-          [animateRows]="false"
+          [animateRows]="true"
           [suppressRowHoverHighlight]="false"
           [rowBuffer]="20"
           [quickFilterText]="filterText()"
           [enableCellTextSelection]="true"
+          [enableRangeSelection]="false"
+          [suppressMultiSort]="false"
           (gridReady)="onGridReady($event)"
           (cellClicked)="onCellClicked($event)"
           (cellContextMenu)="onCellContextMenu($event)"
@@ -465,6 +474,28 @@ interface FkPreviewData {
       .grid-wrapper {
         flex: 1;
         overflow: hidden;
+        position: relative;
+      }
+
+      .empty-results {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+        z-index: 1;
+
+        mat-icon {
+          font-size: 32px;
+          width: 32px;
+          height: 32px;
+          opacity: 0.5;
+        }
       }
 
       ag-grid-angular {
@@ -1113,7 +1144,7 @@ interface FkPreviewData {
     `,
   ],
 })
-export class ResultsGridComponent implements OnChanges {
+export class ResultsGridComponent implements OnChanges, OnDestroy {
   @Input() resultSet: ResultSet | null = null;
   @Input() tableName: string = 'result';
   @Input() connectionId: string | null = null;
@@ -1125,6 +1156,7 @@ export class ResultsGridComponent implements OnChanges {
   private readonly notification = inject(NotificationService);
   private readonly ipc = inject(IpcService);
   private gridApi: GridApi | null = null;
+  private fkSubscription: Subscription | null = null;
 
   rowData: Record<string, unknown>[] = [];
   columnDefs: ColDef[] = [];
@@ -1148,6 +1180,7 @@ export class ResultsGridComponent implements OnChanges {
   defaultColDef: ColDef = {
     sortable: true,
     filter: true,
+    floatingFilter: true,
     resizable: true,
     minWidth: 80,
     suppressSizeToFit: false,
@@ -1163,6 +1196,10 @@ export class ResultsGridComponent implements OnChanges {
     if (changes['resultSet'] && this.resultSet) {
       this.updateGrid();
     }
+  }
+
+  ngOnDestroy(): void {
+    this.fkSubscription?.unsubscribe();
   }
 
   private updateGrid(): void {
@@ -1218,18 +1255,27 @@ export class ResultsGridComponent implements OnChanges {
       cellClass: (params: CellClassParams) => this.getCellClass(params.value, column),
     };
 
-    // Set column width based on data type
+    // Set column width and filter based on data type
     if (this.isNumericType(column.type)) {
       colDef.width = 120;
       colDef.type = 'numericColumn';
+      colDef.filter = 'agNumberColumnFilter';
     } else if (this.isBooleanType(column.type)) {
       colDef.width = 80;
     } else if (this.isDateType(column.type)) {
       colDef.width = 180;
+      colDef.filter = 'agDateColumnFilter';
     } else if (column.maxLength && column.maxLength < 50) {
       colDef.width = Math.max(100, column.maxLength * 8);
+      colDef.filter = 'agTextColumnFilter';
     } else {
       colDef.minWidth = 150;
+      colDef.filter = 'agTextColumnFilter';
+    }
+
+    // Pin primary key columns to the left for easy reference
+    if (column.isPrimaryKey) {
+      colDef.pinned = 'left';
     }
 
     return colDef;
@@ -1714,7 +1760,10 @@ export class ResultsGridComponent implements OnChanges {
   ): void {
     if (!this.connectionId || !this.database) return;
 
-    this.ipc
+    // Cancel any in-flight FK fetch
+    this.fkSubscription?.unsubscribe();
+
+    this.fkSubscription = this.ipc
       .fetchFkRecord({
         connectionId: this.connectionId,
         database: this.database,

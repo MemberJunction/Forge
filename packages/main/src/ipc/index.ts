@@ -12,6 +12,10 @@ import { registerBackupHandlers } from './backup.ipc';
 import { registerServerFsHandlers } from './server-fs.ipc';
 import { registerAppHandlers } from './app.ipc';
 import { registerAIHandlers } from './ai.ipc';
+import { registerThemeHandlers } from './theme.ipc';
+import { registerWorkspaceHandlers } from './workspace.ipc';
+import { registerSettingsHandlers } from './settings.ipc';
+import { registerChatHandlers } from './chat.ipc';
 
 export function registerAllHandlers(): void {
   registerConnectionHandlers();
@@ -24,4 +28,8 @@ export function registerAllHandlers(): void {
   registerServerFsHandlers();
   registerAppHandlers();
   registerAIHandlers();
+  registerThemeHandlers();
+  registerWorkspaceHandlers();
+  registerSettingsHandlers();
+  registerChatHandlers();
 }

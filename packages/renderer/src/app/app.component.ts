@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnInit, HostListener, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { MatIconRegistry } from '@angular/material/icon';
@@ -11,6 +11,7 @@ import { TablePropertiesContainerComponent } from './shared/components/table-pro
 import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
 import { ObjectSearchComponent } from './shared/components/object-search/object-search.component';
 import { ShortcutsDialogComponent } from './shared/components/shortcuts-dialog/shortcuts-dialog.component';
+import { SnippetLibraryComponent } from './shared/components/snippet-library/snippet-library.component';
 import { SettingsService } from './core/services/settings.service';
 import { ConnectionStateService } from './core/state/connection.state';
 import { TabStateService } from './core/state/tab.state';
@@ -29,6 +30,7 @@ import { TabStateService } from './core/state/tab.state';
     CommandPaletteComponent,
     ObjectSearchComponent,
     ShortcutsDialogComponent,
+    SnippetLibraryComponent,
   ],
   template: `
     @if (loading()) {
@@ -43,6 +45,7 @@ import { TabStateService } from './core/state/tab.state';
       <app-command-palette />
       <app-object-search />
       <app-shortcuts-dialog />
+      <app-snippet-library />
     }
   `,
   styles: [
@@ -83,6 +86,16 @@ export class AppComponent implements OnInit {
       'database-cylinder',
       this.sanitizer.bypassSecurityTrustResourceUrl('assets/icons/database-cylinder.svg')
     );
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(event: BeforeUnloadEvent): void {
+    const hasDirtyTabs = this.tabState.tabs().some(tab => tab.isDirty);
+    if (hasDirtyTabs) {
+      event.preventDefault();
+      // Modern browsers ignore custom messages but still show confirmation
+      event.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+    }
   }
 
   async ngOnInit(): Promise<void> {

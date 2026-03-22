@@ -13,6 +13,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import type { ServerDrive, ServerFileEntry } from '@mj-forge/shared';
 
@@ -94,10 +95,16 @@ export interface ServerFileBrowserResult {
                 <mat-spinner diameter="40"></mat-spinner>
               </div>
             }
-            @if (entries().length === 0 && !loading()) {
+            @if (error() && !loading()) {
+              <div class="empty-state error-state">
+                <mat-icon>error_outline</mat-icon>
+                <span>{{ error() }}</span>
+                <button mat-stroked-button (click)="refresh()">Retry</button>
+              </div>
+            } @else if (entries().length === 0 && !loading()) {
               <div class="empty-state">
                 <mat-icon>folder_off</mat-icon>
-                <span>{{ error() || 'This folder is empty' }}</span>
+                <span>This folder is empty</span>
               </div>
             }
             @for (entry of entries(); track entry.path) {
@@ -128,11 +135,11 @@ export interface ServerFileBrowserResult {
         }
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button mat-flat-button color="primary" [disabled]="!canConfirm()" (click)="confirm()">
           {{ data.mode === 'save' ? 'Save' : 'Select' }}
         </button>
+        <button mat-button (click)="cancel()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,
@@ -242,6 +249,7 @@ export interface ServerFileBrowserResult {
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: var(--spacing-sm);
         padding: var(--spacing-xl);
         color: var(--text-muted);
 
@@ -249,7 +257,14 @@ export interface ServerFileBrowserResult {
           font-size: 48px;
           width: 48px;
           height: 48px;
-          margin-bottom: var(--spacing-md);
+        }
+
+        &.error-state {
+          color: var(--status-error);
+
+          mat-icon {
+            color: var(--status-error);
+          }
         }
       }
 
@@ -351,7 +366,7 @@ export class ServerFileBrowserComponent implements OnInit {
     this.error.set('');
 
     try {
-      const drives = await this.ipc.getServerDrives(this.data.connectionId).toPromise();
+      const drives = await firstValueFrom(this.ipc.getServerDrives(this.data.connectionId));
       this.drives.set(drives || []);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load drives');
@@ -366,9 +381,9 @@ export class ServerFileBrowserComponent implements OnInit {
     this.selectedEntry.set(null);
 
     try {
-      const entries = await this.ipc
-        .listServerDirectory(this.data.connectionId, path, true)
-        .toPromise();
+      const entries = await firstValueFrom(
+        this.ipc.listServerDirectory(this.data.connectionId, path, true)
+      );
 
       // Filter by file extension if specified
       let filteredEntries = entries || [];

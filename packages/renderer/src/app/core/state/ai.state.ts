@@ -250,6 +250,29 @@ export class AIStateService {
   }
 
   /**
+   * Set preferred model for a vendor
+   */
+  async setPreferredModel(vendorId: string, modelId: string): Promise<void> {
+    const settings = this._settings();
+    const vendorSettings = [...settings.vendorSettings];
+    const index = vendorSettings.findIndex(vs => vs.vendorId === vendorId);
+
+    if (index >= 0) {
+      vendorSettings[index] = { ...vendorSettings[index], preferredModelId: modelId };
+    } else {
+      vendorSettings.push({
+        vendorId,
+        enabled: false,
+        apiKeyConfigured: false,
+        priority: vendorSettings.length + 1,
+        preferredModelId: modelId,
+      });
+    }
+
+    await this.updateSettings({ vendorSettings });
+  }
+
+  /**
    * Update vendor priority
    */
   async setVendorPriority(vendorId: string, priority: number): Promise<void> {

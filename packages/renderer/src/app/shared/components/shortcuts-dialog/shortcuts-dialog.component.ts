@@ -168,29 +168,33 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
     {
       name: 'General',
       shortcuts: [
-        { keys: '⌘ + Shift + P', description: 'Command Palette' },
-        { keys: '⌘ + K', description: 'Quick Command Palette' },
-        { keys: '⌘ + T', description: 'Quick Object Search' },
-        { keys: '⌘ + ,', description: 'Open Settings' },
-        { keys: '⌘ + B', description: 'Toggle Sidebar' },
+        { keys: '⌘ + K', description: 'Command Palette' },
+        { keys: '⌘ + Shift + P', description: 'Command Palette (Alt)' },
+        { keys: '⌘ + ,', description: 'Settings' },
+        { keys: '⌘ + \\', description: 'Toggle Sidebar' },
+        { keys: '⌘ + Shift + ?', description: 'Keyboard Shortcuts' },
+        { keys: '⌘ + P', description: 'Quick Object Search' },
       ],
     },
     {
       name: 'Files & Tabs',
       shortcuts: [
         { keys: '⌘ + N', description: 'New Query Tab' },
+        { keys: '⌘ + Shift + N', description: 'New Connection' },
         { keys: '⌘ + W', description: 'Close Current Tab' },
         { keys: '⌘ + S', description: 'Save Query' },
-        { keys: '⌘ + Shift + S', description: 'Save Query As' },
-        { keys: 'Ctrl + Tab', description: 'Next Tab' },
-        { keys: 'Ctrl + Shift + Tab', description: 'Previous Tab' },
+        { keys: '⌘ + Shift + S', description: 'Snippet Library' },
+        { keys: '⌘ + Shift + ]', description: 'Next Tab' },
+        { keys: '⌘ + Shift + [', description: 'Previous Tab' },
       ],
     },
     {
       name: 'Query Execution',
       shortcuts: [
-        { keys: 'F5 / Ctrl+E / ⌘+Enter', description: 'Execute Query' },
-        { keys: 'Escape', description: 'Cancel Query' },
+        { keys: '⌘ + Return', description: 'Execute Query' },
+        { keys: 'F5', description: 'Execute Query (Alt)' },
+        { keys: 'Ctrl + E', description: 'Execute Query (SSMS)' },
+        { keys: '⌘ + .', description: 'Cancel Execution' },
         { keys: '⌘ + Shift + F', description: 'Format SQL' },
       ],
     },
@@ -198,7 +202,8 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       name: 'Editor',
       shortcuts: [
         { keys: '⌘ + F', description: 'Find' },
-        { keys: '⌘ + H', description: 'Find and Replace' },
+        { keys: '⌘ + ⌥ + F', description: 'Find and Replace' },
+        { keys: '⌘ + G', description: 'Go to Line' },
         { keys: '⌘ + /', description: 'Toggle Comment' },
         { keys: '⌘ + Z', description: 'Undo' },
         { keys: '⌘ + Shift + Z', description: 'Redo' },
@@ -207,19 +212,11 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      name: 'Navigation',
+      name: 'Results & History',
       shortcuts: [
-        { keys: '⌘ + G', description: 'Go to Line' },
-        { keys: '⌘ + P', description: 'Go to File' },
-        { keys: 'Ctrl + G', description: 'Go to Definition' },
-      ],
-    },
-    {
-      name: 'Results',
-      shortcuts: [
+        { keys: '⌘ + Shift + H', description: 'Query History' },
         { keys: '⌘ + E', description: 'Export Results' },
         { keys: '⌘ + C', description: 'Copy Selected Cells' },
-        { keys: '⌘ + A', description: 'Select All' },
       ],
     },
   ];
@@ -228,6 +225,11 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
     if (event.key === 'Escape' && this.isOpen()) {
       event.preventDefault();
       this.close();
+    }
+    // Cmd+? (Cmd+Shift+/) to open shortcuts dialog
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === '/') {
+      event.preventDefault();
+      this.toggle();
     }
   };
 
@@ -242,6 +244,14 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this.keydownHandler);
     window.removeEventListener('forge:show-shortcuts', this.eventHandler);
+  }
+
+  toggle(): void {
+    if (this.isOpen()) {
+      this.close();
+    } else {
+      this.open();
+    }
   }
 
   open(): void {

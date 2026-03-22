@@ -45,6 +45,7 @@ export interface AIVendor {
  */
 export interface AIVendorsConfig {
   version: string;
+  lastUpdated?: string;
   vendors: AIVendor[];
 }
 

@@ -23,6 +23,7 @@ export interface ConnectionProfile {
   trustServerCertificate: boolean;
   connectionTimeout: number;
   requestTimeout?: number;
+  color?: string; // optional accent color for visual identification
   isDocker?: boolean;
   dockerContainerId?: string;
   volumeMappings?: VolumeMapping[];

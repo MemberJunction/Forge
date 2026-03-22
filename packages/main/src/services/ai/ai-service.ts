@@ -15,8 +15,11 @@ import type {
 } from '@mj-forge/shared';
 import { DEFAULT_AI_SETTINGS, AI_VENDORS_CONFIG } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
+import { createLogger } from '../../utils/logger';
 import { CredentialStore } from '../keychain/credential-store';
 import { AppStateStore } from '../config/app-state';
+
+const log = createLogger('AI');
 
 // Provider interfaces
 interface AIProvider {
@@ -159,7 +162,7 @@ export class AIService extends BaseSingleton {
         confidence: suggestedName.length > 0 ? 0.8 : 0,
       };
     } catch (error) {
-      console.error('Failed to generate tab name:', error);
+      log.error('Failed to generate tab name:', error);
       return { suggestedName: 'Query', confidence: 0 };
     }
   }
@@ -191,7 +194,7 @@ export class AIService extends BaseSingleton {
       });
       return { content, isComplete: true };
     } catch (error) {
-      console.error('Failed to analyze results:', error);
+      log.error('Failed to analyze results:', error);
       return { content: `Analysis failed: ${error}`, isComplete: true };
     } finally {
       this.activeRequests.delete(requestId);
@@ -225,7 +228,7 @@ EXPLANATION:
 
       return this.parseSQLResponse(response);
     } catch (error) {
-      console.error('Failed to generate SQL:', error);
+      log.error('Failed to generate SQL:', error);
       return { sql: '', explanation: `Generation failed: ${error}` };
     }
   }
@@ -304,9 +307,13 @@ EXPLANATION:
     return { model: null, provider: null, apiKey: null };
   }
 
-  private async getApiKey(vendorId: string): Promise<string | null> {
+  async getApiKeyForVendor(vendorId: string): Promise<string | null> {
     const credential = CredentialStore.getInstance();
     return credential.get(`ai-${vendorId}`);
+  }
+
+  private async getApiKey(vendorId: string): Promise<string | null> {
+    return this.getApiKeyForVendor(vendorId);
   }
 
   private buildTabRenamePrompt(request: TabRenameRequest): string {

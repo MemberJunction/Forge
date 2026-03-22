@@ -2,7 +2,6 @@
  * Explorer IPC Handlers
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type {
   TableInfo,
@@ -17,14 +16,19 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  SchemaInfo,
 } from '@mj-forge/shared';
 import { MetadataService } from '../services/sql/metadata';
+import { createLogger } from '../utils/logger';
+import { safeHandle } from './safe-handle';
+
+const log = createLogger('IPC:Explorer');
 
 export function registerExplorerHandlers(): void {
   const metadataService = MetadataService.getInstance();
 
   // Get children for a path (tables, views, procedures, functions)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_CHILDREN,
     async (
       _event,
@@ -32,7 +36,7 @@ export function registerExplorerHandlers(): void {
       databaseName: string,
       parentPath: string
     ): Promise<ObjectMetadata[]> => {
-      console.log(`[Explorer] Getting children for ${databaseName}/${parentPath}`);
+      log.debug(`Getting children for ${databaseName}/${parentPath}`);
 
       if (parentPath === 'schemas') {
         const schemas = await metadataService.listSchemas(connectionId, databaseName);
@@ -76,8 +80,12 @@ export function registerExplorerHandlers(): void {
       }
 
       if (parentPath === 'functions') {
-        // For now, return empty - we can add function support later
-        return [];
+        const functions = await metadataService.listFunctions(connectionId, databaseName);
+        return functions.map(f => ({
+          name: f.name,
+          type: 'function' as const,
+          schema: f.schema,
+        }));
       }
 
       return [];
@@ -85,7 +93,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get object details
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_OBJECT_DETAILS,
     async (
       _event,
@@ -103,24 +111,52 @@ export function registerExplorerHandlers(): void {
     }
   );
 
-  // Refresh node
-  ipcMain.handle(
+  // Refresh node — invalidates cache and re-fetches children
+  safeHandle(
     IPC_CHANNELS.EXPLORER.REFRESH_NODE,
     async (
       _event,
       connectionId: string,
-      _databaseName: string,
-      _path: string
+      databaseName: string,
+      nodePath: string
     ): Promise<ObjectMetadata[]> => {
-      // Invalidate cache and re-fetch
       metadataService.invalidateConnection(connectionId);
-      // Re-use GET_CHILDREN logic
+
+      // Re-fetch using the same logic as GET_CHILDREN
+      if (nodePath === 'tables') {
+        const tables = await metadataService.listTables(connectionId, databaseName);
+        return tables.map(t => ({ name: t.name, type: 'table' as const, schema: t.schema, rowCount: t.rowCount, sizeKb: t.sizeKb }));
+      }
+      if (nodePath === 'views') {
+        const views = await metadataService.listViews(connectionId, databaseName);
+        return views.map(v => ({ name: v.name, type: 'view' as const, schema: v.schema }));
+      }
+      if (nodePath === 'procedures') {
+        const procs = await metadataService.listProcedures(connectionId, databaseName);
+        return procs.map(p => ({ name: p.name, type: 'procedure' as const, schema: p.schema }));
+      }
+      if (nodePath === 'functions') {
+        const functions = await metadataService.listFunctions(connectionId, databaseName);
+        return functions.map(f => ({ name: f.name, type: 'function' as const, schema: f.schema }));
+      }
+      if (nodePath === 'schemas') {
+        const schemas = await metadataService.listSchemas(connectionId, databaseName);
+        return schemas.filter(s => !s.isSystem).map(s => ({ name: s.name, type: 'schema' as const, schema: s.name }));
+      }
       return [];
     }
   );
 
+  // List schemas
+  safeHandle(
+    IPC_CHANNELS.EXPLORER.LIST_SCHEMAS,
+    async (_event, connectionId: string, database: string): Promise<SchemaInfo[]> => {
+      return metadataService.listSchemas(connectionId, database);
+    }
+  );
+
   // Get tables
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLES,
     async (_event, connectionId: string, database: string): Promise<TableInfo[]> => {
       return metadataService.listTables(connectionId, database);
@@ -128,7 +164,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get views
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_VIEWS,
     async (_event, connectionId: string, database: string): Promise<ViewInfo[]> => {
       return metadataService.listViews(connectionId, database);
@@ -136,7 +172,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get procedures
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_PROCEDURES,
     async (_event, connectionId: string, database: string): Promise<ProcedureInfo[]> => {
       return metadataService.listProcedures(connectionId, database);
@@ -144,7 +180,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get object definition
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_DEFINITION,
     async (
       _event,
@@ -159,7 +195,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Refresh
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.REFRESH,
     async (_event, connectionId: string): Promise<void> => {
       metadataService.invalidateConnection(connectionId);
@@ -167,7 +203,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table columns
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_COLUMNS,
     async (
       _event,
@@ -181,7 +217,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table indexes
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_INDEXES,
     async (
       _event,
@@ -195,7 +231,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table foreign keys
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_KEYS,
     async (
       _event,
@@ -209,7 +245,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table constraints
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_CONSTRAINTS,
     async (
       _event,
@@ -223,7 +259,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table triggers
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_TRIGGERS,
     async (
       _event,
@@ -237,7 +273,7 @@ export function registerExplorerHandlers(): void {
   );
 
   // Get table properties (comprehensive)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_TABLE_PROPERTIES,
     async (
       _event,
@@ -246,13 +282,13 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<TableProperties> => {
-      console.log(`[Explorer] Getting table properties for ${database}.${schema}.${table}`);
+      log.debug(`Getting table properties for ${database}.${schema}.${table}`);
       return metadataService.getTableProperties(connectionId, database, schema, table);
     }
   );
 
   // Get extended properties
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_EXTENDED_PROPERTIES,
     async (
       _event,
@@ -261,22 +297,22 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<ExtendedProperty[]> => {
-      console.log(`[Explorer] Getting extended properties for ${database}.${schema}.${table}`);
+      log.debug(`Getting extended properties for ${database}.${schema}.${table}`);
       return metadataService.listExtendedProperties(connectionId, database, schema, table);
     }
   );
 
   // Get enriched column metadata (with PK/FK info)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.GET_ENRICHED_COLUMNS,
     async (_event, connectionId: string, database: string, schema: string, table: string) => {
-      console.log(`[Explorer] Getting enriched column metadata for ${database}.${schema}.${table}`);
+      log.debug(`Getting enriched columns for ${database}.${schema}.${table}`);
       return metadataService.getEnrichedColumnMetadata(connectionId, database, schema, table);
     }
   );
 
   // Script table as CREATE
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_CREATE,
     async (
       _event,
@@ -285,13 +321,13 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<string> => {
-      console.log(`[Explorer] Scripting ${database}.${schema}.${table} as CREATE`);
+      log.debug(`Scripting ${database}.${schema}.${table} as CREATE`);
       return metadataService.scriptTableAsCreate(connectionId, database, schema, table);
     }
   );
 
   // Script table as INSERT
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.EXPLORER.SCRIPT_TABLE_INSERT,
     async (
       _event,
@@ -300,7 +336,7 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<string> => {
-      console.log(`[Explorer] Scripting ${database}.${schema}.${table} as INSERT`);
+      log.debug(`Scripting ${database}.${schema}.${table} as INSERT`);
       return metadataService.scriptTableAsInsert(connectionId, database, schema, table);
     }
   );

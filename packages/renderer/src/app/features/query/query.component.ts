@@ -1,4 +1,5 @@
 import {
+  ChangeDetectorRef,
   Component,
   ElementRef,
   OnDestroy,
@@ -19,6 +20,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatInputModule } from '@angular/material/input';
 import { MatDividerModule } from '@angular/material/divider';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
@@ -26,6 +28,10 @@ import { NotificationService } from '../../core/services/notification.service';
 import { QueryHistoryStateService } from '../../core/state/query-history.state';
 import { QueryResultsStateService } from '../../core/state/query-results.state';
 import { AIStateService } from '../../core/state/ai.state';
+import { QueryExecutionService } from '../../core/services/query-execution.service';
+import { SettingsService } from '../../core/services/settings.service';
+import { MenuService } from '../../core/services/menu.service';
+import { SqlIntellisenseService } from '../../core/services/sql-intellisense.service';
 import { ResultsGridComponent } from '../../shared/components/results-grid/results-grid.component';
 import {
   RowDetailPanelComponent,
@@ -54,6 +60,23 @@ interface MonacoEditorInstance {
   getModel(): MonacoModel | null;
   onDidChangeModelContent(callback: () => void): void;
   dispose(): void;
+  focus(): void;
+  getAction(actionId: string): MonacoAction | null;
+  trigger(source: string, handlerId: string, payload?: unknown): void;
+  getPosition(): MonacoPosition | null;
+  setPosition(position: MonacoPosition): void;
+  revealLineInCenter(lineNumber: number): void;
+  updateOptions(options: Record<string, unknown>): void;
+  onDidChangeCursorPosition(callback: (e: { position: MonacoPosition }) => void): { dispose(): void };
+}
+
+interface MonacoAction {
+  run(): Promise<void>;
+}
+
+interface MonacoPosition {
+  lineNumber: number;
+  column: number;
 }
 
 interface MonacoSelection {
@@ -64,7 +87,33 @@ interface MonacoModel {
   getValueInRange(selection: MonacoSelection): string;
 }
 
-declare const monaco: { editor: MonacoEditor };
+declare const monaco: {
+  editor: MonacoEditor & {
+    setTheme(themeName: string): void;
+  };
+  languages: {
+    registerCompletionItemProvider(
+      languageId: string,
+      provider: {
+        provideCompletionItems: (model: unknown, position: unknown) => {
+          suggestions: Array<{
+            label: string;
+            kind: number;
+            insertText: string;
+            detail: string;
+          }>;
+        };
+      }
+    ): void;
+    CompletionItemKind: {
+      Struct: number;
+      Interface: number;
+      Function: number;
+      Field: number;
+      Keyword: number;
+    };
+  };
+};
 
 @Component({
   selector: 'app-query',
@@ -89,10 +138,11 @@ declare const monaco: { editor: MonacoEditor };
   template: `
     <div class="query-container">
       <!-- Toolbar -->
-      <div class="query-toolbar">
+      <div class="query-toolbar" role="toolbar" aria-label="Query actions">
         <button
           mat-icon-button
           matTooltip="Execute (F5 or Ctrl+E)"
+          aria-label="Execute query"
           [disabled]="executing()"
           (click)="executeQuery()"
         >
@@ -105,6 +155,7 @@ declare const monaco: { editor: MonacoEditor };
         <button
           mat-icon-button
           matTooltip="Cancel"
+          aria-label="Cancel query"
           [disabled]="!executing()"
           (click)="cancelQuery()"
         >
@@ -116,6 +167,7 @@ declare const monaco: { editor: MonacoEditor };
           <mat-select
             [(ngModel)]="selectedDatabase"
             placeholder="Select Database"
+            aria-label="Select database"
             (selectionChange)="onDatabaseChange($event.value)"
           >
             @for (db of connectionState.databases(); track db.name) {
@@ -126,18 +178,31 @@ declare const monaco: { editor: MonacoEditor };
 
         <div class="toolbar-spacer"></div>
 
-        <button mat-icon-button matTooltip="Query History" (click)="toggleHistory()">
+        <button mat-icon-button matTooltip="Query History" aria-label="Query History" (click)="toggleHistory()">
           <mat-icon>history</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" (click)="formatSql()">
+        <button mat-icon-button matTooltip="Find (⌘F)" aria-label="Find" (click)="openFind()">
+          <mat-icon>search</mat-icon>
+        </button>
+        <button mat-icon-button matTooltip="Find & Replace (⌘⌥F)" aria-label="Find and Replace" (click)="openFindReplace()">
+          <mat-icon>find_replace</mat-icon>
+        </button>
+        <button mat-icon-button matTooltip="Go to Line (⌘G)" aria-label="Go to Line" (click)="goToLine()">
+          <mat-icon>format_list_numbered</mat-icon>
+        </button>
+        <div class="toolbar-divider"></div>
+        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" aria-label="Format SQL" (click)="formatSql()">
           <mat-icon>auto_fix_high</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Show Execution Plan" (click)="showExecutionPlan()">
+        <button mat-icon-button matTooltip="Show Execution Plan" aria-label="Show Execution Plan" (click)="showExecutionPlan()">
           <mat-icon>account_tree</mat-icon>
         </button>
 
         @if (activeResultSet()) {
           <div class="toolbar-divider"></div>
+          <button mat-icon-button matTooltip="Copy All to Clipboard (Tab-separated)" (click)="copyResultsToClipboard()">
+            <mat-icon>content_copy</mat-icon>
+          </button>
           <button mat-icon-button [matMenuTriggerFor]="exportMenu" matTooltip="Export Results">
             <mat-icon>download</mat-icon>
           </button>
@@ -153,6 +218,15 @@ declare const monaco: { editor: MonacoEditor };
             <button mat-menu-item (click)="exportResults('sql')">
               <mat-icon>storage</mat-icon>
               <span>Export as SQL INSERT</span>
+            </button>
+            <mat-divider></mat-divider>
+            <button mat-menu-item (click)="copyResultsToClipboard(false)">
+              <mat-icon>content_copy</mat-icon>
+              <span>Copy to Clipboard</span>
+            </button>
+            <button mat-menu-item (click)="copyResultsToClipboard(true)">
+              <mat-icon>table_chart</mat-icon>
+              <span>Copy with Headers</span>
             </button>
           </mat-menu>
         }
@@ -231,10 +305,11 @@ declare const monaco: { editor: MonacoEditor };
         <!-- Editor and Results -->
         <div class="query-content">
           <!-- Editor -->
-          <div class="editor-pane" [style.height.%]="editorHeight()">
+          <div class="editor-pane" [style.height.%]="resultsHidden() ? 100 : editorHeight()">
             <div #editorContainer class="editor-container"></div>
           </div>
 
+          @if (!resultsHidden()) {
           <!-- Resize handle -->
           <div class="resize-handle" (mousedown)="startResize($event)"></div>
 
@@ -364,6 +439,7 @@ declare const monaco: { editor: MonacoEditor };
               }
             }
           </div>
+          }
         </div>
       </div>
 
@@ -795,9 +871,15 @@ export class QueryComponent implements OnInit, OnDestroy {
   readonly historyState = inject(QueryHistoryStateService);
   readonly resultsState = inject(QueryResultsStateService);
   readonly aiState = inject(AIStateService);
+  private readonly queryExecution = inject(QueryExecutionService);
+  private readonly settings = inject(SettingsService);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly menuService = inject(MenuService);
+  private readonly intellisense = inject(SqlIntellisenseService);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
+  private menuSubscriptions: Subscription[] = [];
 
   /**
    * The tab ID this component instance is bound to.
@@ -811,8 +893,11 @@ export class QueryComponent implements OnInit, OnDestroy {
   result = signal<QueryResult | null>(null);
   activeTab = signal('result-0');
   editorHeight = signal(50);
+  resultsHidden = signal(false);
   showHistory = signal(false);
   historySearchText = '';
+
+  readonly autoCompleteObjects = signal<Array<{name: string; schema: string; type: string; displayType: string}>>([]);
 
   // Row detail panel state
   rowDetailData = signal<RowDetailData | null>(null);
@@ -826,6 +911,8 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   private currentQueryId: string | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private editorReadyTimer: ReturnType<typeof setTimeout> | null = null;
+  private resizeCleanup: (() => void) | null = null;
 
   constructor() {
     // Watch for THIS component's tab becoming active to sync editor content
@@ -860,6 +947,28 @@ export class QueryComponent implements OnInit, OnDestroy {
       },
       { allowSignalWrites: true }
     );
+
+    // Watch for theme changes and update Monaco editor theme accordingly
+    effect(() => {
+      const theme = this.settings.effectiveTheme();
+      if (typeof monaco !== 'undefined') {
+        monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+      }
+    });
+
+    // Watch for external database selection changes (e.g. sidebar dropdown)
+    effect(() => {
+      const db = this.connectionState.selectedDatabase();
+      if (db && db !== this.selectedDatabase) {
+        this.selectedDatabase = db;
+        // Also update the tab's stored databaseName to prevent the active-tab
+        // effect from reverting the selection
+        if (this.tabId) {
+          this.tabState.updateTab(this.tabId, { databaseName: db });
+        }
+        this.cdr.markForCheck();
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -868,14 +977,44 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     // Listen for keyboard shortcuts
     document.addEventListener('keydown', this.handleKeydown);
+    // Listen for snippet insertion events
+    window.addEventListener('forge:insert-snippet', this.handleInsertSnippet);
+
+    // Subscribe to menu service events (only act when THIS tab is active)
+    const guard = (fn: () => void) => () => {
+      const active = this.tabState.activeTab();
+      if (this.tabId && active?.id === this.tabId) fn();
+    };
+
+    this.menuSubscriptions.push(
+      this.menuService.executeQuery$.subscribe(guard(() => this.executeQuery())),
+      this.menuService.executeSelection$.subscribe(guard(() => this.executeQuery())),
+      this.menuService.cancelQuery$.subscribe(guard(() => this.cancelQuery())),
+      this.menuService.find$.subscribe(guard(() => this.openFind())),
+      this.menuService.replace$.subscribe(guard(() => this.openFindReplace())),
+      this.menuService.formatSql$.subscribe(guard(() => this.formatSql())),
+      this.menuService.toggleComment$.subscribe(guard(() => this.toggleComment())),
+      this.menuService.closeTab$.subscribe(guard(() => this.tabState.closeTab(this.tabId!))),
+      this.menuService.saveQuery$.subscribe(guard(() => this.saveQueryToFile())),
+      this.menuService.saveQueryAs$.subscribe(guard(() => this.saveQueryToFile())),
+      this.menuService.exportResults$.subscribe(guard(() => this.exportResults('csv'))),
+      this.menuService.openQuery$.subscribe(guard(() => this.openQueryFromFile())),
+      this.menuService.toggleResults$.subscribe(guard(() => this.resultsHidden.update(h => !h))),
+    );
   }
 
   ngOnDestroy(): void {
     this.editor?.dispose();
     document.removeEventListener('keydown', this.handleKeydown);
+    window.removeEventListener('forge:insert-snippet', this.handleInsertSnippet);
+    this.menuSubscriptions.forEach(s => s.unsubscribe());
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
     }
+    if (this.editorReadyTimer) {
+      clearTimeout(this.editorReadyTimer);
+    }
+    this.resizeCleanup?.();
   }
 
   private handleKeydown = (event: KeyboardEvent): void => {
@@ -909,6 +1048,39 @@ export class QueryComponent implements OnInit, OnDestroy {
       event.preventDefault();
       this.executeQuery();
       return;
+    }
+    // Cmd+G / Ctrl+G - Go to Line
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'g') {
+      event.preventDefault();
+      this.goToLine();
+      return;
+    }
+    // Cmd+Option+F / Ctrl+Alt+F - Find & Replace (standard macOS shortcut)
+    if ((event.metaKey || event.ctrlKey) && event.altKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      this.openFindReplace();
+      return;
+    }
+  };
+
+  private handleInsertSnippet = (event: Event): void => {
+    // Only respond if THIS component's tab is active
+    const activeTab = this.tabState.activeTab();
+    if (!this.tabId || activeTab?.id !== this.tabId) {
+      return;
+    }
+
+    const customEvent = event as CustomEvent<{ sql: string }>;
+    const sql = customEvent.detail?.sql;
+    if (sql && this.editor) {
+      const currentValue = this.editor.getValue();
+      if (currentValue.trim()) {
+        // Append with newline separator
+        this.editor.setValue(currentValue + '\n\n' + sql);
+      } else {
+        this.editor.setValue(sql);
+      }
+      this.notification.success('Snippet inserted');
     }
   };
 
@@ -978,7 +1150,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     this.editor = monaco.editor.create(this.editorContainer.nativeElement, {
       value: '',
       language: 'sql',
-      theme: 'vs-dark',
+      theme: this.settings.effectiveTheme() === 'dark' ? 'vs-dark' : 'vs',
       automaticLayout: true,
       minimap: { enabled: false },
       fontSize: 14,
@@ -989,6 +1161,23 @@ export class QueryComponent implements OnInit, OnDestroy {
       tabSize: 2,
       insertSpaces: true,
       renderWhitespace: 'selection',
+      // Find widget configuration
+      find: {
+        addExtraSpaceOnTop: true,
+        autoFindInSelection: 'multiline',
+        seedSearchStringFromSelection: 'selection',
+        loop: true,
+      },
+      // Enable selection highlighting (highlights all occurrences of selected text)
+      occurrencesHighlight: 'singleFile',
+      selectionHighlight: true,
+    });
+
+    // Emit cursor position changes for status bar
+    this.editor.onDidChangeCursorPosition((e: { position: MonacoPosition }) => {
+      window.dispatchEvent(new CustomEvent('forge:cursor-position', {
+        detail: { line: e.position.lineNumber, column: e.position.column },
+      }));
     });
 
     // Listen for content changes - use this.tabId for isolation
@@ -1008,6 +1197,10 @@ export class QueryComponent implements OnInit, OnDestroy {
         if (tab.content) {
           this.editor.setValue(tab.content);
         }
+        // Ensure a clean baseline exists for this tab
+        if (!this.tabState.getCleanBaseline(this.tabId!)) {
+          this.tabState.setCleanBaseline(this.tabId!, tab.content ?? '');
+        }
         // Handle auto-execute for initial load
         if (tab.autoExecute && tab.content) {
           this.tabState.clearAutoExecute(tab.id);
@@ -1023,11 +1216,84 @@ export class QueryComponent implements OnInit, OnDestroy {
         if (activeTab.content) {
           this.editor.setValue(activeTab.content);
         }
+        // Set clean baseline for fallback path
+        this.tabState.setCleanBaseline(activeTab.id, activeTab.content ?? '');
         if (activeTab.autoExecute && activeTab.content) {
           this.tabState.clearAutoExecute(activeTab.id);
           this.executeQuery();
         }
       }
+    }
+
+    // Register SQL auto-complete provider
+    monaco.languages.registerCompletionItemProvider('sql', {
+      provideCompletionItems: (model: unknown, position: unknown) => {
+        const suggestions: Array<{
+          label: string;
+          kind: number;
+          insertText: string;
+          detail: string;
+        }> = [];
+
+        // Add table suggestions from cached metadata
+        for (const obj of this.autoCompleteObjects()) {
+          suggestions.push({
+            label: obj.schema === 'dbo' ? obj.name : `${obj.schema}.${obj.name}`,
+            kind: obj.type === 'table' ? monaco.languages.CompletionItemKind.Struct
+                  : obj.type === 'view' ? monaco.languages.CompletionItemKind.Interface
+                  : obj.type === 'procedure' ? monaco.languages.CompletionItemKind.Function
+                  : monaco.languages.CompletionItemKind.Field,
+            insertText: obj.schema === 'dbo' ? `[${obj.name}]` : `[${obj.schema}].[${obj.name}]`,
+            detail: `${obj.displayType} - ${obj.schema}`,
+          });
+        }
+
+        // Add SQL keywords
+        const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
+          'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ORDER BY', 'GROUP BY',
+          'HAVING', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'ALTER',
+          'DROP', 'TABLE', 'VIEW', 'INDEX', 'EXEC', 'EXECUTE', 'DECLARE', 'BEGIN', 'END',
+          'IF', 'ELSE', 'WHILE', 'RETURN', 'TOP', 'DISTINCT', 'AS', 'NULL', 'IS', 'NOT NULL',
+          'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'CONVERT', 'COALESCE', 'ISNULL'];
+        for (const kw of keywords) {
+          suggestions.push({
+            label: kw,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: kw,
+            detail: 'SQL Keyword',
+          });
+        }
+
+        return { suggestions };
+      }
+    });
+
+    this.loadAutoCompleteObjects();
+
+    // Register AI ghost text provider (Tier 2 autocomplete)
+    this.intellisense.registerGhostTextProvider(monaco);
+  }
+
+  private async loadAutoCompleteObjects(): Promise<void> {
+    const connectionId = this.connectionState.activeConnectionId();
+    const database = this.connectionState.selectedDatabase();
+    if (!connectionId || !database) return;
+
+    try {
+      const [tables, views, procs] = await Promise.all([
+        firstValueFrom(this.ipc.getExplorerChildren(connectionId, database, 'tables')),
+        firstValueFrom(this.ipc.getExplorerChildren(connectionId, database, 'views')),
+        firstValueFrom(this.ipc.getExplorerChildren(connectionId, database, 'procedures')),
+      ]);
+
+      const objects = [
+        ...tables.map(t => ({ name: t.name, schema: t.schema || 'dbo', type: 'table', displayType: 'Table' })),
+        ...views.map(v => ({ name: v.name, schema: v.schema || 'dbo', type: 'view', displayType: 'View' })),
+        ...procs.map(p => ({ name: p.name, schema: p.schema || 'dbo', type: 'procedure', displayType: 'Procedure' })),
+      ];
+      this.autoCompleteObjects.set(objects);
+    } catch {
+      // Silently fail - autocomplete is optional
     }
   }
 
@@ -1046,21 +1312,34 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Prevent concurrent execution — cancel previous query if still running
+    if (this.executing() && this.currentQueryId) {
+      firstValueFrom(this.ipc.cancelQuery(this.currentQueryId)).catch(() => {});
+    }
+
     this.executing.set(true);
     this.result.set(null);
     this.viewingHistoricalResult.set(null); // Clear any historical result view
-    this.currentQueryId = `query-${Date.now()}`;
+    const queryId = `query-${Date.now()}`;
+    this.currentQueryId = queryId;
     this.lastExecutedSql = sql;
 
+    // Register with global execution tracker
+    const tabTitle = this.tabState.tabs().find(t => t.id === this.tabId)?.title || 'Query';
+    this.queryExecution.startExecution(this.tabId || this.currentQueryId, tabTitle);
+
     try {
-      const result = await this.ipc
-        .executeQuery({
+      const result = await firstValueFrom(
+        this.ipc.executeQuery({
           connectionId,
           database: database || undefined,
           sql,
-          queryId: this.currentQueryId,
+          queryId,
         })
-        .toPromise();
+      );
+
+      // Only update results if this is still the current query (not stale)
+      if (this.currentQueryId !== queryId) return;
 
       this.result.set(result ?? null);
       this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
@@ -1075,9 +1354,14 @@ export class QueryComponent implements OnInit, OnDestroy {
         this.resultsState.saveSnapshot(this.tabId, sql, connectionId, database, result);
       }
 
-      // Auto-rename tab using AI if enabled - use this.tabId
-      if (result?.success && this.tabId && this.aiState.autoRenameEnabled()) {
-        this.autoRenameTab(this.tabId, sql, database ?? undefined);
+      // Auto-rename tab after successful execution
+      if (result?.success && this.tabId) {
+        if (this.aiState.autoRenameEnabled()) {
+          this.autoRenameTab(this.tabId, sql, database ?? undefined);
+        } else {
+          // Simple SQL-based rename: extract table/proc name from SQL
+          this.updateTabTitleFromSql(this.tabId, sql);
+        }
       }
     } catch (error) {
       this.result.set({
@@ -1088,19 +1372,25 @@ export class QueryComponent implements OnInit, OnDestroy {
       });
     } finally {
       this.executing.set(false);
+      this.queryExecution.endExecution(this.tabId || '');
       this.currentQueryId = null;
     }
   }
 
   async cancelQuery(): Promise<void> {
     if (this.currentQueryId) {
-      await this.ipc.cancelQuery(this.currentQueryId).toPromise();
+      await firstValueFrom(this.ipc.cancelQuery(this.currentQueryId));
       this.notification.info('Query cancelled');
     }
   }
 
   onDatabaseChange(database: string): void {
     this.connectionState.selectDatabase(database);
+    // Update the tab's stored databaseName so the active-tab effect
+    // doesn't revert the selection back to the old value
+    if (this.tabId) {
+      this.tabState.updateTab(this.tabId, { databaseName: database });
+    }
   }
 
   // History panel methods
@@ -1173,14 +1463,14 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     try {
-      const result = await this.ipc
-        .exportQueryResults(resultSet, {
+      const result = await firstValueFrom(
+        this.ipc.exportQueryResults(resultSet, {
           format,
           includeHeaders: true,
           prettyPrint: true,
           tableName: 'QueryResults',
         })
-        .toPromise();
+      );
 
       if (result?.success) {
         this.notification.success(`Exported ${result.rowsExported} rows to ${result.filePath}`);
@@ -1192,7 +1482,96 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
   }
 
+  exportAsJson(): void {
+    const resultSet = this.activeResultSet();
+    if (!resultSet?.rows?.length) return;
+
+    const json = JSON.stringify(resultSet.rows, null, 2);
+    this.downloadFile(json, 'results.json', 'application/json');
+    this.notification.success(`Exported ${resultSet.rows.length} rows as JSON`);
+  }
+
+  exportAsSqlInsert(): void {
+    const resultSet = this.activeResultSet();
+    if (!resultSet?.rows?.length || !resultSet?.columns?.length) return;
+
+    const tableName = this.getTableNameFromSql() || 'TableName';
+    const columns = resultSet.columns.map(c => `[${c.name}]`).join(', ');
+
+    const inserts = resultSet.rows.map(row => {
+      const values = resultSet.columns.map(col => {
+        const val = row[col.name];
+        if (val === null || val === undefined) return 'NULL';
+        if (typeof val === 'number') return String(val);
+        if (typeof val === 'boolean') return val ? '1' : '0';
+        return `'${String(val).replace(/'/g, "''")}'`;
+      }).join(', ');
+      return `INSERT INTO [${tableName}] (${columns}) VALUES (${values});`;
+    }).join('\n');
+
+    this.downloadFile(inserts, 'inserts.sql', 'text/plain');
+    this.notification.success(`Exported ${resultSet.rows.length} INSERT statements`);
+  }
+
+  /**
+   * Copy all result rows to clipboard as tab-separated values.
+   * @param includeHeaders Whether to include the column header row (default: true)
+   */
+  async copyResultsToClipboard(includeHeaders = true): Promise<void> {
+    const resultSet = this.activeResultSet();
+    if (!resultSet?.rows?.length || !resultSet?.columns?.length) {
+      this.notification.warning('No results to copy');
+      return;
+    }
+
+    const lines: string[] = [];
+
+    if (includeHeaders) {
+      lines.push(resultSet.columns.map(col => col.name).join('\t'));
+    }
+
+    for (const row of resultSet.rows) {
+      const values = resultSet.columns.map(col => {
+        const val = row[col.name];
+        if (val === null || val === undefined) return '';
+        if (val instanceof Date) return val.toISOString();
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+      });
+      lines.push(values.join('\t'));
+    }
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      this.notification.success(
+        `Copied ${resultSet.rows.length} row${resultSet.rows.length > 1 ? 's' : ''} to clipboard`
+      );
+    } catch {
+      this.notification.error('Failed to copy to clipboard');
+    }
+  }
+
+  private getTableNameFromSql(): string | null {
+    const sql = this.getLastExecutedSql();
+    if (!sql) return null;
+    const match = sql.match(/FROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i);
+    return match ? match[2] : null;
+  }
+
+  private downloadFile(content: string, filename: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   startResize(event: MouseEvent): void {
+    // Clean up any previous resize listeners
+    this.resizeCleanup?.();
+
     this.resizing = true;
     const startY = event.clientY;
     const startHeight = this.editorHeight();
@@ -1206,14 +1585,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       this.editorHeight.set(Math.max(10, Math.min(90, newHeight)));
     };
 
-    const onMouseUp = () => {
+    const cleanup = () => {
       this.resizing = false;
       document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('mouseup', cleanup);
+      this.resizeCleanup = null;
     };
 
+    this.resizeCleanup = cleanup;
     document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mouseup', cleanup);
   }
 
   activeResultSet(): ResultSet | null {
@@ -1246,24 +1627,28 @@ export class QueryComponent implements OnInit, OnDestroy {
    * Polls until editor is available and has the content loaded.
    */
   private executeWhenEditorReady(expectedContent: string, maxAttempts = 20): void {
+    // Cancel any previous polling
+    if (this.editorReadyTimer) {
+      clearTimeout(this.editorReadyTimer);
+      this.editorReadyTimer = null;
+    }
+
     let attempts = 0;
     const checkAndExecute = (): void => {
       attempts++;
       if (this.editor && this.editor.getValue() === expectedContent) {
-        // Editor is ready with correct content - execute
+        this.editorReadyTimer = null;
         this.executeQuery();
       } else if (attempts < maxAttempts) {
-        // Try again after a short delay
-        setTimeout(checkAndExecute, 50);
+        this.editorReadyTimer = setTimeout(checkAndExecute, 50);
       } else {
-        // Give up after max attempts, try anyway
+        this.editorReadyTimer = null;
         if (this.editor) {
           this.executeQuery();
         }
       }
     };
-    // Start checking after a brief delay
-    setTimeout(checkAndExecute, 50);
+    this.editorReadyTimer = setTimeout(checkAndExecute, 50);
   }
 
   // Row detail panel methods
@@ -1300,6 +1685,96 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Open Monaco's built-in Find widget.
+   * Supports regex, case sensitivity, whole word, and find-in-selection.
+   */
+  openFind(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'actions.find', undefined);
+  }
+
+  /**
+   * Open Monaco's built-in Find & Replace widget.
+   * Supports regex-based replacement with capture group references ($1, $2, etc).
+   */
+  openFindReplace(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'editor.action.startFindReplaceAction', undefined);
+  }
+
+  /**
+   * Open Monaco's Go to Line dialog (Ctrl+G).
+   */
+  goToLine(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'editor.action.gotoLine', undefined);
+  }
+
+  /**
+   * Toggle line comment via Monaco action (Ctrl+/).
+   */
+  toggleComment(): void {
+    if (!this.editor) return;
+    this.editor.focus();
+    this.editor.trigger('keyboard', 'editor.action.commentLine', undefined);
+  }
+
+  /**
+   * Save the current query SQL to a .sql file via native dialog.
+   */
+  async saveQueryToFile(): Promise<void> {
+    if (!this.editor) return;
+    const sql = this.editor.getValue();
+    if (!sql.trim()) {
+      this.notification.warning('No query to save');
+      return;
+    }
+    try {
+      const result = await firstValueFrom(this.ipc.showSaveDialog({
+        title: 'Save Query',
+        defaultPath: 'query.sql',
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      }));
+      if (result?.filePath) {
+        await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, sql));
+        this.notification.success('Query saved');
+      }
+    } catch {
+      this.notification.error('Failed to save query');
+    }
+  }
+
+  /**
+   * Open a .sql file and load its contents into the editor.
+   */
+  async openQueryFromFile(): Promise<void> {
+    try {
+      const result = await firstValueFrom(this.ipc.showOpenDialog({
+        title: 'Open Query',
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      }));
+      if (result?.filePaths?.length) {
+        const content = await firstValueFrom(this.ipc.readWorkspaceFile(result.filePaths[0]));
+        if (this.editor) {
+          this.editor.setValue(content);
+        }
+      }
+    } catch {
+      this.notification.error('Failed to open query file');
+    }
+  }
+
   // SQL Formatting
   formatSql(): void {
     if (!this.editor) {
@@ -1331,9 +1806,47 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
   }
 
-  // Show Execution Plan (placeholder for now)
-  showExecutionPlan(): void {
-    this.notification.info('Execution plan visualization coming soon');
+  async showExecutionPlan(): Promise<void> {
+    const sql = this.getSelectedOrAllText();
+    if (!sql.trim()) {
+      this.notification.warning('No query to show plan for');
+      return;
+    }
+
+    const connectionId = this.connectionState.activeConnectionId();
+    const database = this.selectedDatabase;
+    if (!connectionId) {
+      this.notification.error('No active connection');
+      return;
+    }
+
+    this.executing.set(true);
+    this.result.set(null);
+
+    try {
+      const planSql = `SET SHOWPLAN_TEXT ON;\n${sql}\nSET SHOWPLAN_TEXT OFF;`;
+      const result = await firstValueFrom(
+        this.ipc.executeQuery({
+          connectionId,
+          database: database || undefined,
+          sql: planSql,
+          queryId: `plan-${Date.now()}`,
+        })
+      );
+
+      this.result.set(result ?? null);
+      this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
+      this.notification.success('Execution plan generated');
+    } catch (error) {
+      this.result.set({
+        queryId: `plan-${Date.now()}`,
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get execution plan',
+        executionTime: 0,
+      });
+    } finally {
+      this.executing.set(false);
+    }
   }
 
   // Get last executed SQL for AI analysis
@@ -1382,6 +1895,41 @@ export class QueryComponent implements OnInit, OnDestroy {
   onCompareResults(_comparison: { base: QueryResultSnapshot; compare: QueryResultSnapshot }): void {
     // Comparison is now handled inline in the result history panel
     // This method is kept for backward compatibility but no longer does anything
+  }
+
+  /**
+   * Update tab title from SQL content (non-AI fallback).
+   * Extracts table/procedure name for a concise title.
+   */
+  private updateTabTitleFromSql(tabId: string, sql: string): void {
+    const cleaned = sql.replace(/\s+/g, ' ').trim();
+
+    // SELECT ... FROM [schema].[table]
+    const selectMatch = cleaned.match(
+      /^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
+    );
+    if (selectMatch) {
+      const table = selectMatch[2];
+      const title = table.length > 20 ? `${table.substring(0, 18)}…` : table;
+      this.tabState.renameTab(tabId, title);
+      return;
+    }
+
+    // EXEC [schema].[proc]
+    const execMatch = cleaned.match(
+      /^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
+    );
+    if (execMatch) {
+      const proc = execMatch[2];
+      this.tabState.renameTab(tabId, `Exec ${proc.length > 16 ? proc.substring(0, 14) + '…' : proc}`);
+      return;
+    }
+
+    // For other SQL, use a short preview
+    if (cleaned.length > 5) {
+      const preview = cleaned.substring(0, 22);
+      this.tabState.renameTab(tabId, preview.length < cleaned.length ? `${preview}…` : preview);
+    }
   }
 
   // Auto-rename tab using AI

@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
     GET_VOLUMES: 'docker:get-volumes',
     START_CONTAINER: 'docker:start-container',
     STOP_CONTAINER: 'docker:stop-container',
+    CREATE_CONTAINER: 'docker:create-container',
   },
 
   // Database Operations
@@ -134,6 +135,12 @@ export const IPC_CHANNELS = {
   SETTINGS: {
     GET: 'settings:get',
     SET: 'settings:set',
+  },
+
+  // Theme (native OS theme detection)
+  THEME: {
+    GET_NATIVE: 'theme:get-native',
+    CHANGED: 'theme:changed',
   },
 
   // App

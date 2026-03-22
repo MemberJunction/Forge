@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -22,6 +22,9 @@ export interface ConfirmDialogConfig {
       <div class="dialog-overlay" (click)="cancel()">
         <div
           class="dialog-container"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-labelledby]="'confirm-dialog-title'"
           [class]="config()?.type || 'info'"
           (click)="$event.stopPropagation()"
         >
@@ -39,7 +42,7 @@ export interface ConfirmDialogConfig {
                 }
               }
             </mat-icon>
-            <h3>{{ config()?.title }}</h3>
+            <h3 id="confirm-dialog-title">{{ config()?.title }}</h3>
           </header>
 
           <div class="dialog-body">
@@ -51,6 +54,7 @@ export interface ConfirmDialogConfig {
                 </p>
                 <input
                   type="text"
+                  [attr.aria-label]="'Type ' + config()?.confirmationInput + ' to confirm'"
                   [value]="inputValue()"
                   (input)="onInputChange($event)"
                   (keydown.enter)="onConfirm()"
@@ -207,7 +211,7 @@ export interface ConfirmDialogConfig {
           color: white;
 
           &:hover:not(:disabled) {
-            background-color: #c62828;
+            filter: brightness(0.85);
           }
 
           &:disabled {
@@ -220,7 +224,7 @@ export interface ConfirmDialogConfig {
           color: #000;
 
           &:hover:not(:disabled) {
-            background-color: #f57c00;
+            filter: brightness(0.85);
           }
         }
 
@@ -229,7 +233,7 @@ export interface ConfirmDialogConfig {
           color: white;
 
           &:hover:not(:disabled) {
-            background-color: #1976d2;
+            filter: brightness(0.85);
           }
         }
       }
@@ -246,6 +250,13 @@ export class ConfirmDialogComponent {
 
   @Output() confirmed = new EventEmitter<void>();
   @Output() cancelled = new EventEmitter<void>();
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey(): void {
+    if (this._isOpen()) {
+      this.cancel();
+    }
+  }
 
   confirmDisabled(): boolean {
     const cfg = this._config();

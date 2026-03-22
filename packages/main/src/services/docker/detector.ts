@@ -159,6 +159,66 @@ export class DockerDetector extends BaseSingleton {
   }
 
   /**
+   * Create a new SQL Server container
+   */
+  async createContainer(options: {
+    name: string;
+    password: string;
+    port: number;
+    image?: string;
+    acceptEula?: boolean;
+  }): Promise<StartContainerResult> {
+    try {
+      const image = options.image || 'mcr.microsoft.com/mssql/server:2022-latest';
+
+      // Pull image if not available
+      try {
+        await this.docker.getImage(image).inspect();
+      } catch {
+        // Image not found, pull it
+        const stream = await this.docker.pull(image);
+        // Wait for pull to complete
+        await new Promise<void>((resolve, reject) => {
+          this.docker.modem.followProgress(stream, (err: Error | null) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      }
+
+      const container = await this.docker.createContainer({
+        Image: image,
+        name: options.name,
+        Env: [
+          options.acceptEula !== false ? 'ACCEPT_EULA=Y' : '',
+          `MSSQL_SA_PASSWORD=${options.password}`,
+        ].filter(Boolean),
+        HostConfig: {
+          PortBindings: {
+            '1433/tcp': [{ HostPort: String(options.port) }],
+          },
+        },
+        ExposedPorts: {
+          '1433/tcp': {},
+        },
+      });
+
+      await container.start();
+
+      return {
+        success: true,
+        containerId: container.id,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        containerId: '',
+        error: error instanceof Error ? error.message : 'Failed to create container',
+      };
+    }
+  }
+
+  /**
    * Translate a local path to a container path using volume mappings
    */
   translatePath(localPath: string, mappings: DockerVolumeMapping[]): PathTranslation {

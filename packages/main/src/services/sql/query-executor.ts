@@ -7,8 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
 import type * as mssql from 'mssql';
 import type { QueryRequest, QueryResult, ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
+import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
 import { MetadataService } from './metadata';
+
+const log = createLogger('QueryExecutor');
 
 interface ParsedTableRef {
   schema: string;
@@ -57,18 +60,22 @@ export class QueryExecutor extends BaseSingleton {
       // Store the request object for cancellation
       activeQuery.request = sqlRequest;
 
-      // Switch to the specified database
-      if (request.database) {
-        await sqlRequest.batch(`USE [${request.database.replace(/\]/g, ']]')}]`);
-      }
-
       // Check if cancelled before executing
       if (activeQuery.cancelled) {
         return this.createCancelledResult(queryId, startTime);
       }
 
-      // Execute the query
-      const result = await sqlRequest.query(request.sql);
+      // Prepend USE [database] to the SQL and execute as a raw batch.
+      // We use batch() instead of query() because query() uses sp_executesql
+      // which doesn't support USE statements. batch() sends raw T-SQL.
+      let sql = request.sql;
+      if (request.database) {
+        const safeDb = request.database.replace(/\]/g, ']]');
+        sql = `USE [${safeDb}];\n${sql}`;
+      }
+
+      // Execute as a batch (raw T-SQL) to support USE and other batch commands
+      const result = await sqlRequest.batch(sql);
 
       // Check if cancelled
       if (activeQuery.cancelled) {
@@ -141,7 +148,12 @@ export class QueryExecutor extends BaseSingleton {
         }
       }
 
-      // Add row count message
+      // Add per-result-set row count messages
+      if (resultSets.length > 1) {
+        for (let i = 0; i < resultSets.length; i++) {
+          messages.push(`Result ${i + 1}: (${resultSets[i].rowCount || 0} row(s) returned)`);
+        }
+      }
       const rowsAffected = result.rowsAffected?.reduce((a, b) => a + b, 0) || 0;
       messages.push(`(${rowsAffected} row(s) affected)`);
 
@@ -182,10 +194,10 @@ export class QueryExecutor extends BaseSingleton {
       if (activeQuery.request) {
         try {
           activeQuery.request.cancel();
-          console.log(`Query ${queryId} cancelled successfully`);
+          log.info(`Query ${queryId} cancelled`);
           return true;
         } catch (error) {
-          console.error(`Error cancelling query ${queryId}:`, error);
+          log.error(`Error cancelling query ${queryId}:`, error);
         }
       }
       return true;

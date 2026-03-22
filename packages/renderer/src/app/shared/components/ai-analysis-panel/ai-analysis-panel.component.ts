@@ -51,7 +51,7 @@ interface QuickAction {
     >
       <!-- Header (only when not embedded) -->
       @if (!embedded) {
-        <div class="panel-header" (click)="toggleCollapsed()">
+        <div class="panel-header" tabindex="0" role="button" aria-label="Toggle AI analysis" (click)="toggleCollapsed()" (keydown.enter)="toggleCollapsed()" (keydown.space)="toggleCollapsed(); $event.preventDefault()">
           <div class="header-left">
             <mat-icon>auto_awesome</mat-icon>
             <span class="header-title">AI Analysis</span>

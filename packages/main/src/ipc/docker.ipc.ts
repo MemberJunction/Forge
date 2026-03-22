@@ -2,16 +2,16 @@
  * Docker IPC Handlers
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { DockerStatus, DockerContainer, DockerVolume } from '@mj-forge/shared';
 import { DockerDetector } from '../services/docker/detector';
+import { safeHandle } from './safe-handle';
 
 export function registerDockerHandlers(): void {
   const dockerDetector = DockerDetector.getInstance();
 
   // Detect Docker status
-  ipcMain.handle(IPC_CHANNELS.DOCKER.DETECT, async (): Promise<DockerStatus> => {
+  safeHandle(IPC_CHANNELS.DOCKER.DETECT, async (): Promise<DockerStatus> => {
     const result = await dockerDetector.detect();
     return {
       isAvailable: true, // If we get a response, Docker socket exists
@@ -22,7 +22,7 @@ export function registerDockerHandlers(): void {
   });
 
   // Get SQL Server containers
-  ipcMain.handle(IPC_CHANNELS.DOCKER.GET_CONTAINERS, async (): Promise<DockerContainer[]> => {
+  safeHandle(IPC_CHANNELS.DOCKER.GET_CONTAINERS, async (): Promise<DockerContainer[]> => {
     const result = await dockerDetector.detect();
     // Add isSqlServer flag and ports array
     return result.containers.map(c => ({
@@ -33,13 +33,13 @@ export function registerDockerHandlers(): void {
   });
 
   // Get Docker volumes
-  ipcMain.handle(IPC_CHANNELS.DOCKER.GET_VOLUMES, async (): Promise<DockerVolume[]> => {
+  safeHandle(IPC_CHANNELS.DOCKER.GET_VOLUMES, async (): Promise<DockerVolume[]> => {
     // For now, return empty array - could be expanded later
     return [];
   });
 
   // Start a container
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DOCKER.START_CONTAINER,
     async (_event, containerId: string): Promise<void> => {
       const result = await dockerDetector.startContainer(containerId);
@@ -50,10 +50,27 @@ export function registerDockerHandlers(): void {
   );
 
   // Stop a container
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DOCKER.STOP_CONTAINER,
     async (_event, containerId: string): Promise<void> => {
       await dockerDetector.stopContainer(containerId);
+    }
+  );
+
+  // Create a new SQL Server container
+  safeHandle(
+    IPC_CHANNELS.DOCKER.CREATE_CONTAINER,
+    async (
+      _event,
+      options: {
+        name: string;
+        password: string;
+        port: number;
+        image?: string;
+        acceptEula?: boolean;
+      }
+    ) => {
+      return dockerDetector.createContainer(options);
     }
   );
 }

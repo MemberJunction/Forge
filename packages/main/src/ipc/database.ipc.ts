@@ -2,7 +2,6 @@
  * Database IPC Handlers
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type {
   DatabaseInfo,
@@ -26,13 +25,14 @@ import type {
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { MetadataService } from '../services/sql/metadata';
 import { TsqlBuilder } from '../utils/tsql-builder';
+import { safeHandle } from './safe-handle';
 
 export function registerDatabaseHandlers(): void {
   const poolManager = ConnectionPoolManager.getInstance();
   const metadataService = MetadataService.getInstance();
 
   // List databases
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DATABASE.LIST,
     async (_event, connectionId: string): Promise<DatabaseInfo[]> => {
       return metadataService.listDatabases(connectionId);
@@ -40,7 +40,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Create database
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DATABASE.CREATE,
     async (
       _event,
@@ -61,7 +61,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Rename database
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DATABASE.RENAME,
     async (
       _event,
@@ -82,7 +82,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Delete database
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DATABASE.DELETE,
     async (
       _event,
@@ -103,7 +103,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get database info
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.DATABASE.GET_INFO,
     async (_event, connectionId: string, name: string): Promise<DatabaseInfo | null> => {
       const databases = await metadataService.listDatabases(connectionId);
@@ -116,7 +116,7 @@ export function registerDatabaseHandlers(): void {
   // ============================================================
 
   // Detect if database has MemberJunction installed
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.DETECT,
     async (
       _event,
@@ -129,7 +129,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ entities
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_ENTITIES,
     async (
       _event,
@@ -142,7 +142,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ entity fields
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_ENTITY_FIELDS,
     async (
       _event,
@@ -156,7 +156,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ applications
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_APPLICATIONS,
     async (
       _event,
@@ -169,7 +169,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ entity relationships
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_ENTITY_RELATIONSHIPS,
     async (
       _event,
@@ -188,7 +188,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ record changes (change history)
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_RECORD_CHANGES,
     async (
       _event,
@@ -202,7 +202,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ audit logs
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_AUDIT_LOGS,
     async (
       _event,
@@ -216,7 +216,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ saved queries
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_SAVED_QUERIES,
     async (
       _event,
@@ -230,7 +230,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ error logs
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_ERROR_LOGS,
     async (
       _event,
@@ -244,7 +244,7 @@ export function registerDatabaseHandlers(): void {
   );
 
   // Get MJ user record logs
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.MJ.GET_USER_RECORD_LOGS,
     async (
       _event,

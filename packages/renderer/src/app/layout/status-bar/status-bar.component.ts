@@ -1,4 +1,4 @@
-import { Component, inject, computed, signal, OnInit } from '@angular/core';
+import { Component, inject, computed, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -7,8 +7,11 @@ import { MatMenuModule } from '@angular/material/menu';
 import { CdkOverlayOrigin, OverlayModule } from '@angular/cdk/overlay';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
+import { ChatStateService } from '../../core/state/chat.state';
 import { SettingsService } from '../../core/services/settings.service';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
+import { QueryExecutionService } from '../../core/services/query-execution.service';
 import { DockerPanelComponent } from '../../shared/components/docker-panel/docker-panel.component';
 import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
 
@@ -24,13 +27,24 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
     OverlayModule,
     DockerPanelComponent,
   ],
+  host: {
+    '[style.border-top]': 'connectionColorBorder()',
+  },
   template: `
     <div class="status-bar-container">
       <div class="status-left">
         @if (connectionState.isConnected()) {
-          <div class="status-item connected" matTooltip="Connected">
-            <mat-icon>cloud_done</mat-icon>
+          <div
+            class="status-item"
+            [class.connected]="connectionState.connectionHealthy()"
+            [class.unhealthy]="!connectionState.connectionHealthy()"
+            [matTooltip]="connectionState.connectionHealthy() ? 'Connected' : 'Connection lost — attempting to reconnect...'"
+          >
+            <mat-icon>{{ connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
             <span>{{ connectionState.activeProfile()?.name }}</span>
+            @if (!connectionState.connectionHealthy()) {
+              <mat-icon class="health-warning spinning">sync</mat-icon>
+            }
           </div>
           @if (connectionState.selectedDatabase()) {
             <div class="status-item" matTooltip="Current Database">
@@ -57,6 +71,11 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           <div class="status-item">
             <mat-icon class="spinning">sync</mat-icon>
             <span>Connecting...</span>
+          </div>
+        } @else if (queryExecution.isAnyRunning()) {
+          <div class="status-item executing" matTooltip="Running {{ queryExecution.runningCount() }} quer{{ queryExecution.runningCount() === 1 ? 'y' : 'ies' }}">
+            <mat-icon class="spinning">hourglass_top</mat-icon>
+            <span>Executing{{ queryExecution.runningCount() > 1 ? ' (' + queryExecution.runningCount() + ')' : '' }}...</span>
           </div>
         }
       </div>
@@ -98,6 +117,16 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           <app-docker-panel (close)="closeDockerPanel()"></app-docker-panel>
         </ng-template>
 
+        <!-- AI Chat Toggle -->
+        <button
+          class="ai-toggle"
+          (click)="chatState.togglePanel()"
+          [matTooltip]="chatState.panelOpen() ? 'Close AI Assistant' : 'Open AI Assistant'"
+          [class.active]="chatState.panelOpen()"
+        >
+          <mat-icon>auto_awesome</mat-icon>
+        </button>
+
         <!-- Theme Toggle -->
         <button
           class="theme-toggle"
@@ -130,8 +159,14 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           </button>
         </mat-menu>
 
+        @if (cursorLine() > 0) {
+          <div class="status-item cursor-info" matTooltip="Line:Column">
+            <span>Ln {{ cursorLine() }}, Col {{ cursorColumn() }}</span>
+          </div>
+        }
+
         <div class="status-item version">
-          <span>MJ Forge v1.0.0</span>
+          <span>MJ Forge {{ appVersion() ? 'v' + appVersion() : '' }}</span>
         </div>
       </div>
     </div>
@@ -174,6 +209,21 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         &.disconnected mat-icon {
           color: var(--text-muted);
         }
+
+        &.unhealthy mat-icon {
+          color: var(--status-warning);
+        }
+
+        .health-warning {
+          font-size: 12px;
+          width: 12px;
+          height: 12px;
+          margin-left: 2px;
+        }
+      }
+
+      .executing mat-icon {
+        color: var(--status-warning);
       }
 
       .spinning {
@@ -196,6 +246,35 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
       .docker {
         .docker-icon {
           font-size: 12px;
+        }
+      }
+
+      .ai-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: background-color var(--transition-fast);
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+
+        &:hover {
+          background-color: var(--bg-hover);
+          color: var(--accent);
+        }
+
+        &.active {
+          color: var(--accent);
+        }
+
+        mat-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
         }
       }
 
@@ -276,19 +355,36 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
     `,
   ],
 })
-export class StatusBarComponent implements OnInit {
+export class StatusBarComponent implements OnInit, OnDestroy {
   readonly connectionState = inject(ConnectionStateService);
   readonly tabState = inject(TabStateService);
+  readonly chatState = inject(ChatStateService);
   readonly settings = inject(SettingsService);
+  readonly queryExecution = inject(QueryExecutionService);
   private readonly ipc = inject(IpcService);
 
   // Docker state
   readonly dockerStatus = signal<DockerStatus | null>(null);
   readonly containers = signal<DockerContainer[]>([]);
   readonly dockerPanelOpen = signal(false);
+  readonly appVersion = signal('');
+  private dockerPollInterval: ReturnType<typeof setInterval> | null = null;
+  private cursorListener: EventListener | null = null;
+
+  // Cursor position from active editor
+  readonly cursorLine = signal(0);
+  readonly cursorColumn = signal(0);
+
+  readonly connectionColorBorder = computed(() => {
+    const profile = this.connectionState.activeProfile();
+    if (profile?.color) {
+      return `3px solid ${profile.color}`;
+    }
+    return '';
+  });
 
   readonly runningContainers = computed(() =>
-    this.containers().filter(c => c.status === 'running').length
+    this.containers().filter(c => c.state === 'running').length
   );
 
   readonly dockerTooltip = computed(() => {
@@ -329,18 +425,39 @@ export class StatusBarComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     await this.checkDockerStatus();
     // Poll Docker status every 30 seconds
-    setInterval(() => this.checkDockerStatus(), 30000);
+    this.dockerPollInterval = setInterval(() => this.checkDockerStatus(), 30000);
+
+    // Load dynamic version
+    if (this.ipc.isAvailable) {
+      this.ipc.getAppVersion().subscribe(v => this.appVersion.set(v));
+    }
+
+    // Listen for cursor position updates from query editors
+    this.cursorListener = ((e: CustomEvent) => {
+      this.cursorLine.set(e.detail?.line ?? 0);
+      this.cursorColumn.set(e.detail?.column ?? 0);
+    }) as EventListener;
+    window.addEventListener('forge:cursor-position', this.cursorListener);
+  }
+
+  ngOnDestroy(): void {
+    if (this.dockerPollInterval) {
+      clearInterval(this.dockerPollInterval);
+    }
+    if (this.cursorListener) {
+      window.removeEventListener('forge:cursor-position', this.cursorListener);
+    }
   }
 
   private async checkDockerStatus(): Promise<void> {
     if (!this.ipc.isAvailable) return;
 
     try {
-      const status = await this.ipc.detectDocker().toPromise();
+      const status = await firstValueFrom(this.ipc.detectDocker());
       this.dockerStatus.set(status ?? null);
 
       if (status?.isAvailable && status?.isRunning) {
-        const containers = await this.ipc.getDockerContainers().toPromise();
+        const containers = await firstValueFrom(this.ipc.getDockerContainers());
         this.containers.set(containers?.filter(c => c.isSqlServer) ?? []);
       } else {
         this.containers.set([]);

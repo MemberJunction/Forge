@@ -1,4 +1,4 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -6,6 +6,10 @@ import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService } from '../../core/state/explorer.state';
+import { AIStateService } from '../../core/state/ai.state';
+import { ChatStateService } from '../../core/state/chat.state';
+import { OnboardingService } from '../../core/services/onboarding.service';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import {
   ConnectionDialogComponent,
@@ -32,24 +36,30 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         <section class="quick-actions">
           <h2>Quick Actions</h2>
           <div class="action-cards">
-            <mat-card class="action-card" (click)="newConnection()">
+            <mat-card class="action-card" tabindex="0" role="button" aria-label="New Connection" (click)="newConnection()" (keydown.enter)="newConnection()" (keydown.space)="newConnection(); $event.preventDefault()">
               <mat-icon>add_circle</mat-icon>
               <h3>New Connection</h3>
               <p>Connect to a SQL Server instance</p>
             </mat-card>
 
             @if (connectionState.hasProfiles()) {
-              <mat-card class="action-card" (click)="reconnect()">
+              <mat-card class="action-card" tabindex="0" role="button" aria-label="Recent Connection" (click)="reconnect()" (keydown.enter)="reconnect()" (keydown.space)="reconnect(); $event.preventDefault()">
                 <mat-icon>refresh</mat-icon>
                 <h3>Recent Connection</h3>
                 <p>{{ recentConnectionName }}</p>
               </mat-card>
             }
 
-            <mat-card class="action-card" (click)="openDockerSection()">
+            <mat-card class="action-card" tabindex="0" role="button" aria-label="Docker Containers" (click)="openDockerSection()" (keydown.enter)="openDockerSection()" (keydown.space)="openDockerSection(); $event.preventDefault()">
               <mat-icon>sailing</mat-icon>
               <h3>Docker Containers</h3>
               <p>{{ dockerStatusText }}</p>
+            </mat-card>
+
+            <mat-card class="action-card tour-card" tabindex="0" role="button" aria-label="Take a Tour" (click)="startTour()" (keydown.enter)="startTour()" (keydown.space)="startTour(); $event.preventDefault()">
+              <mat-icon>explore</mat-icon>
+              <h3>Take a Tour</h3>
+              <p>Learn the basics of MJ Forge</p>
             </mat-card>
           </div>
         </section>
@@ -59,12 +69,12 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           <section class="recent-connections">
             <h2>Recent Connections</h2>
             <div class="connection-list">
-              @for (profile of connectionState.profiles(); track profile.id) {
-                <div class="connection-item" (click)="connectTo(profile.id)">
+              @for (profile of connectionState.profiles().slice(0, 5); track profile.id) {
+                <div class="connection-item" tabindex="0" role="button" [attr.aria-label]="'Connect to ' + profile.name" (click)="quickConnect(profile)" (keydown.enter)="quickConnect(profile)" (keydown.space)="quickConnect(profile); $event.preventDefault()">
                   <mat-icon>dns</mat-icon>
                   <div class="connection-info">
                     <span class="connection-name">{{ profile.name }}</span>
-                    <span class="connection-server">{{ profile.server }}</span>
+                    <span class="connection-server">{{ profile.server }}:{{ profile.port }}</span>
                   </div>
                   <mat-icon class="connect-icon">arrow_forward</mat-icon>
                 </div>
@@ -75,7 +85,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
 
         <!-- Docker Containers -->
         @if (dockerStatus?.isAvailable && sqlContainers.length > 0) {
-          <section class="docker-section">
+          <section class="docker-section" #dockerSection>
             <h2>SQL Server Containers</h2>
             <div class="container-list">
               @for (container of sqlContainers; track container.id) {
@@ -99,6 +109,43 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             </div>
           </section>
         }
+
+        <!-- AI Features -->
+        <section class="ai-features">
+          @if (!aiState.hasConfiguredVendors()) {
+            <div class="ai-promo-card">
+              <div class="ai-promo-icon">
+                <mat-icon>auto_awesome</mat-icon>
+              </div>
+              <div class="ai-promo-content">
+                <h3>Enable AI Features</h3>
+                <p>Supercharge your workflow with AI-powered autocomplete, chat assistant, and query analysis.</p>
+              </div>
+              <div class="ai-promo-actions">
+                <button mat-flat-button color="primary" (click)="openAISetup()">Set Up AI</button>
+                <button mat-button (click)="dismissAIPromo()">Maybe Later</button>
+              </div>
+            </div>
+          } @else {
+            <div class="ai-enabled-card">
+              <div class="ai-enabled-header">
+                <mat-icon>auto_awesome</mat-icon>
+                <h3>AI Features Active</h3>
+              </div>
+              <div class="ai-feature-chips">
+                <span class="ai-chip" (click)="openChat()">
+                  <mat-icon>chat</mat-icon> Chat Assistant
+                </span>
+                <span class="ai-chip">
+                  <mat-icon>code</mat-icon> Smart Autocomplete
+                </span>
+                <span class="ai-chip">
+                  <mat-icon>analytics</mat-icon> Result Analysis
+                </span>
+              </div>
+            </div>
+          }
+        </section>
 
         <!-- Getting Started -->
         <section class="getting-started">
@@ -345,6 +392,107 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         }
       }
 
+      .ai-promo-card {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-md);
+        padding: var(--spacing-lg);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--bg-secondary)), var(--bg-secondary));
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-primary));
+        border-radius: var(--radius-md);
+      }
+
+      .ai-promo-icon {
+        flex-shrink: 0;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent);
+        border-radius: var(--radius-md);
+        mat-icon {
+          font-size: 28px;
+          width: 28px;
+          height: 28px;
+          color: white;
+        }
+      }
+
+      .ai-promo-content {
+        flex: 1;
+        h3 {
+          font-size: var(--font-size-md);
+          font-weight: 600;
+          margin: 0 0 var(--spacing-xs);
+          color: var(--text-primary);
+        }
+        p {
+          font-size: var(--font-size-sm);
+          color: var(--text-secondary);
+          margin: 0;
+          line-height: 1.5;
+        }
+      }
+
+      .ai-promo-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xs);
+        flex-shrink: 0;
+      }
+
+      .ai-enabled-card {
+        padding: var(--spacing-lg);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius-md);
+      }
+
+      .ai-enabled-header {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        margin-bottom: var(--spacing-md);
+        mat-icon {
+          color: var(--accent);
+        }
+        h3 {
+          font-size: var(--font-size-md);
+          font-weight: 600;
+          margin: 0;
+          color: var(--text-primary);
+        }
+      }
+
+      .ai-feature-chips {
+        display: flex;
+        gap: var(--spacing-sm);
+        flex-wrap: wrap;
+      }
+
+      .ai-chip {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-xs);
+        padding: var(--spacing-xs) var(--spacing-sm);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-sm);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: background-color var(--transition-fast);
+        &:hover {
+          background: var(--bg-hover);
+          color: var(--accent);
+        }
+        mat-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
+        }
+      }
+
       .welcome-footer {
         text-align: center;
         padding: var(--spacing-lg) 0;
@@ -354,7 +502,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         mat-icon {
           font-size: 14px;
           vertical-align: middle;
-          color: #e91e63;
+          color: var(--status-error);
         }
 
         a {
@@ -371,9 +519,14 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
 })
 export class WelcomeComponent implements OnInit {
   readonly connectionState = inject(ConnectionStateService);
+  readonly aiState = inject(AIStateService);
+  private readonly chatState = inject(ChatStateService);
+  private readonly onboarding = inject(OnboardingService);
   private readonly explorerState = inject(ExplorerStateService);
   private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
+
+  @ViewChild('dockerSection') dockerSectionRef?: ElementRef<HTMLElement>;
 
   dockerStatus: DockerStatus | null = null;
   sqlContainers: DockerContainer[] = [];
@@ -387,7 +540,7 @@ export class WelcomeComponent implements OnInit {
     if (!this.dockerStatus) return 'Checking...';
     if (!this.dockerStatus.isAvailable) return 'Docker not available';
     if (this.sqlContainers.length === 0) return 'No SQL Server containers';
-    const running = this.sqlContainers.filter(c => c.status === 'running').length;
+    const running = this.sqlContainers.filter(c => c.state === 'running').length;
     return `${running}/${this.sqlContainers.length} running`;
   }
 
@@ -397,10 +550,10 @@ export class WelcomeComponent implements OnInit {
 
   private async checkDocker(): Promise<void> {
     try {
-      const status = await this.ipc.detectDocker().toPromise();
+      const status = await firstValueFrom(this.ipc.detectDocker());
       this.dockerStatus = status ?? null;
       if (this.dockerStatus?.isAvailable) {
-        const containers = await this.ipc.getDockerContainers().toPromise();
+        const containers = await firstValueFrom(this.ipc.getDockerContainers());
         this.sqlContainers = containers?.filter(c => c.isSqlServer) ?? [];
       }
     } catch {
@@ -412,6 +565,7 @@ export class WelcomeComponent implements OnInit {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 
@@ -420,6 +574,10 @@ export class WelcomeComponent implements OnInit {
     if (profiles.length > 0) {
       this.connectTo(profiles[0].id);
     }
+  }
+
+  quickConnect(profile: { id: string }): void {
+    this.connectTo(profile.id);
   }
 
   async connectTo(profileId: string): Promise<void> {
@@ -434,7 +592,7 @@ export class WelcomeComponent implements OnInit {
   }
 
   openDockerSection(): void {
-    // Could open a Docker management dialog
+    this.dockerSectionRef?.nativeElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   connectToContainer(container: DockerContainer): void {
@@ -445,17 +603,45 @@ export class WelcomeComponent implements OnInit {
         port: container.ports?.[0]?.external || 1433,
       } as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 
   async startContainer(container: DockerContainer): Promise<void> {
-    await this.ipc.startDockerContainer(container.id).toPromise();
-    await this.checkDocker();
+    try {
+      await firstValueFrom(this.ipc.startDockerContainer(container.id));
+      await this.checkDocker();
+    } catch {
+      // Container may have failed to start — refresh status to show current state
+      await this.checkDocker();
+    }
+  }
+
+  startTour(): void {
+    this.onboarding.startTour('welcome');
+  }
+
+  openAISetup(): void {
+    import('../../shared/components/ai-setup-dialog/ai-setup-dialog.component').then(mod => {
+      this.dialog.open(mod.AISetupDialogComponent, {
+        width: '520px',
+        panelClass: 'ai-setup-dialog-container',
+      });
+    });
+  }
+
+  dismissAIPromo(): void {
+    // Simply hides the promo card for this session
+    // The card will re-appear on next launch if AI is still not configured
+  }
+
+  openChat(): void {
+    this.chatState.openPanel();
   }
 
   openDocs(event: Event): void {
     event.preventDefault();
-    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge').subscribe();
+    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge/wiki').subscribe();
   }
 
   openGitHub(event: Event): void {

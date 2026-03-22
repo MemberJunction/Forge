@@ -620,11 +620,15 @@ export class ERDDiagramComponent implements AfterViewInit, OnDestroy, OnChanges 
   }
 
   private mergeConfig(): void {
+    // Detect theme from CSS variables for theme-aware ERD colors
+    const themeColors = this.detectThemeColors();
+
     this.mergedConfig = {
       ...DEFAULT_CONFIG,
       ...this.config,
       colors: {
         ...DEFAULT_CONFIG.colors,
+        ...themeColors,
         ...this.config.colors,
       },
       dagreConfig: {
@@ -638,6 +642,52 @@ export class ERDDiagramComponent implements AfterViewInit, OnDestroy, OnChanges 
     } else if (this.mergedConfig.layoutAlgorithm === 'vertical') {
       this.mergedConfig.dagreConfig.rankDir = 'TB';
     }
+  }
+
+  private detectThemeColors(): Partial<ERDConfig['colors']> {
+    const style = getComputedStyle(document.documentElement);
+    const bgPrimary = style.getPropertyValue('--bg-primary').trim();
+    // If bg-primary is light (e.g. #fff or rgb near white), use light-mode ERD colors
+    if (!bgPrimary) return {};
+    const isLight = this.isLightColor(bgPrimary);
+    if (isLight) {
+      return {
+        nodeBackground: '#ffffff',
+        nodeBorder: '#ddd',
+        nodeHeader: '#1565c0',
+        nodeHeaderText: '#ffffff',
+        linkColor: '#999',
+        selectedBorder: '#1976d2',
+      };
+    }
+    return {};
+  }
+
+  private isLightColor(color: string): boolean {
+    // Parse hex or rgb and check luminance
+    let r = 0, g = 0, b = 0;
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16);
+        g = parseInt(hex[1] + hex[1], 16);
+        b = parseInt(hex[2] + hex[2], 16);
+      } else if (hex.length >= 6) {
+        r = parseInt(hex.slice(0, 2), 16);
+        g = parseInt(hex.slice(2, 4), 16);
+        b = parseInt(hex.slice(4, 6), 16);
+      }
+    } else if (color.startsWith('rgb')) {
+      const match = color.match(/(\d+)/g);
+      if (match && match.length >= 3) {
+        r = parseInt(match[0]);
+        g = parseInt(match[1]);
+        b = parseInt(match[2]);
+      }
+    }
+    // Relative luminance
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5;
   }
 
   private resizeSVG(): void {

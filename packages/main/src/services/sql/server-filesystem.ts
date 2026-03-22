@@ -10,7 +10,38 @@ import type {
   BackupHistoryEntry,
 } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
+import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
+
+const log = createLogger('ServerFS');
+
+/**
+ * Validates and sanitizes a server filesystem path.
+ * Rejects paths with SQL injection patterns.
+ */
+function sanitizeServerPath(inputPath: string): string {
+  // Must look like a valid Windows path (drive letter or UNC)
+  if (!/^[A-Za-z]:\\|^\\\\/.test(inputPath)) {
+    throw new Error(`Invalid server path: ${inputPath}`);
+  }
+  // Reject semicolons, SQL comments, and other injection patterns
+  if (/[;]|--|\bEXEC\b|\bDROP\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bSELECT\b/i.test(inputPath)) {
+    throw new Error('Path contains invalid characters');
+  }
+  // Escape single quotes for N-string literals
+  return inputPath.replace(/'/g, "''");
+}
+
+/**
+ * Validates a SQL Server identifier (database name, etc.)
+ * Only allows alphanumeric, underscore, space, hyphen, and dot.
+ */
+function sanitizeIdentifier(name: string): string {
+  if (!/^[\w\s.\-]+$/.test(name)) {
+    throw new Error(`Invalid identifier: ${name}`);
+  }
+  return name.replace(/'/g, "''");
+}
 
 export class ServerFilesystemService extends BaseSingleton {
   private poolManager: ConnectionPoolManager;
@@ -48,6 +79,7 @@ export class ServerFilesystemService extends BaseSingleton {
   ): Promise<ServerFileEntry[]> {
     // Normalize path - ensure it ends with backslash for directories
     const normalizedPath = path.endsWith('\\') ? path : `${path}\\`;
+    const safePath = sanitizeServerPath(normalizedPath);
 
     // xp_dirtree parameters: path, depth (0=recursive), include_files (1=yes)
     const sql = `
@@ -58,7 +90,7 @@ export class ServerFilesystemService extends BaseSingleton {
       );
 
       INSERT INTO #DirectoryTree
-      EXEC xp_dirtree @path = N'${normalizedPath.replace(/'/g, "''")}', @depth = 1, @file = ${includeFiles ? 1 : 0};
+      EXEC xp_dirtree @path = N'${safePath}', @depth = 1, @file = ${includeFiles ? 1 : 0};
 
       SELECT subdirectory as name, depth, isfile
       FROM #DirectoryTree
@@ -82,7 +114,7 @@ export class ServerFilesystemService extends BaseSingleton {
       }));
     } catch (error) {
       // If the directory doesn't exist or access denied, return empty
-      console.error('Error listing directory:', error);
+      log.error('Error listing directory:', error);
       return [];
     }
   }
@@ -149,11 +181,13 @@ export class ServerFilesystemService extends BaseSingleton {
     limit = 50
   ): Promise<BackupHistoryEntry[]> {
     const whereClause = databaseName
-      ? `WHERE bs.database_name = N'${databaseName.replace(/'/g, "''")}'`
+      ? `WHERE bs.database_name = N'${sanitizeIdentifier(databaseName)}'`
       : '';
 
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 50)));
+
     const sql = `
-      SELECT TOP ${limit}
+      SELECT TOP ${safeLimit}
         bs.database_name as databaseName,
         CASE bs.type
           WHEN 'D' THEN 'Full'
@@ -216,9 +250,10 @@ export class ServerFilesystemService extends BaseSingleton {
    * Check if a path exists on the server
    */
   async pathExists(connectionId: string, path: string): Promise<boolean> {
+    const safePath = sanitizeServerPath(path);
     const sql = `
       DECLARE @exists INT;
-      EXEC master.dbo.xp_fileexist N'${path.replace(/'/g, "''")}', @exists OUTPUT;
+      EXEC master.dbo.xp_fileexist N'${safePath}', @exists OUTPUT;
       SELECT @exists as exists;
     `;
 

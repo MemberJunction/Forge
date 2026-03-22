@@ -24,11 +24,13 @@ import {
   TabShownEvent,
 } from '../../core/services/golden-layout-manager.service';
 import { TabStateService, Tab } from '../../core/state/tab.state';
+import { ConnectionStateService } from '../../core/state/connection.state';
 import { IpcService } from '../../core/services/ipc.service';
 import { WelcomeComponent } from '../../features/welcome/welcome.component';
 import { QueryComponent } from '../../features/query/query.component';
 import { ExplorerComponent } from '../../features/explorer/explorer.component';
 import { ErdComponent } from '../../features/erd/erd.component';
+import { ChatPanelComponent } from '../../features/chat/chat-panel.component';
 import type { LayoutConfig } from '@mj-forge/shared';
 
 /**
@@ -61,6 +63,12 @@ import type { LayoutConfig } from '@mj-forge/shared';
           <span class="material-icons">{{ isContextTabPinned ? 'push_pin' : 'push_pin' }}</span>
           <span>{{ isContextTabPinned ? 'Unpin Tab' : 'Pin Tab' }}</span>
         </div>
+        @if (isContextTabDuplicable) {
+          <div class="context-menu-item" (click)="onContextDuplicate()">
+            <span class="material-icons">content_copy</span>
+            <span>Duplicate Tab</span>
+          </div>
+        }
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" (click)="onContextClose()">
           <span class="material-icons">close</span>
@@ -69,6 +77,10 @@ import type { LayoutConfig } from '@mj-forge/shared';
         <div class="context-menu-item" (click)="onContextCloseOthers()">
           <span class="material-icons">close_fullscreen</span>
           <span>Close Other Tabs</span>
+        </div>
+        <div class="context-menu-item" (click)="onContextCloseToRight()">
+          <span class="material-icons">tab_close_right</span>
+          <span>Close Tabs to Right</span>
         </div>
       </div>
     }
@@ -245,11 +257,13 @@ import type { LayoutConfig } from '@mj-forge/shared';
 })
 export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterViewInit {
   @ViewChild('glContainer', { static: false }) glContainer!: ElementRef<HTMLDivElement>;
+  @ViewChild('renameInput') renameInputRef?: ElementRef<HTMLInputElement>;
 
   @Output() layoutInitError = new EventEmitter<void>();
 
   private readonly layoutManager = inject(GoldenLayoutManager);
   private readonly tabState = inject(TabStateService);
+  private readonly connectionState = inject(ConnectionStateService);
   private readonly appRef = inject(ApplicationRef);
   private readonly environmentInjector = inject(EnvironmentInjector);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -276,6 +290,12 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   renameValue = '';
   private renameTabId: string | null = null;
 
+  // Guard to prevent circular GL→tabState→GL sync during GL-initiated close
+  private glInitiatedClose = false;
+
+  // Cleanup for context menu document listeners
+  private contextMenuCleanup: (() => void) | null = null;
+
   ngOnInit(): void {
     // Subscribe to tab events from Golden Layout
     this.subscriptions.push(
@@ -284,7 +304,10 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       }),
       this.layoutManager.TabClosed.subscribe(tabId => {
         this.cleanupTabComponent(tabId);
+        // Guard: GL already removed this tab, skip the sync back to GL
+        this.glInitiatedClose = true;
         this.tabState.closeTab(tabId);
+        this.glInitiatedClose = false;
       }),
       this.layoutManager.LayoutChanged.subscribe(() => {
         const layout = this.layoutManager.SaveLayout();
@@ -306,7 +329,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
     // Subscribe to tab state changes to sync with Golden Layout
     this.subscriptions.push(
       this.tabState.tabs$.subscribe(tabs => {
-        if (this.layoutRestorationComplete) {
+        if (this.layoutRestorationComplete && !this.glInitiatedClose) {
           this.syncTabsWithGoldenLayout(tabs);
         }
       })
@@ -327,6 +350,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
     });
     this.componentRefs.clear();
 
+    this.contextMenuCleanup?.();
     this.layoutManager.Destroy();
   }
 
@@ -420,6 +444,9 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
    * Create TabComponentState from Tab
    */
   private createTabState(tab: Tab): TabComponentState {
+    const profile = tab.connectionId
+      ? this.connectionState.getProfile(tab.connectionId)
+      : undefined;
     return {
       tabId: tab.id,
       tabType: tab.type,
@@ -428,7 +455,9 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       title: tab.title,
       icon: tab.icon,
       isPinned: tab.isPinned ?? false,
+      isDirty: tab.isDirty ?? false,
       isLoaded: false,
+      connectionColor: profile?.color,
       configuration: {
         content: tab.content,
         autoExecute: tab.autoExecute,
@@ -517,6 +546,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       query: QueryComponent,
       object: ExplorerComponent,
       erd: ErdComponent,
+      chat: ChatPanelComponent,
     };
 
     return componentMap[tab.type] || null;
@@ -531,6 +561,17 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       const queryInstance = instance as { tabId?: string };
       if ('tabId' in queryInstance) {
         queryInstance.tabId = tab.id;
+      }
+    }
+
+    // For chat component in tab mode
+    if (tab.type === 'chat' && instance) {
+      const chatInstance = instance as { isTabMode?: boolean; conversationId?: string };
+      if ('isTabMode' in chatInstance) {
+        chatInstance.isTabMode = true;
+      }
+      if ('conversationId' in chatInstance && tab.metadata?.['conversationId']) {
+        chatInstance.conversationId = tab.metadata['conversationId'] as string;
       }
     }
 
@@ -578,10 +619,15 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       if (!existingTabIds.includes(tab.id)) {
         this.createTabInLayout(tab);
       } else {
-        // Update styling for existing tabs
+        // Update styling for existing tabs (including dirty state and connection color)
+        const profile = tab.connectionId
+          ? this.connectionState.getProfile(tab.connectionId)
+          : undefined;
         this.layoutManager.UpdateTabStyle(tab.id, {
           isPinned: tab.isPinned ?? false,
+          isDirty: tab.isDirty ?? false,
           title: tab.title,
+          connectionColor: profile?.color,
         });
       }
     });
@@ -615,31 +661,40 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
    * Show context menu
    */
   showContextMenu(x: number, y: number, tabId: string): void {
-    this.contextMenuX = x;
-    this.contextMenuY = y;
+    // Clean up any previous context menu listeners
+    this.contextMenuCleanup?.();
+
+    // Clamp to viewport so menu doesn't go off-screen
+    this.contextMenuX = Math.min(x, window.innerWidth - 200);
+    this.contextMenuY = Math.min(y, window.innerHeight - 300);
     this.contextMenuTabId = tabId;
     this.contextMenuVisible = true;
     this.cdr.detectChanges();
 
     // Close menu when clicking outside
     setTimeout(() => {
+      const cleanup = () => {
+        document.removeEventListener('click', clickHandler);
+        document.removeEventListener('keydown', keyHandler);
+        this.contextMenuCleanup = null;
+      };
+
       const clickHandler = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
         if (!target.closest('.context-menu')) {
           this.hideContextMenu();
-          document.removeEventListener('click', clickHandler);
-          document.removeEventListener('keydown', keyHandler);
+          cleanup();
         }
       };
 
       const keyHandler = (event: KeyboardEvent) => {
         if (event.key === 'Escape') {
           this.hideContextMenu();
-          document.removeEventListener('click', clickHandler);
-          document.removeEventListener('keydown', keyHandler);
+          cleanup();
         }
       };
 
+      this.contextMenuCleanup = cleanup;
       document.addEventListener('click', clickHandler);
       document.addEventListener('keydown', keyHandler);
     }, 0);
@@ -694,6 +749,35 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
   }
 
   /**
+   * Check if context menu tab can be duplicated (only query tabs)
+   */
+  get isContextTabDuplicable(): boolean {
+    if (!this.contextMenuTabId) return false;
+    const tab = this.tabState.tabs().find(t => t.id === this.contextMenuTabId);
+    return tab?.type === 'query';
+  }
+
+  /**
+   * Duplicate tab from context menu
+   */
+  onContextDuplicate(): void {
+    if (this.contextMenuTabId) {
+      this.tabState.duplicateTab(this.contextMenuTabId);
+    }
+    this.hideContextMenu();
+  }
+
+  /**
+   * Close tabs to the right from context menu
+   */
+  onContextCloseToRight(): void {
+    if (this.contextMenuTabId) {
+      this.tabState.closeTabsToRight(this.contextMenuTabId);
+    }
+    this.hideContextMenu();
+  }
+
+  /**
    * Show rename dialog from context menu
    */
   onContextRename(): void {
@@ -707,7 +791,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
 
         // Focus the input after it renders
         setTimeout(() => {
-          const input = document.querySelector('.rename-input') as HTMLInputElement;
+          const input = this.renameInputRef?.nativeElement;
           if (input) {
             input.focus();
             input.select();

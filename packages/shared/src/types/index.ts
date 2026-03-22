@@ -24,3 +24,6 @@ export * from './query-results.types';
 
 // AI types
 export * from './ai.types';
+
+// Chat types
+export * from './chat.types';

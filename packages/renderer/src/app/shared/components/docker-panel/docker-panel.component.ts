@@ -1,9 +1,13 @@
 import { Component, inject, OnInit, signal, output, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatInputModule } from '@angular/material/input';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
@@ -14,10 +18,13 @@ import { Router } from '@angular/router';
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     MatIconModule,
     MatButtonModule,
     MatProgressSpinnerModule,
     MatTooltipModule,
+    MatInputModule,
+    MatFormFieldModule,
   ],
   template: `
     <div class="docker-panel" (click)="$event.stopPropagation()">
@@ -109,16 +116,56 @@ import { Router } from '@angular/router';
         }
       </div>
 
+      @if (showCreateForm()) {
+        <div class="create-form">
+          <h4>New SQL Server Container</h4>
+          <mat-form-field appearance="outline">
+            <mat-label>Container Name</mat-label>
+            <input matInput [(ngModel)]="newContainerName" placeholder="mssql-dev" />
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>SA Password</mat-label>
+            <input matInput [(ngModel)]="newContainerPassword" type="password" placeholder="Strong!Pass123" />
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Host Port</mat-label>
+            <input matInput [(ngModel)]="newContainerPort" type="number" placeholder="1433" />
+          </mat-form-field>
+          <div class="create-actions">
+            <button mat-button (click)="showCreateForm.set(false)">Cancel</button>
+            <button
+              mat-flat-button
+              color="primary"
+              (click)="createContainer()"
+              [disabled]="creating() || !newContainerName || !newContainerPassword"
+            >
+              @if (creating()) {
+                <mat-spinner diameter="16"></mat-spinner>
+              } @else {
+                Create & Start
+              }
+            </button>
+          </div>
+        </div>
+      }
+
       <div class="panel-footer">
         <button mat-button (click)="refresh()" [disabled]="loading()">
           <mat-icon>refresh</mat-icon>
           Refresh
         </button>
-        <span class="status-text">
-          @if (dockerStatus()?.isRunning) {
-            {{ runningCount() }}/{{ containers().length }} containers running
-          }
-        </span>
+        @if (dockerStatus()?.isRunning && !showCreateForm()) {
+          <button mat-button (click)="showCreateForm.set(true)">
+            <mat-icon>add</mat-icon>
+            New Container
+          </button>
+        } @else {
+          <span class="status-text">
+            @if (dockerStatus()?.isRunning) {
+              {{ runningCount() }}/{{ containers().length }} running
+            }
+          </span>
+        }
       </div>
     </div>
   `,
@@ -272,6 +319,34 @@ import { Router } from '@angular/router';
         gap: var(--spacing-xs);
       }
 
+      .create-form {
+        padding: var(--spacing-md);
+        border-top: 1px solid var(--border-primary);
+        background-color: var(--bg-secondary);
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xs);
+
+        h4 {
+          margin: 0 0 var(--spacing-xs);
+          font-size: var(--font-size-sm);
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+
+        mat-form-field {
+          width: 100%;
+          font-size: var(--font-size-sm);
+        }
+
+        .create-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: var(--spacing-sm);
+          margin-top: var(--spacing-xs);
+        }
+      }
+
       .panel-footer {
         display: flex;
         align-items: center;
@@ -299,6 +374,12 @@ export class DockerPanelComponent implements OnInit {
   readonly dockerStatus = signal<DockerStatus | null>(null);
   readonly containers = signal<DockerContainer[]>([]);
   readonly actionInProgress = signal<string | null>(null);
+  readonly showCreateForm = signal(false);
+  readonly creating = signal(false);
+
+  newContainerName = 'mssql-dev';
+  newContainerPassword = '';
+  newContainerPort = 1433;
 
   readonly runningCount = signal(0);
 
@@ -321,11 +402,11 @@ export class DockerPanelComponent implements OnInit {
 
     this.loading.set(true);
     try {
-      const status = await this.ipc.detectDocker().toPromise();
+      const status = await firstValueFrom(this.ipc.detectDocker());
       this.dockerStatus.set(status ?? null);
 
       if (status?.isAvailable && status?.isRunning) {
-        const containers = await this.ipc.getDockerContainers().toPromise();
+        const containers = await firstValueFrom(this.ipc.getDockerContainers());
         this.containers.set(containers?.filter(c => c.isSqlServer) ?? []);
       } else {
         this.containers.set([]);
@@ -341,7 +422,7 @@ export class DockerPanelComponent implements OnInit {
   async startContainer(container: DockerContainer): Promise<void> {
     this.actionInProgress.set(container.id);
     try {
-      await this.ipc.startDockerContainer(container.id).toPromise();
+      await firstValueFrom(this.ipc.startDockerContainer(container.id));
       this.notification.success(`Started container: ${container.name}`);
       await this.refresh();
     } catch (error) {
@@ -355,7 +436,7 @@ export class DockerPanelComponent implements OnInit {
   async stopContainer(container: DockerContainer): Promise<void> {
     this.actionInProgress.set(container.id);
     try {
-      await this.ipc.stopDockerContainer(container.id).toPromise();
+      await firstValueFrom(this.ipc.stopDockerContainer(container.id));
       this.notification.success(`Stopped container: ${container.name}`);
       await this.refresh();
     } catch (error) {
@@ -374,5 +455,35 @@ export class DockerPanelComponent implements OnInit {
         port: container.ports?.[0]?.external || 1433,
       },
     });
+  }
+
+  async createContainer(): Promise<void> {
+    if (!this.newContainerName || !this.newContainerPassword) return;
+
+    this.creating.set(true);
+    try {
+      const result = await firstValueFrom(
+        this.ipc.createDockerContainer({
+          name: this.newContainerName,
+          password: this.newContainerPassword,
+          port: this.newContainerPort || 1433,
+          acceptEula: true,
+        })
+      );
+
+      if (result?.success) {
+        this.notification.success(`Container "${this.newContainerName}" created and started`);
+        this.showCreateForm.set(false);
+        this.newContainerPassword = '';
+        await this.refresh();
+      } else {
+        this.notification.error(result?.error || 'Failed to create container');
+      }
+    } catch (error) {
+      this.notification.error('Failed to create container');
+      console.error('Failed to create container:', error);
+    } finally {
+      this.creating.set(false);
+    }
   }
 }

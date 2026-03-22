@@ -2,18 +2,21 @@
  * Connection IPC Handlers
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { ConnectionProfile, TestConnectionResult, ActiveConnection } from '@mj-forge/shared';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { ConnectionProfilesStore } from '../services/config/connection-profiles';
+import { createLogger } from '../utils/logger';
+import { safeHandle } from './safe-handle';
+
+const log = createLogger('IPC:Connection');
 
 export function registerConnectionHandlers(): void {
   const poolManager = ConnectionPoolManager.getInstance();
   const profileStore = ConnectionProfilesStore.getInstance();
 
   // Test connection
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.CONNECTION.TEST,
     async (
       _event,
@@ -29,43 +32,43 @@ export function registerConnectionHandlers(): void {
   );
 
   // Save connection
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.CONNECTION.SAVE,
     async (_event, profile: ConnectionProfile, password?: string): Promise<ConnectionProfile> => {
-      console.log(
-        `[IPC:SAVE] Profile ID: ${profile.id || 'NEW'}, Name: ${profile.name}, Password provided: ${!!password}, Password length: ${password?.length || 0}`
-      );
+      log.info(`Saving profile: ${profile.name}`);
       const savedProfile = await profileStore.save({ profile, password });
-      console.log(`[IPC:SAVE] Saved profile ID: ${savedProfile.id}`);
       return savedProfile;
     }
   );
 
   // Delete connection
-  ipcMain.handle(IPC_CHANNELS.CONNECTION.DELETE, async (_event, id: string): Promise<void> => {
-    await poolManager.closePool(id);
+  safeHandle(IPC_CHANNELS.CONNECTION.DELETE, async (_event, id: string): Promise<void> => {
+    try {
+      await poolManager.closePool(id);
+    } catch {
+      // Pool may already be closed — continue with profile deletion
+    }
     await profileStore.delete(id);
   });
 
   // List connections
-  ipcMain.handle(IPC_CHANNELS.CONNECTION.LIST, async (): Promise<ConnectionProfile[]> => {
+  safeHandle(IPC_CHANNELS.CONNECTION.LIST, async (): Promise<ConnectionProfile[]> => {
     return profileStore.getAll();
   });
 
   // Connect
-  ipcMain.handle(
+  safeHandle(
     IPC_CHANNELS.CONNECTION.CONNECT,
     async (_event, id: string): Promise<ActiveConnection> => {
-      console.log(`[IPC:CONNECT] Connecting with profile ID: ${id}`);
+      log.info(`Connecting with profile: ${id}`);
       const profile = profileStore.getById(id);
       if (!profile) {
-        console.error(`[IPC:CONNECT] Profile not found: ${id}`);
+        log.error(`Profile not found: ${id}`);
         throw new Error('Connection profile not found');
       }
-      console.log(`[IPC:CONNECT] Found profile: ${profile.name}`);
 
       await poolManager.getPool(id);
-      console.log(`[IPC:CONNECT] Successfully connected`);
+      log.info(`Connected to ${profile.name}`);
 
       return {
         id,
@@ -78,7 +81,7 @@ export function registerConnectionHandlers(): void {
   );
 
   // Disconnect
-  ipcMain.handle(IPC_CHANNELS.CONNECTION.DISCONNECT, async (_event, id: string): Promise<void> => {
+  safeHandle(IPC_CHANNELS.CONNECTION.DISCONNECT, async (_event, id: string): Promise<void> => {
     await poolManager.closePool(id);
   });
 }

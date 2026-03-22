@@ -13,10 +13,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { Router } from '@angular/router';
+import { MatDialog } from '@angular/material/dialog';
 import Fuse from 'fuse.js';
 import { ConnectionStateService } from '../../../core/state/connection.state';
 import { TabStateService } from '../../../core/state/tab.state';
 import { SettingsService } from '../../../core/services/settings.service';
+import { QueryHistoryService } from '../../../core/services/query-history.service';
+import { SchemaDiffDialogComponent } from '../schema-diff-dialog/schema-diff-dialog.component';
 
 export interface Command {
   id: string;
@@ -225,7 +228,9 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly tabState = inject(TabStateService);
   private readonly settings = inject(SettingsService);
+  private readonly queryHistory = inject(QueryHistoryService);
   private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
 
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
 
@@ -254,6 +259,11 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     if ((event.metaKey || event.ctrlKey) && event.key === 'k' && !event.shiftKey) {
       event.preventDefault();
       this.toggle();
+    }
+    // Cmd+H / Ctrl+H for Query History dialog
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'h') {
+      event.preventDefault();
+      this.queryHistory.openHistoryDialog();
     }
   };
 
@@ -367,6 +377,17 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
           window.dispatchEvent(new CustomEvent('forge:cancel-query'));
         },
       },
+      {
+        id: 'query-history',
+        label: 'Query History',
+        description: 'Search and reuse previously executed queries',
+        icon: 'history',
+        category: 'query',
+        shortcut: '⌘H',
+        action: () => {
+          this.queryHistory.openHistoryDialog();
+        },
+      },
 
       // Connection commands
       {
@@ -446,6 +467,155 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => this.tabState.previousTab(),
       },
 
+      // View
+      {
+        id: 'show-welcome',
+        label: 'Show Welcome Tab',
+        description: 'Open the Welcome tab',
+        icon: 'home',
+        category: 'view',
+        action: () => this.tabState.showWelcome(),
+      },
+
+      // Tab management
+      {
+        id: 'close-all-tabs',
+        label: 'Close All Tabs',
+        description: 'Close all open tabs',
+        icon: 'tab_close',
+        category: 'file',
+        action: () => this.tabState.closeAllTabs(),
+      },
+      {
+        id: 'close-other-tabs',
+        label: 'Close Other Tabs',
+        description: 'Close all tabs except the active one',
+        icon: 'tab_unselected',
+        category: 'file',
+        action: () => {
+          const activeId = this.tabState.activeTabId();
+          if (activeId) this.tabState.closeOtherTabs(activeId);
+        },
+      },
+
+      // Search
+      {
+        id: 'find-object',
+        label: 'Find Database Object',
+        description: 'Search for tables, views, procedures',
+        icon: 'search',
+        category: 'file',
+        shortcut: '⌘P',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-object-search'));
+        },
+      },
+
+      // Snippets
+      {
+        id: 'snippet-library',
+        label: 'Snippet Library',
+        description: 'Save, search, and insert SQL snippets',
+        icon: 'data_object',
+        category: 'query',
+        shortcut: '⇧⌘S',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-snippets'));
+        },
+      },
+
+      // Database
+      {
+        id: 'backup-database',
+        label: 'Backup Database',
+        description: 'Back up the current database',
+        icon: 'backup',
+        category: 'connection',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-backup'));
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+      {
+        id: 'restore-database',
+        label: 'Restore Database',
+        description: 'Restore a database from backup',
+        icon: 'restore',
+        category: 'connection',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-restore'));
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
+      // Schema Diff
+      {
+        id: 'schema-diff',
+        label: 'Compare Database Schemas',
+        description: 'Diff tables, columns, and objects between two databases',
+        icon: 'compare_arrows',
+        category: 'query',
+        action: () => {
+          this.dialog.open(SchemaDiffDialogComponent, { width: '520px' });
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
+      // ERD
+      {
+        id: 'open-erd',
+        label: 'Open ERD Diagram',
+        description: 'Show entity relationship diagram for current database',
+        icon: 'account_tree',
+        category: 'view',
+        shortcut: '⌘E',
+        action: () => {
+          const connId = this.connectionState.activeConnectionId();
+          const db = this.connectionState.selectedDatabase();
+          if (connId && db) {
+            this.tabState.openErdTab(connId, db);
+          }
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
+      // Snippets
+      {
+        id: 'open-snippets',
+        label: 'Open Snippet Library',
+        description: 'Browse and insert saved SQL snippets',
+        icon: 'content_paste',
+        category: 'edit',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:open-snippets'));
+        },
+      },
+      {
+        id: 'save-snippet',
+        label: 'Save as Snippet',
+        description: 'Save current query as a reusable snippet',
+        icon: 'bookmark_add',
+        category: 'edit',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:save-snippet'));
+        },
+        isEnabled: () => this.connectionState.isConnected(),
+      },
+
+      // Theme toggle
+      {
+        id: 'toggle-theme',
+        label: 'Toggle Theme',
+        description: 'Cycle between dark, light, and system theme',
+        icon: 'contrast',
+        category: 'settings',
+        action: () => {
+          const current = this.settings.theme();
+          const next = current === 'dark' ? 'light' : current === 'light' ? 'system' : 'dark';
+          this.settings.updateTheme(next);
+        },
+      },
+
       // Help
       {
         id: 'show-shortcuts',
@@ -456,6 +626,16 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         shortcut: '⌘K ⌘S',
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:show-shortcuts'));
+        },
+      },
+      {
+        id: 'about',
+        label: 'About MJ Forge',
+        description: 'Version and product information',
+        icon: 'info',
+        category: 'help',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('forge:show-about'));
         },
       },
     ];

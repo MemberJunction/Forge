@@ -43,6 +43,7 @@ export class MenuService implements OnDestroy {
 
   // View menu events
   readonly toggleSidebar$ = new Subject<void>();
+  readonly toggleChat$ = new Subject<void>();
   readonly toggleResults$ = new Subject<void>();
 
   // Window menu events
@@ -205,8 +206,23 @@ export class MenuService implements OnDestroy {
 
     // View menu items
     this.unsubscribers.push(
+      menu.onShowWelcome(() => {
+        this.zone.run(() => {
+          this.tabState.showWelcome();
+          this.router.navigate(['/']);
+        });
+      })
+    );
+
+    this.unsubscribers.push(
       menu.onToggleSidebar(() => {
         this.zone.run(() => this.toggleSidebar$.next());
+      })
+    );
+
+    this.unsubscribers.push(
+      menu.onToggleChat(() => {
+        this.zone.run(() => this.toggleChat$.next());
       })
     );
 

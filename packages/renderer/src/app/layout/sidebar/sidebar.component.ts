@@ -6,13 +6,16 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatDialog } from '@angular/material/dialog';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
+import { ChatStateService } from '../../core/state/chat.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { TablePropertiesService } from '../../core/services/table-properties.service';
+import { firstValueFrom } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConfirmDialogComponent } from '../../shared/components/dialog/confirm-dialog.component';
 import { InputDialogComponent } from '../../shared/components/dialog/input-dialog.component';
@@ -47,6 +50,7 @@ import {
     MatTooltipModule,
     MatMenuModule,
     MatDividerModule,
+    MatProgressSpinnerModule,
     ConfirmDialogComponent,
     InputDialogComponent,
   ],
@@ -58,7 +62,7 @@ import {
           <img class="app-icon" src="assets/icons/mj-logo.png" alt="MJ Forge" />
           <span class="logo">Forge</span>
         </div>
-        <button mat-icon-button matTooltip="New Connection" (click)="openConnectionDialog()">
+        <button mat-icon-button matTooltip="New Connection" aria-label="New Connection" (click)="openConnectionDialog()">
           <mat-icon>add</mat-icon>
         </button>
       </div>
@@ -106,11 +110,16 @@ import {
             mat-button
             [matMenuTriggerFor]="databaseMenu"
             class="database-button"
+            aria-label="Select Database"
             [disabled]="connectionState.loadingDatabases()"
           >
-            <mat-icon svgIcon="database-cylinder"></mat-icon>
+            @if (connectionState.loadingDatabases()) {
+              <mat-spinner diameter="16" />
+            } @else {
+              <mat-icon svgIcon="database-cylinder"></mat-icon>
+            }
             <span class="database-name">
-              {{ connectionState.selectedDatabase() || 'Select Database' }}
+              {{ connectionState.loadingDatabases() ? 'Loading...' : (connectionState.selectedDatabase() || 'Select Database') }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
@@ -129,6 +138,11 @@ import {
                 <span>{{ db.name }}</span>
               </button>
             }
+            <mat-divider />
+            <button mat-menu-item (click)="openCreateDatabaseDialog()">
+              <mat-icon>add_circle</mat-icon>
+              <span>New Database...</span>
+            </button>
           </mat-menu>
         </div>
       }
@@ -144,7 +158,7 @@ import {
             <button mat-stroked-button (click)="openConnectionDialog()">Connect to Server</button>
           </div>
         } @else if (explorerState.hasNodes()) {
-          <div class="tree-container">
+          <div class="tree-container" role="tree" aria-label="Database Explorer">
             @for (node of explorerState.rootNodes(); track node.id) {
               <ng-container *ngTemplateOutlet="treeNode; context: { $implicit: node, level: 0 }" />
             }
@@ -161,11 +175,19 @@ import {
       <ng-template #treeNode let-node let-level="level">
         <div
           class="tree-item"
+          role="treeitem"
+          [attr.aria-expanded]="node.hasChildren ? node.isExpanded : null"
+          [attr.aria-level]="level + 1"
+          [attr.aria-label]="node.name + ' (' + node.type + ')'"
+          [attr.aria-selected]="node.id === explorerState.selectedNodeId()"
+          tabindex="0"
           [class.selected]="node.id === explorerState.selectedNodeId()"
           [style.padding-left.px]="level * 16 + 8"
           (click)="onNodeClick(node)"
           (dblclick)="onNodeDoubleClick(node)"
           (contextmenu)="onNodeRightClick(node, $event)"
+          (keydown.enter)="onNodeDoubleClick(node)"
+          (keydown.space)="onNodeClick(node); $event.preventDefault()"
         >
           @if (node.hasChildren) {
             <button class="expand-btn" (click)="toggleExpand(node, $event)">
@@ -211,6 +233,7 @@ import {
           <button
             mat-icon-button
             matTooltip="New Query"
+            aria-label="New Query"
             (click)="newQuery()"
             [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
           >
@@ -219,6 +242,7 @@ import {
           <button
             mat-icon-button
             matTooltip="Refresh"
+            aria-label="Refresh Explorer"
             (click)="refresh()"
             [disabled]="!connectionState.isConnected()"
           >
@@ -227,6 +251,7 @@ import {
           <button
             mat-icon-button
             matTooltip="Backup Database"
+            aria-label="Backup Database"
             (click)="openBackup()"
             [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
           >
@@ -235,10 +260,22 @@ import {
           <button
             mat-icon-button
             matTooltip="Restore Database"
+            aria-label="Restore Database"
             (click)="openRestore()"
             [disabled]="!connectionState.isConnected()"
           >
             <mat-icon>restore</mat-icon>
+          </button>
+          <span class="action-spacer"></span>
+          <button
+            mat-icon-button
+            class="ai-sidebar-btn"
+            [class.active]="chatState.panelOpen()"
+            [matTooltip]="chatState.panelOpen() ? 'Close AI Assistant' : 'Open AI Assistant'"
+            aria-label="Toggle AI Assistant"
+            (click)="chatState.togglePanel()"
+          >
+            <mat-icon>auto_awesome</mat-icon>
           </button>
         </div>
       </div>
@@ -264,6 +301,7 @@ import {
         padding: var(--spacing-sm) var(--spacing-md);
         padding-top: 28px; /* Space for macOS traffic lights */
         border-bottom: 1px solid var(--border-primary);
+        background-color: var(--bg-tertiary);
         -webkit-app-region: drag; /* Allow dragging window from header */
       }
 
@@ -278,15 +316,16 @@ import {
       }
 
       .app-icon {
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         object-fit: contain;
       }
 
       .logo {
-        font-size: var(--font-size-lg);
-        font-weight: 600;
+        font-size: 18px;
+        font-weight: 800;
         color: var(--text-primary);
+        letter-spacing: 0.5px;
       }
 
       .connection-selector,
@@ -302,12 +341,14 @@ import {
         justify-content: flex-start;
         text-align: left;
         padding: var(--spacing-xs) var(--spacing-sm);
+        color: var(--text-primary) !important;
 
         .mat-icon {
           margin-right: var(--spacing-sm);
           font-size: 18px;
           width: 18px;
           height: 18px;
+          color: var(--text-secondary);
         }
 
         .connection-name,
@@ -316,11 +357,14 @@ import {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          font-weight: 500;
+          font-size: var(--font-size-sm);
         }
 
         .dropdown-icon {
           margin-right: 0;
           margin-left: auto;
+          color: var(--text-muted);
         }
       }
 
@@ -363,6 +407,7 @@ import {
         padding: 4px 8px;
         cursor: pointer;
         user-select: none;
+        outline: none;
 
         &:hover {
           background-color: var(--bg-hover);
@@ -370,6 +415,12 @@ import {
 
         &.selected {
           background-color: var(--bg-active);
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--status-info);
+          outline-offset: -2px;
+          border-radius: var(--radius-sm);
         }
       }
 
@@ -458,8 +509,30 @@ import {
 
         .action-buttons {
           display: flex;
+          align-items: center;
           justify-content: space-around;
           padding: var(--spacing-sm);
+        }
+      }
+
+      .action-spacer {
+        width: 1px;
+        height: 20px;
+        background: var(--border-primary);
+        flex-shrink: 0;
+      }
+
+      .ai-sidebar-btn {
+        color: var(--text-secondary);
+        transition: color var(--transition-fast), background-color var(--transition-fast);
+
+        &:hover {
+          color: var(--accent-primary);
+        }
+
+        &.active {
+          color: var(--accent-primary);
+          background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
         }
       }
     `,
@@ -476,6 +549,7 @@ export class SidebarComponent {
   private readonly contextMenu = inject(ContextMenuService);
   private readonly notification = inject(NotificationService);
   private readonly tableProperties = inject(TablePropertiesService);
+  readonly chatState = inject(ChatStateService);
   private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
 
@@ -487,6 +561,7 @@ export class SidebarComponent {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 
@@ -494,6 +569,7 @@ export class SidebarComponent {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
       width: '540px',
+      maxHeight: '90vh',
     });
   }
 
@@ -514,21 +590,46 @@ export class SidebarComponent {
 
   onNodeClick(node: TreeNode): void {
     this.explorerState.selectNode(node.id);
+    // Also toggle expansion when clicking anywhere on a folder/expandable node
+    if (node.hasChildren) {
+      this.explorerState.toggleNode(node.id);
+    }
   }
 
   onNodeDoubleClick(node: TreeNode): void {
     if (node.hasChildren) {
       this.explorerState.toggleNode(node.id);
-    } else if (node.connectionId && node.databaseName && node.metadata) {
-      // Open object details tab
-      this.tabState.openObjectTab(
-        node.connectionId,
-        node.databaseName,
-        node.metadata.name,
-        node.metadata.type
-      );
-      this.router.navigate(['/explorer']);
+      return;
     }
+
+    if (!node.connectionId || !node.databaseName || !node.metadata) return;
+
+    // MJ entity: open SELECT TOP 1000 query
+    if (node.type === 'mj_entity') {
+      const schema = node.metadata.schema || '__mj';
+      const baseTable = (node as TreeNode & { tableName?: string }).tableName || node.metadata.name;
+      const sql = `SELECT TOP 1000 * FROM [${schema}].[${baseTable}]`;
+      this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+      this.router.navigate(['/query']);
+      return;
+    }
+
+    // MJ saved query: open query SQL in editor
+    if (node.type === 'mj_query' && node.metadata.definition) {
+      this.tabState.openQueryTab(node.connectionId, node.databaseName, node.metadata.definition);
+      this.router.navigate(['/query']);
+      return;
+    }
+
+    // Standard database objects: open object details tab
+    this.tabState.openObjectTab(
+      node.connectionId,
+      node.databaseName,
+      node.metadata.name,
+      node.metadata.type,
+      node.metadata.schema || node.schema || 'dbo'
+    );
+    this.router.navigate(['/explorer']);
   }
 
   toggleExpand(node: TreeNode, event: Event): void {
@@ -682,7 +783,7 @@ export class SidebarComponent {
         icon: 'add_circle',
         action: () => {
           if (node.connectionId) {
-            this.openCreateDatabaseDialog(node.connectionId);
+            this._openCreateDatabaseDialog(node.connectionId);
           }
         },
       },
@@ -814,9 +915,14 @@ export class SidebarComponent {
         id: 'edit-top',
         label: 'Edit Top 200 Rows',
         icon: 'edit_note',
-        disabled: true,
         action: () => {
-          this.notification.info('Edit rows feature coming soon');
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            this.router.navigate(['/query']);
+          }
         },
       },
       { id: 'div1', label: '', divider: true },
@@ -933,13 +1039,13 @@ SELECT TOP 100
   rc.ChangesDescription,
   rc.Status,
   u.Name AS ChangedBy,
-  rc.__mj_CreatedAt AS ChangedAt,
+  rc.CreatedAt AS ChangedAt,
   rc.ChangesJSON
 FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
-ORDER BY rc.__mj_CreatedAt DESC`;
+ORDER BY rc.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -961,13 +1067,13 @@ SELECT TOP 100
   al.RecordID,
   u.Name AS UserName,
   al.Description,
-  al.__mj_CreatedAt AS AuditedAt
+  al.CreatedAt AS AuditedAt
 FROM [__mj].[AuditLog] al
 LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
-ORDER BY al.__mj_CreatedAt DESC`;
+ORDER BY al.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -995,6 +1101,21 @@ ORDER BY al.__mj_CreatedAt DESC`;
             const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
+            this.router.navigate(['/query']);
+          }
+        },
+      },
+      {
+        id: 'edit-top',
+        label: 'Edit Top 200 Rows',
+        icon: 'edit_note',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.metadata) {
+            const schema = node.metadata.schema || 'dbo';
+            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+            this.router.navigate(['/query']);
           }
         },
       },
@@ -1289,13 +1410,13 @@ SELECT TOP 100
   rc.ChangesDescription,
   rc.Status,
   u.Name AS ChangedBy,
-  rc.__mj_CreatedAt AS ChangedAt,
+  rc.CreatedAt AS ChangedAt,
   rc.ChangesJSON
 FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
-ORDER BY rc.__mj_CreatedAt DESC`;
+ORDER BY rc.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1314,15 +1435,33 @@ SELECT TOP 100
   u.Name AS UserName,
   al.RecordID,
   al.Description,
-  al.__mj_CreatedAt AS AuditedAt
+  al.CreatedAt AS AuditedAt
 FROM [__mj].[AuditLog] al
 LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
-ORDER BY al.__mj_CreatedAt DESC`;
+ORDER BY al.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
+          }
+        },
+      },
+      { id: 'div-erd', label: '', divider: true },
+      {
+        id: 'show-relationships',
+        label: 'Show Relationships (ERD)',
+        icon: 'account_tree',
+        action: () => {
+          if (node.connectionId && node.databaseName && node.schema && node.tableName) {
+            this.connectionState.selectDatabase(node.databaseName);
+            this.tabState.openErdTab(
+              node.connectionId,
+              node.databaseName,
+              node.tableName,
+              node.schema
+            );
+            this.router.navigate(['/erd']);
           }
         },
       },
@@ -1366,11 +1505,11 @@ SELECT TOP 200
   rc.ChangesDescription,
   rc.Status,
   u.Name AS ChangedBy,
-  rc.__mj_CreatedAt AS ChangedAt
+  rc.CreatedAt AS ChangedAt
 FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
-ORDER BY rc.__mj_CreatedAt DESC`;
+ORDER BY rc.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1401,12 +1540,12 @@ SELECT TOP 200
   al.RecordID,
   u.Name AS UserName,
   al.Description,
-  al.__mj_CreatedAt AS AuditedAt
+  al.CreatedAt AS AuditedAt
 FROM [__mj].[AuditLog] al
 LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
-ORDER BY al.__mj_CreatedAt DESC`;
+ORDER BY al.CreatedAt DESC`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1455,7 +1594,17 @@ ORDER BY __mj_CreatedAt DESC`;
   }
 
   // Database create/rename/delete dialog methods
-  private openCreateDatabaseDialog(connectionId: string): void {
+  /** Public wrapper – uses the active connection when called from the database dropdown menu */
+  openCreateDatabaseDialog(connectionId?: string): void {
+    const connId = connectionId || this.connectionState.activeConnectionId();
+    if (!connId) {
+      this.notification.error('No active connection');
+      return;
+    }
+    this._openCreateDatabaseDialog(connId);
+  }
+
+  private _openCreateDatabaseDialog(connectionId: string): void {
     const dialogData: CreateDatabaseDialogData = {
       connectionId,
     };
@@ -1556,9 +1705,9 @@ ORDER BY __mj_CreatedAt DESC`;
     }
 
     try {
-      const result = await this.ipc
-        .renameDatabase(connectionId, { currentName: oldName, newName })
-        .toPromise();
+      const result = await firstValueFrom(
+        this.ipc.renameDatabase(connectionId, { currentName: oldName, newName })
+      );
 
       if (result?.success) {
         this.notification.success(`Database renamed to "${newName}"`);
@@ -1596,9 +1745,9 @@ ORDER BY __mj_CreatedAt DESC`;
     }
 
     try {
-      const result = await this.ipc
-        .deleteDatabase(connectionId, { name: databaseName, closeConnections: true })
-        .toPromise();
+      const result = await firstValueFrom(
+        this.ipc.deleteDatabase(connectionId, { name: databaseName, closeConnections: true })
+      );
 
       if (result?.success) {
         this.notification.success(`Database "${databaseName}" deleted`);

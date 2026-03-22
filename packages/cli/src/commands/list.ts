@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { table, getBorderCharacters } from 'table';
-import { getDatabases, getTables, isConnected, formatError } from '../utils/database';
+import { getDatabases, getTables, getViews, getProcedures, isConnected, formatError } from '../utils/database';
 import { printError, printInfo } from '../utils/output';
 
 export const listCommand = new Command('list')
@@ -96,32 +96,49 @@ async function listTables(spinner: ReturnType<typeof ora>, database?: string): P
 }
 
 async function listViews(spinner: ReturnType<typeof ora>, database?: string): Promise<void> {
-  // Similar to tables but for views
-  const db = database ? `[${database}].` : '';
+  const views = await getViews(database);
+  spinner.succeed(`Found ${views.length} views`);
+  console.log('');
 
-  // This would need to be added to database.ts, but for now use inline query
-  spinner.text = 'Loading views...';
+  if (views.length === 0) {
+    printInfo('No views found');
+    return;
+  }
 
-  // For now, show a placeholder
-  spinner.succeed('Views listing');
-  printInfo('Use "forge query" to explore views with:');
+  const tableData = [
+    [chalk.bold.cyan('Schema'), chalk.bold.cyan('View')],
+    ...views.map(v => [v.schema, v.name]),
+  ];
+
   console.log(
-    chalk.dim(`  SELECT s.name AS [schema], v.name AS [view]
-  FROM ${db}sys.views v
-  INNER JOIN ${db}sys.schemas s ON v.schema_id = s.schema_id
-  ORDER BY s.name, v.name`)
+    table(tableData, {
+      border: getBorderCharacters('norc'),
+      drawHorizontalLine: (lineIndex: number, rowCount: number) =>
+        lineIndex === 0 || lineIndex === 1 || lineIndex === rowCount,
+    })
   );
 }
 
 async function listProcedures(spinner: ReturnType<typeof ora>, database?: string): Promise<void> {
-  const db = database ? `[${database}].` : '';
+  const procedures = await getProcedures(database);
+  spinner.succeed(`Found ${procedures.length} stored procedures`);
+  console.log('');
 
-  spinner.succeed('Stored procedures listing');
-  printInfo('Use "forge query" to explore procedures with:');
+  if (procedures.length === 0) {
+    printInfo('No stored procedures found');
+    return;
+  }
+
+  const tableData = [
+    [chalk.bold.cyan('Schema'), chalk.bold.cyan('Procedure')],
+    ...procedures.map(p => [p.schema, p.name]),
+  ];
+
   console.log(
-    chalk.dim(`  SELECT s.name AS [schema], p.name AS [procedure]
-  FROM ${db}sys.procedures p
-  INNER JOIN ${db}sys.schemas s ON p.schema_id = s.schema_id
-  ORDER BY s.name, p.name`)
+    table(tableData, {
+      border: getBorderCharacters('norc'),
+      drawHorizontalLine: (lineIndex: number, rowCount: number) =>
+        lineIndex === 0 || lineIndex === 1 || lineIndex === rowCount,
+    })
   );
 }

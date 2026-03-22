@@ -15,6 +15,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { ConnectionStateService } from '../../../core/state/connection.state';
 import { ExplorerStateService } from '../../../core/state/explorer.state';
 import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
@@ -50,6 +51,7 @@ export interface ConnectionDialogResult {
     MatCheckboxModule,
     MatProgressSpinnerModule,
     MatDividerModule,
+    MatTooltipModule,
   ],
   template: `
     <div class="connection-dialog">
@@ -106,6 +108,32 @@ export interface ConnectionDialogResult {
 
         <mat-divider />
 
+        <!-- Color -->
+        <h3>Color Tag</h3>
+        <div class="color-picker-row">
+          @for (c of presetColors; track c.value) {
+            <button
+              type="button"
+              class="color-circle"
+              [style.background]="c.value"
+              [class.selected]="formData.color === c.value"
+              [matTooltip]="c.label"
+              (click)="selectColor(c.value)"
+            ></button>
+          }
+          <button
+            type="button"
+            class="color-circle color-none"
+            [class.selected]="!formData.color"
+            matTooltip="No color"
+            (click)="selectColor(undefined)"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+
+        <mat-divider />
+
         <!-- Options -->
         <h3>Options</h3>
         <div class="checkbox-row">
@@ -127,17 +155,17 @@ export interface ConnectionDialogResult {
         </div>
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="saving()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
-          mat-stroked-button
-          [disabled]="!canTestConnection() || testing()"
-          (click)="testConnection()"
+          mat-flat-button
+          color="primary"
+          [disabled]="!isValid() || connectionState.connecting() || saving()"
+          (click)="connectNow()"
         >
-          @if (testing()) {
+          @if (connectionState.connecting()) {
             <mat-spinner diameter="18" />
           } @else {
-            Test
+            Connect
           }
         </button>
         <button
@@ -153,55 +181,72 @@ export interface ConnectionDialogResult {
           }
         </button>
         <button
-          mat-flat-button
-          color="primary"
-          [disabled]="!isValid() || connectionState.connecting() || saving()"
-          (click)="connectNow()"
+          mat-stroked-button
+          [disabled]="!canTestConnection() || testing()"
+          (click)="testConnection()"
         >
-          @if (connectionState.connecting()) {
+          @if (testing()) {
             <mat-spinner diameter="18" />
           } @else {
-            Connect
+            Test
           }
         </button>
+        <button mat-button (click)="cancel()" [disabled]="saving()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,
   styles: [
     `
+      :host {
+        display: block;
+      }
+
       .connection-dialog {
-        width: 500px;
+        width: 520px;
       }
 
       h2[mat-dialog-title] {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 0;
+        gap: 10px;
 
         mat-icon {
           color: var(--status-info);
+          font-size: 22px;
+          width: 22px;
+          height: 22px;
+        }
+
+        span {
+          font-size: 15px;
+          font-weight: 600;
         }
       }
 
       mat-dialog-content {
-        padding-top: 16px;
+        padding-top: 12px !important;
+        overflow-y: auto;
+        max-height: calc(80vh - 160px) !important;
 
         h3 {
-          font-size: var(--font-size-sm);
+          font-size: var(--font-size-xs);
           font-weight: 600;
-          margin: 16px 0 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin: 12px 0 12px;
           color: var(--text-secondary);
         }
       }
 
       .full-width {
         width: 100%;
+        margin-bottom: 8px;
       }
 
       .form-row {
         display: flex;
         gap: 12px;
+        margin-bottom: 8px;
       }
 
       .flex-1 {
@@ -218,13 +263,59 @@ export interface ConnectionDialogResult {
         margin-bottom: 16px;
       }
 
+      .color-picker-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .color-circle {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: transform 0.12s ease, border-color 0.12s ease;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        &:hover {
+          transform: scale(1.15);
+        }
+
+        &.selected {
+          border-color: var(--text-primary);
+          transform: scale(1.15);
+        }
+      }
+
+      .color-none {
+        background: var(--bg-tertiary) !important;
+        border: 2px dashed var(--border-secondary);
+
+        mat-icon {
+          font-size: 12px;
+          width: 12px;
+          height: 12px;
+          color: var(--text-muted);
+        }
+
+        &.selected {
+          border-color: var(--text-primary);
+          border-style: solid;
+        }
+      }
+
       mat-divider {
-        margin: 16px 0;
+        margin: 8px 0 !important;
       }
 
       mat-dialog-actions {
-        padding: 16px 24px;
-        gap: 8px;
+        margin: 0 !important;
+        padding: 12px 24px !important;
 
         button mat-spinner {
           display: inline-block;
@@ -243,6 +334,17 @@ export class ConnectionDialogComponent {
   readonly testing = signal(false);
   readonly saving = signal(false);
 
+  readonly presetColors = [
+    { value: '#e53935', label: 'Red' },
+    { value: '#fb8c00', label: 'Orange' },
+    { value: '#fdd835', label: 'Yellow' },
+    { value: '#43a047', label: 'Green' },
+    { value: '#00897b', label: 'Teal' },
+    { value: '#1e88e5', label: 'Blue' },
+    { value: '#8e24aa', label: 'Purple' },
+    { value: '#d81b60', label: 'Pink' },
+  ];
+
   formData: Partial<ConnectionProfile> & { password?: string } = {
     name: '',
     server: 'localhost',
@@ -254,6 +356,7 @@ export class ConnectionDialogComponent {
     trustServerCertificate: true,
     connectionTimeout: 30,
     database: '',
+    color: undefined,
   };
 
   constructor() {
@@ -273,6 +376,10 @@ export class ConnectionDialogComponent {
         this.formData.port = this.data.port;
       }
     }
+  }
+
+  selectColor(color: string | undefined): void {
+    this.formData.color = color;
   }
 
   async testConnection(): Promise<void> {
@@ -357,6 +464,7 @@ export class ConnectionDialogComponent {
       encrypt: this.formData.encrypt ?? true,
       trustServerCertificate: this.formData.trustServerCertificate ?? true,
       connectionTimeout: this.formData.connectionTimeout || 30,
+      color: this.formData.color,
     };
   }
 
@@ -374,6 +482,7 @@ export class ConnectionDialogComponent {
       encrypt: this.formData.encrypt ?? true,
       trustServerCertificate: this.formData.trustServerCertificate ?? true,
       connectionTimeout: this.formData.connectionTimeout || 30,
+      color: this.formData.color,
     };
   }
 }

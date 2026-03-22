@@ -1,4 +1,4 @@
-import { Component, inject, HostListener, signal, OnInit } from '@angular/core';
+import { Component, inject, HostListener, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -362,6 +362,29 @@ import type { ThemePreference } from '@mj-forge/shared';
                         />
                       </div>
 
+                      <!-- Model selector -->
+                      @if (vendor.models.length > 0) {
+                        <div class="setting-item model-selector">
+                          <div class="setting-info">
+                            <label>Preferred Model</label>
+                            <span class="setting-description">Model used for AI features</span>
+                          </div>
+                          <mat-form-field appearance="outline" class="model-select-field">
+                            <mat-select
+                              [value]="getPreferredModel(vendor.id) || vendor.models[0].id"
+                              (selectionChange)="aiState.setPreferredModel(vendor.id, $event.value)"
+                            >
+                              @for (model of vendor.models; track model.id) {
+                                <mat-option [value]="model.id">
+                                  {{ model.name }}
+                                  <span class="model-tier">{{ model.costTier }}</span>
+                                </mat-option>
+                              }
+                            </mat-select>
+                          </mat-form-field>
+                        </div>
+                      }
+
                       <div class="api-key-section">
                         <mat-form-field appearance="outline" class="api-key-input">
                           <mat-label>API Key</mat-label>
@@ -433,7 +456,7 @@ import type { ThemePreference } from '@mj-forge/shared';
         right: 0;
         bottom: 0;
         background-color: rgba(0, 0, 0, 0.5);
-        z-index: 1000;
+        z-index: 10001;
         animation: fadeIn 0.2s ease;
       }
 
@@ -446,7 +469,7 @@ import type { ThemePreference } from '@mj-forge/shared';
         max-width: 90vw;
         background-color: var(--bg-secondary);
         border-left: 1px solid var(--border-primary);
-        z-index: 1001;
+        z-index: 10002;
         display: flex;
         flex-direction: column;
         animation: slideIn 0.25s ease;
@@ -699,6 +722,27 @@ import type { ThemePreference } from '@mj-forge/shared';
         }
       }
 
+      .model-selector {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .model-select-field {
+        width: 100%;
+        margin-top: var(--spacing-xs);
+
+        ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+          display: none;
+        }
+      }
+
+      .model-tier {
+        font-size: 10px;
+        text-transform: uppercase;
+        opacity: 0.6;
+        margin-left: 8px;
+      }
+
       .api-key-section {
         display: flex;
         flex-direction: column;
@@ -750,13 +794,25 @@ import type { ThemePreference } from '@mj-forge/shared';
     `,
   ],
 })
-export class SettingsPanelComponent implements OnInit {
+export class SettingsPanelComponent implements OnInit, OnDestroy {
   readonly settingsService = inject(SettingsService);
   readonly aiState = inject(AIStateService);
   readonly settings = this.settingsService.settings;
 
   // Track API key inputs per vendor
   readonly apiKeyInputs = signal<Record<string, string>>({});
+
+  private keydownHandler = (event: KeyboardEvent) => {
+    // Cmd+, to toggle settings
+    if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+      event.preventDefault();
+      if (this.settingsService.isOpen()) {
+        this.close();
+      } else {
+        this.settingsService.open();
+      }
+    }
+  };
 
   @HostListener('document:keydown.escape')
   onEscapeKey(): void {
@@ -768,6 +824,11 @@ export class SettingsPanelComponent implements OnInit {
   ngOnInit(): void {
     // Initialize AI state when panel opens
     this.aiState.initialize();
+    document.addEventListener('keydown', this.keydownHandler);
+  }
+
+  ngOnDestroy(): void {
+    document.removeEventListener('keydown', this.keydownHandler);
   }
 
   close(): void {
@@ -812,6 +873,11 @@ export class SettingsPanelComponent implements OnInit {
   getVendorConfigured(vendorId: string): boolean {
     const vs = this.aiState.getVendorSettings(vendorId);
     return vs?.apiKeyConfigured ?? false;
+  }
+
+  getPreferredModel(vendorId: string): string | undefined {
+    const vs = this.aiState.getVendorSettings(vendorId);
+    return vs?.preferredModelId;
   }
 
   updateApiKeyInput(vendorId: string, value: string): void {

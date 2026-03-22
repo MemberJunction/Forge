@@ -21,7 +21,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatTabsModule } from '@angular/material/tabs';
-import { Subscription } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../../core/services/ipc.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import {
@@ -250,8 +250,7 @@ export interface RestoreDialogData {
         </mat-accordion>
       </mat-dialog-content>
 
-      <mat-dialog-actions align="end">
-        <button mat-button (click)="cancel()" [disabled]="restoring()">Cancel</button>
+      <mat-dialog-actions align="start">
         <button
           mat-flat-button
           color="primary"
@@ -261,6 +260,7 @@ export interface RestoreDialogData {
           <mat-icon>{{ restoring() ? 'sync' : 'restore' }}</mat-icon>
           <span>{{ restoring() ? 'Restoring...' : 'Start Restore' }}</span>
         </button>
+        <button mat-button (click)="cancel()" [disabled]="restoring()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,
@@ -623,7 +623,7 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     try {
       // Filter by database if one is provided and not showing all
       const dbFilter = this.showAllDatabases ? undefined : this.data.databaseName;
-      const history = await this.ipc.getBackupHistory(this.data.connectionId, dbFilter).toPromise();
+      const history = await firstValueFrom(this.ipc.getBackupHistory(this.data.connectionId, dbFilter));
       this.backupHistory.set(history || []);
     } catch {
       // Ignore errors
@@ -693,9 +693,9 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
 
     this.loadingInfo.set(true);
     try {
-      const info = await this.ipc
-        .getBackupInfo(this.data.connectionId, this.formData.backupPath)
-        .toPromise();
+      const info = await firstValueFrom(
+        this.ipc.getBackupInfo(this.data.connectionId, this.formData.backupPath)
+      );
 
       if (info) {
         this.backupInfo.set(info);
@@ -765,7 +765,7 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     };
 
     try {
-      await this.ipc.startRestore(request).toPromise();
+      await firstValueFrom(this.ipc.startRestore(request));
     } catch (error) {
       this.restoring.set(false);
       this.notification.error(error instanceof Error ? error.message : 'Failed to start restore');
@@ -776,7 +776,7 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     if (this.restoring()) {
       const restoreId = this.progress()?.restoreId;
       if (restoreId) {
-        this.ipc.cancelRestore(restoreId).toPromise();
+        firstValueFrom(this.ipc.cancelRestore(restoreId));
       }
     }
     this.dialogRef.close();
