@@ -46,8 +46,12 @@ import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
           @for (profile of connectionState.profiles(); track profile.id) {
             <div
               class="connection-item"
+              tabindex="0"
+              role="button"
+              [attr.aria-label]="'Select ' + profile.name"
               [class.selected]="selectedProfileId() === profile.id"
               (click)="selectProfile(profile)"
+              (keydown.enter)="selectProfile(profile)"
             >
               <mat-icon>dns</mat-icon>
               <div class="connection-info">

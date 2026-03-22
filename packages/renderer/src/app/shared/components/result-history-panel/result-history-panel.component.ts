@@ -49,7 +49,7 @@ type SortOrder = 'asc' | 'desc';
     >
       <!-- Header (only when not embedded) -->
       @if (!embedded()) {
-        <div class="panel-header" (click)="toggleExpanded()">
+        <div class="panel-header" tabindex="0" role="button" aria-label="Toggle result history" (click)="toggleExpanded()" (keydown.enter)="toggleExpanded()" (keydown.space)="toggleExpanded(); $event.preventDefault()">
           <div class="header-left">
             <mat-icon>{{ expanded() ? 'expand_less' : 'expand_more' }}</mat-icon>
             <span class="header-title">Result History</span>

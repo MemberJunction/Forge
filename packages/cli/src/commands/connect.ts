@@ -48,10 +48,15 @@ export const connectCommand = new Command('connect')
         config = saved;
       } else if (options.server) {
         // Build config from options
+        const port = parseInt(options.port, 10);
+        if (isNaN(port) || port < 1 || port > 65535) {
+          printError(`Invalid port number: ${options.port}. Must be 1-65535.`);
+          process.exit(1);
+        }
         config = {
           name: options.name || options.server,
           server: options.server,
-          port: parseInt(options.port, 10),
+          port,
           database: options.database,
           user: options.user,
           password: options.password,
@@ -72,6 +77,11 @@ export const connectCommand = new Command('connect')
             name: 'port',
             message: 'Port:',
             default: '1433',
+            validate: (input: string) => {
+              const n = parseInt(input, 10);
+              if (isNaN(n) || n < 1 || n > 65535) return 'Port must be 1-65535';
+              return true;
+            },
           },
           {
             type: 'input',
@@ -118,12 +128,13 @@ export const connectCommand = new Command('connect')
           user: answers.user || undefined,
           password: answers.password || undefined,
           trustServerCertificate: answers.trustCert,
-          encrypt: true,
+          encrypt: options.encrypt !== false,
         };
 
         if (answers.save && answers.name) {
           saveConnection(answers.name, config);
-          printSuccess(`Connection saved as "${answers.name}"`);
+          setDefaultConnection(answers.name);
+          printSuccess(`Connection saved as "${answers.name}" (default)`);
         }
       }
 

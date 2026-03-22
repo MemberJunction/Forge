@@ -4,6 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { TabStateService } from '../../core/state/tab.state';
+import { ConnectionStateService } from '../../core/state/connection.state';
 import { ERDAdapterService } from '../../core/services/erd-adapter.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { ERDDiagramComponent, ERDNode } from '../../shared/components/erd-diagram';
@@ -147,6 +148,7 @@ import { ERDDiagramComponent, ERDNode } from '../../shared/components/erd-diagra
 })
 export class ErdComponent implements OnInit, OnDestroy {
   private readonly tabState = inject(TabStateService);
+  private readonly connectionState = inject(ConnectionStateService);
   private readonly erdAdapter = inject(ERDAdapterService);
   private readonly notification = inject(NotificationService);
 
@@ -255,7 +257,11 @@ export class ErdComponent implements OnInit, OnDestroy {
 
   onNodeDoubleClick(event: { node: ERDNode }): void {
     const node = event.node;
-    // Could navigate to table properties or open a query
-    this.notification.info(`Double-clicked: ${node.schemaName}.${node.name}`);
+    const connectionId = this.connectionState.activeConnectionId();
+    const database = this.connectionState.selectedDatabase();
+    if (connectionId && database) {
+      const sql = `SELECT TOP 1000 * FROM [${node.schemaName}].[${node.name}]`;
+      this.tabState.openQueryTab(connectionId, database, sql, true);
+    }
   }
 }
