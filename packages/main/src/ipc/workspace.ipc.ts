@@ -21,6 +21,21 @@ const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
 
+/**
+ * Validates that a file path is within the current workspace boundary.
+ * Prevents path traversal attacks (e.g., ../../etc/passwd).
+ */
+function validatePathWithinWorkspace(filePath: string, workspacePath: string | null): void {
+  if (!workspacePath) {
+    throw new Error('No workspace is currently open');
+  }
+  const resolved = path.resolve(filePath);
+  const workspaceResolved = path.resolve(workspacePath);
+  if (!resolved.startsWith(workspaceResolved + path.sep) && resolved !== workspaceResolved) {
+    throw new Error('Access denied: path is outside the workspace boundary');
+  }
+}
+
 function getMainWindow(): BrowserWindow | undefined {
   return BrowserWindow.getAllWindows()[0];
 }
@@ -67,32 +82,40 @@ export function registerWorkspaceHandlers(): void {
 
   // Get files in a directory
   safeHandle(IPC_CHANNELS.WORKSPACE.GET_FILES, async (_event, dirPath: string): Promise<FileTreeNode[]> => {
+    validatePathWithinWorkspace(dirPath, appState.getCurrentWorkspacePath());
     return buildFileTree(dirPath);
   });
 
   // Read file contents
   safeHandle(IPC_CHANNELS.WORKSPACE.READ_FILE, async (_event, filePath: string): Promise<string> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     const content = await fs.readFile(filePath, 'utf-8');
     return content;
   });
 
   // Write file contents
   safeHandle(IPC_CHANNELS.WORKSPACE.WRITE_FILE, async (_event, filePath: string, content: string): Promise<void> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     await fs.writeFile(filePath, content, 'utf-8');
   });
 
   // Create new file
   safeHandle(IPC_CHANNELS.WORKSPACE.CREATE_FILE, async (_event, filePath: string, content?: string): Promise<void> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     await fs.writeFile(filePath, content || '', 'utf-8');
   });
 
   // Delete file
   safeHandle(IPC_CHANNELS.WORKSPACE.DELETE_FILE, async (_event, filePath: string): Promise<void> => {
+    validatePathWithinWorkspace(filePath, appState.getCurrentWorkspacePath());
     await fs.unlink(filePath);
   });
 
   // Rename file
   safeHandle(IPC_CHANNELS.WORKSPACE.RENAME_FILE, async (_event, oldPath: string, newPath: string): Promise<void> => {
+    const workspace = appState.getCurrentWorkspacePath();
+    validatePathWithinWorkspace(oldPath, workspace);
+    validatePathWithinWorkspace(newPath, workspace);
     await fs.rename(oldPath, newPath);
   });
 }
