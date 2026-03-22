@@ -47,3 +47,4 @@ temp/
 e2e
 playwright-report
 test-results.package.json.bak
+test-results/
