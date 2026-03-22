@@ -5,47 +5,69 @@
 import {
   Component,
   OnInit,
+  OnDestroy,
   inject,
   signal,
   ViewChild,
   ElementRef,
   AfterViewChecked,
   ChangeDetectionStrategy,
+  HostListener,
+  Input,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatDialog } from '@angular/material/dialog';
+import { MarkdownModule } from '@memberjunction/ng-markdown';
 import { ChatStateService } from '../../core/state/chat.state';
+import { ChatInstanceState } from '../../core/state/chat-instance.state';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { AIStateService } from '../../core/state/ai.state';
+import { TabStateService } from '../../core/state/tab.state';
+import { IpcService } from '../../core/services/ipc.service';
+import { firstValueFrom } from 'rxjs';
 import type { ToolCallResult } from '@mj-forge/shared';
 
 @Component({
   selector: 'app-chat-panel',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MarkdownModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="chat-panel" [class.collapsed]="!chatState.panelOpen()">
+    <div class="chat-panel"
+         [class.collapsed]="!isTabMode && !chatState.panelOpen()"
+         [class.tab-mode]="isTabMode"
+         [style.width.px]="isTabMode ? null : panelWidth()">
+      <!-- Resize handle (side panel mode only) -->
+      @if (!isTabMode) {
+        <div class="resize-handle"
+             (mousedown)="onResizeStart($event)">
+        </div>
+      }
       <!-- Header -->
       <div class="chat-header">
         <span class="chat-icon">✨</span>
         <h3>AI Assistant</h3>
-        <span class="badge">Gemini</span>
-        <button class="chat-header-btn" (click)="chatState.toggleConversations()" title="Conversations">☰</button>
-        <button class="chat-header-btn" (click)="chatState.closePanel()" title="Close">✕</button>
+        <span class="badge">AI</span>
+        <button class="chat-header-btn" (click)="state.toggleConversations()" title="Conversations">☰</button>
+        @if (!isTabMode) {
+          <button class="chat-header-btn" (click)="popOutToTab()" title="Open as tab">⧉</button>
+        }
+        @if (!isTabMode) {
+          <button class="chat-header-btn" (click)="chatState.closePanel()" title="Close">✕</button>
+        }
       </div>
 
       <!-- New Chat button -->
-      <div class="new-chat-btn" (click)="chatState.newConversation()">+ New Chat</div>
+      <div class="new-chat-btn" (click)="state.newConversation()">+ New Chat</div>
 
       <!-- Conversation list -->
-      @if (chatState.conversationsExpanded()) {
+      @if (state.conversationsExpanded()) {
         <div class="chat-conversations">
-          @for (conv of chatState.conversations(); track conv.id) {
+          @for (conv of state.conversations(); track conv.id) {
             <div class="conv-item"
-                 [class.active]="conv.id === chatState.activeConversationId()"
-                 (click)="chatState.selectConversation(conv.id)">
+                 [class.active]="conv.id === state.activeConversationId()"
+                 (click)="state.selectConversation(conv.id)">
               <span class="conv-title">{{ conv.title }}</span>
               <div class="conv-actions">
                 <span class="conv-date">{{ formatDate(conv.updatedAt) }}</span>
@@ -53,14 +75,15 @@ import type { ToolCallResult } from '@mj-forge/shared';
               </div>
             </div>
           }
-          @if (!chatState.hasConversations()) {
+          @if (!state.hasConversations()) {
             <div class="conv-empty">No conversations yet</div>
           }
         </div>
       }
 
       <!-- Messages area -->
-      <div class="chat-messages" #messagesContainer>
+      <div class="chat-messages-wrapper">
+      <div class="chat-messages" #messagesContainer (scroll)="onMessagesScroll()">
         <!-- Context badge -->
         @if (connectionState.isConnected()) {
           <div class="context-badge">
@@ -72,7 +95,7 @@ import type { ToolCallResult } from '@mj-forge/shared';
           </div>
         }
 
-        @if (!chatState.activeConversationId() && !chatState.streaming()) {
+        @if (!state.activeConversationId() && !state.streaming()) {
           @if (!aiState.hasConfiguredVendors()) {
             <!-- No AI configured -->
             <div class="chat-empty">
@@ -96,7 +119,7 @@ import type { ToolCallResult } from '@mj-forge/shared';
           }
         }
 
-        @for (msg of chatState.messages(); track msg.id) {
+        @for (msg of state.messages(); track msg.id) {
           <div class="message" [class.user]="msg.role === 'user'" [class.assistant]="msg.role === 'assistant'">
             @if (msg.role === 'assistant') {
               <!-- Tool calls -->
@@ -106,8 +129,8 @@ import type { ToolCallResult } from '@mj-forge/shared';
                     <p>⚠️ Execute <strong>{{ tc.toolName }}</strong>?</p>
                     <pre class="confirm-sql">{{ formatToolArgs(tc) }}</pre>
                     <div class="confirm-actions">
-                      <button class="btn-confirm" (click)="chatState.confirmToolCall(tc.id, true)">Execute</button>
-                      <button class="btn-cancel" (click)="chatState.confirmToolCall(tc.id, false)">Cancel</button>
+                      <button class="btn-confirm" (click)="state.confirmToolCall(tc.id, true)">Execute</button>
+                      <button class="btn-cancel" (click)="state.confirmToolCall(tc.id, false)">Cancel</button>
                     </div>
                   </div>
                 } @else {
@@ -162,18 +185,28 @@ import type { ToolCallResult } from '@mj-forge/shared';
               }
               <!-- Assistant text -->
               @if (msg.streaming) {
-                <div class="message-bubble" [innerHTML]="formatMarkdown(chatState.streamingContent())"></div>
+                @if (state.streamingContent()) {
+                  <div class="message-bubble streaming-bubble">
+                    <mj-markdown [data]="state.streamingContent()" [enableMermaid]="false" [enableCodeCopy]="false" [mermaidTheme]="'dark'" containerClass="chat-md"></mj-markdown>
+                  </div>
+                }
                 <div class="typing-indicator">
                   <span></span><span></span><span></span>
                 </div>
               } @else if (msg.content) {
-                <div class="message-bubble" [innerHTML]="formatMarkdown(msg.content)"></div>
+                <div class="message-bubble">
+                  <mj-markdown [data]="msg.content" [enableMermaid]="true" [enableCodeCopy]="true" [mermaidTheme]="'dark'" containerClass="chat-md"></mj-markdown>
+                </div>
               }
             } @else {
               <div class="message-bubble">{{ msg.content }}</div>
             }
           </div>
         }
+      </div>
+      @if (showScrollToBottom()) {
+        <button class="scroll-to-bottom" (click)="scrollToBottom()" title="Jump to bottom">↓</button>
+      }
       </div>
 
       <!-- Input area -->
@@ -184,10 +217,10 @@ import type { ToolCallResult } from '@mj-forge/shared';
           (keydown.enter)="onEnter($event)"
           placeholder="Ask about your database..."
           rows="1"
-          [disabled]="chatState.streaming()"
+          [disabled]="state.streaming()"
         ></textarea>
-        @if (chatState.streaming()) {
-          <button class="send-btn stop" (click)="chatState.cancelStream()" title="Stop">■</button>
+        @if (state.streaming()) {
+          <button class="send-btn stop" (click)="state.cancelStream()" title="Stop">■</button>
         } @else {
           <button class="send-btn" (click)="send()" title="Send" [disabled]="!inputText.trim()">↑</button>
         }
@@ -196,16 +229,35 @@ import type { ToolCallResult } from '@mj-forge/shared';
   `,
   styles: [`
     .chat-panel {
-      width: 400px;
       background: var(--bg-secondary);
       border-left: 1px solid var(--border-primary);
       display: flex;
       flex-direction: column;
-      transition: width 0.2s ease;
       height: 100%;
       overflow: hidden;
+      position: relative;
+      min-width: 280px;
+      max-width: 800px;
     }
-    .chat-panel.collapsed { width: 0; min-width: 0; }
+    .chat-panel:not(.tab-mode) { transition: width 0.15s ease; }
+    .chat-panel.collapsed { width: 0 !important; min-width: 0; border-left: none; }
+    .chat-panel.tab-mode { width: 100% !important; max-width: none; min-width: 0; border-left: none; }
+
+    .resize-handle {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 4px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 10;
+      background: transparent;
+    }
+    .resize-handle:hover,
+    .resize-handle:active {
+      background: var(--accent);
+      opacity: 0.5;
+    }
 
     .chat-header {
       display: flex;
@@ -281,6 +333,14 @@ import type { ToolCallResult } from '@mj-forge/shared';
     .conv-delete:hover { color: var(--status-error); }
     .conv-empty { padding: 12px 14px; font-size: 12px; color: var(--text-muted); text-align: center; }
 
+    .chat-messages-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
     .chat-messages {
       flex: 1;
       overflow-y: auto;
@@ -288,6 +348,31 @@ import type { ToolCallResult } from '@mj-forge/shared';
       display: flex;
       flex-direction: column;
       gap: 14px;
+    }
+
+    .scroll-to-bottom {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-primary);
+      color: var(--text-secondary);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,0.15));
+      z-index: 5;
+      transition: opacity 0.15s ease;
+    }
+    .scroll-to-bottom:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
     }
 
     .context-badge {
@@ -513,20 +598,127 @@ import type { ToolCallResult } from '@mj-forge/shared';
     .send-btn:hover { filter: brightness(1.1); }
     .send-btn:disabled { opacity: 0.4; cursor: default; }
     .send-btn.stop { background: var(--status-error); font-size: 12px; }
+
+    /* Markdown rendering in chat bubbles */
+    :host ::ng-deep .chat-md {
+      font-size: 13px;
+      line-height: 1.6;
+      color: inherit;
+    }
+    :host ::ng-deep .chat-md p { margin: 0 0 8px; }
+    :host ::ng-deep .chat-md p:last-child { margin-bottom: 0; }
+    :host ::ng-deep .chat-md pre {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      margin: 8px 0;
+      color: var(--text-primary);
+    }
+    :host ::ng-deep .chat-md code {
+      font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+    :host ::ng-deep .chat-md :not(pre) > code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: var(--text-primary);
+    }
+    :host ::ng-deep .chat-md ul, :host ::ng-deep .chat-md ol {
+      margin: 4px 0;
+      padding-left: 20px;
+    }
+    :host ::ng-deep .chat-md li { margin: 2px 0; }
+    :host ::ng-deep .chat-md h1, :host ::ng-deep .chat-md h2,
+    :host ::ng-deep .chat-md h3, :host ::ng-deep .chat-md h4 {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 12px 0 4px;
+    }
+    :host ::ng-deep .chat-md h1 { font-size: 15px; }
+    :host ::ng-deep .chat-md h2 { font-size: 14px; }
+    :host ::ng-deep .chat-md table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+    :host ::ng-deep .chat-md th, :host ::ng-deep .chat-md td {
+      border: 1px solid var(--border-primary);
+      padding: 4px 8px;
+      text-align: left;
+      color: var(--text-primary);
+    }
+    :host ::ng-deep .chat-md th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    :host ::ng-deep .chat-md tr:nth-child(even) {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    :host ::ng-deep .chat-md tr:nth-child(odd) {
+      background: transparent;
+    }
+    :host ::ng-deep .chat-md tr:hover {
+      background: var(--bg-hover);
+    }
+    :host ::ng-deep .chat-md blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      margin: 8px 0;
+      color: var(--text-secondary);
+    }
+    :host ::ng-deep .chat-md .mermaid { margin: 8px 0; }
+    .streaming-bubble :host ::ng-deep .chat-md pre { margin: 4px 0; }
   `],
 })
-export class ChatPanelComponent implements OnInit, AfterViewChecked {
+export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly chatState = inject(ChatStateService);
   readonly connectionState = inject(ConnectionStateService);
   readonly aiState = inject(AIStateService);
+  private readonly tabState = inject(TabStateService);
+  private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
+
+  /** When true, renders in tab mode (no side panel chrome) */
+  @Input() isTabMode = false;
+
+  /** Optional initial conversation ID for tab mode */
+  @Input() conversationId?: string;
 
   @ViewChild('messagesContainer') messagesContainer!: ElementRef<HTMLElement>;
 
   inputText = '';
-  private shouldScrollToBottom = false;
 
   readonly expandedTools = signal(new Set<string>());
+  readonly panelWidth = signal(400);
+
+  // Smart auto-scroll state
+  readonly showScrollToBottom = signal(false);
+  private userScrolledUp = false;
+  private autoScrollEnabled = true;
+
+  // Per-instance state for tab mode
+  private instanceState: ChatInstanceState | null = null;
+
+  /**
+   * Unified state accessor — in tab mode uses independent instance state,
+   * in side panel mode uses the singleton ChatStateService.
+   */
+  get state(): ChatStateService | ChatInstanceState {
+    return this.instanceState ?? this.chatState;
+  }
+
+  // Resize state
+  private resizing = false;
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
 
   readonly suggestions = [
     'Show me all tables',
@@ -536,15 +728,96 @@ export class ChatPanelComponent implements OnInit, AfterViewChecked {
   ];
 
   ngOnInit(): void {
-    this.chatState.initialize();
+    if (this.isTabMode) {
+      // Create independent instance state for this tab
+      this.instanceState = new ChatInstanceState(
+        this.ipc,
+        this.connectionState,
+        this.tabState,
+        this.conversationId,
+      );
+      this.instanceState.initialize();
+    } else {
+      this.chatState.initialize();
+    }
+    this.loadSavedWidth();
+  }
+
+  ngOnDestroy(): void {
+    this.instanceState?.destroy();
+  }
+
+  private async loadSavedWidth(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+    try {
+      const state = await firstValueFrom(this.ipc.getAppState());
+      if (state?.chatPanelWidth && state.chatPanelWidth >= 280) {
+        this.panelWidth.set(state.chatPanelWidth);
+      }
+    } catch { /* use default */ }
+  }
+
+  private saveWidth(): void {
+    if (!this.ipc.isAvailable) return;
+    firstValueFrom(this.ipc.setAppState({ chatPanelWidth: this.panelWidth() })).catch(() => {});
+  }
+
+  onResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    this.resizing = true;
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = this.panelWidth();
+  }
+
+  @HostListener('document:mousemove', ['$event'])
+  onResizeMove(event: MouseEvent): void {
+    if (!this.resizing) return;
+    // Panel is on the right, so dragging left increases width
+    const delta = this.resizeStartX - event.clientX;
+    const newWidth = Math.max(280, Math.min(800, this.resizeStartWidth + delta));
+    this.panelWidth.set(newWidth);
+  }
+
+  @HostListener('document:mouseup')
+  onResizeEnd(): void {
+    if (!this.resizing) return;
+    this.resizing = false;
+    this.saveWidth();
+  }
+
+  popOutToTab(): void {
+    this.chatState.closePanel();
+    this.tabState.openChatTab(this.state.activeConversationId() || undefined);
   }
 
   ngAfterViewChecked(): void {
-    if (this.shouldScrollToBottom && this.messagesContainer) {
+    if (this.autoScrollEnabled && !this.userScrolledUp && this.messagesContainer) {
       const el = this.messagesContainer.nativeElement;
       el.scrollTop = el.scrollHeight;
-      this.shouldScrollToBottom = false;
     }
+  }
+
+  onMessagesScroll(): void {
+    if (!this.messagesContainer) return;
+    const el = this.messagesContainer.nativeElement;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+
+    if (atBottom) {
+      this.userScrolledUp = false;
+      this.showScrollToBottom.set(false);
+    } else if (this.state.streaming()) {
+      // User scrolled up during streaming
+      this.userScrolledUp = true;
+      this.showScrollToBottom.set(true);
+    }
+  }
+
+  scrollToBottom(): void {
+    if (!this.messagesContainer) return;
+    const el = this.messagesContainer.nativeElement;
+    el.scrollTop = el.scrollHeight;
+    this.userScrolledUp = false;
+    this.showScrollToBottom.set(false);
   }
 
   onEnter(event: Event): void {
@@ -556,19 +829,23 @@ export class ChatPanelComponent implements OnInit, AfterViewChecked {
 
   send(): void {
     if (!this.inputText.trim()) return;
-    this.shouldScrollToBottom = true;
-    this.chatState.sendMessage(this.inputText);
+    this.userScrolledUp = false;
+    this.showScrollToBottom.set(false);
+    this.autoScrollEnabled = true;
+    this.state.sendMessage(this.inputText);
     this.inputText = '';
   }
 
   sendSuggestion(text: string): void {
-    this.shouldScrollToBottom = true;
-    this.chatState.sendMessage(text);
+    this.userScrolledUp = false;
+    this.showScrollToBottom.set(false);
+    this.autoScrollEnabled = true;
+    this.state.sendMessage(text);
   }
 
   deleteConv(event: Event, id: string): void {
     event.stopPropagation();
-    this.chatState.deleteConversation(id);
+    this.state.deleteConversation(id);
   }
 
   toggleTool(id: string): void {
@@ -607,16 +884,6 @@ export class ChatPanelComponent implements OnInit, AfterViewChecked {
   formatToolArgs(tc: ToolCallResult): string {
     if (tc.args?.['sql']) return tc.args['sql'] as string;
     return JSON.stringify(tc.args, null, 2);
-  }
-
-  formatMarkdown(text: string): string {
-    if (!text) return '';
-    // Simple markdown: bold, code blocks, inline code
-    return text
-      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br>');
   }
 
   isTableResult(result: unknown): boolean {

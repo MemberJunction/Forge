@@ -1,50 +1,39 @@
 /**
- * Chat State Service
- * Manages AI chat conversations, messages, and streaming state
+ * Per-instance chat state for independent chat tab instances.
+ * Each chat tab creates its own ChatInstanceState so it has its own
+ * conversation, messages, streaming, etc. — independent of the side panel.
  */
 
-import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
+import { signal, computed } from '@angular/core';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   ChatMessage,
   ChatStreamChunk,
   Conversation,
   ToolCallResult,
-  ToolDefinition,
-  SchemaContext,
 } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { ConnectionStateService } from './connection.state';
 import { TabStateService } from './tab.state';
 import { firstValueFrom } from 'rxjs';
 
-@Injectable({ providedIn: 'root' })
-export class ChatStateService implements OnDestroy {
-  private readonly ipc = inject(IpcService);
-  private readonly connectionState = inject(ConnectionStateService);
-  private readonly tabState = inject(TabStateService);
-
-  // State signals
-  private readonly _conversations = signal<Conversation[]>([]);
+export class ChatInstanceState {
   private readonly _activeConversationId = signal<string | null>(null);
   private readonly _messages = signal<ChatMessage[]>([]);
   private readonly _streaming = signal(false);
   private readonly _streamingContent = signal('');
-  private readonly _tools = signal<ToolDefinition[]>([]);
-  private readonly _panelOpen = signal(false);
+  private readonly _conversations = signal<Conversation[]>([]);
   private readonly _conversationsExpanded = signal(false);
+  private readonly _pendingUiAction = signal<ChatStreamChunk['uiAction'] | null>(null);
 
-  // Public readonly signals
-  readonly conversations = this._conversations.asReadonly();
   readonly activeConversationId = this._activeConversationId.asReadonly();
   readonly messages = this._messages.asReadonly();
   readonly streaming = this._streaming.asReadonly();
   readonly streamingContent = this._streamingContent.asReadonly();
-  readonly tools = this._tools.asReadonly();
-  readonly panelOpen = this._panelOpen.asReadonly();
+  readonly conversations = this._conversations.asReadonly();
   readonly conversationsExpanded = this._conversationsExpanded.asReadonly();
+  readonly pendingUiAction = this._pendingUiAction.asReadonly();
 
-  // Computed
   readonly activeConversation = computed(() => {
     const id = this._activeConversationId();
     return this._conversations().find(c => c.id === id) || null;
@@ -52,14 +41,21 @@ export class ChatStateService implements OnDestroy {
 
   readonly hasConversations = computed(() => this._conversations().length > 0);
 
-  // Stream listener cleanup
   private streamCleanup: (() => void) | null = null;
 
-  constructor() {
+  constructor(
+    private readonly ipc: IpcService,
+    private readonly connectionState: ConnectionStateService,
+    private readonly tabState: TabStateService,
+    initialConversationId?: string,
+  ) {
     this.setupStreamListener();
+    if (initialConversationId) {
+      this._activeConversationId.set(initialConversationId);
+    }
   }
 
-  ngOnDestroy(): void {
+  destroy(): void {
     this.streamCleanup?.();
   }
 
@@ -74,7 +70,6 @@ export class ChatStateService implements OnDestroy {
       }
 
       if (chunk.toolCall) {
-        // A tool call — either pending confirmation or running
         const toolEntry: ToolCallResult = {
           id: chunk.toolCall.id,
           toolName: chunk.toolCall.toolName,
@@ -95,14 +90,12 @@ export class ChatStateService implements OnDestroy {
       }
 
       if (chunk.toolResult) {
-        // A tool call result (auto-executed or confirmed)
         this._messages.update(msgs => {
           const last = msgs[msgs.length - 1];
           if (last?.role === 'assistant') {
             const toolCalls = (last.toolCalls || []).map(tc =>
               tc.id === chunk.toolResult!.id ? chunk.toolResult! : tc
             );
-            // If this is a new tool result not in the list, add it
             if (!toolCalls.find(tc => tc.id === chunk.toolResult!.id)) {
               toolCalls.push(chunk.toolResult!);
             }
@@ -117,7 +110,6 @@ export class ChatStateService implements OnDestroy {
       }
 
       if (chunk.done) {
-        // Finalize the streaming message — always clear streaming flag
         const content = this._streamingContent();
         this._messages.update(msgs => {
           const last = msgs[msgs.length - 1];
@@ -135,18 +127,6 @@ export class ChatStateService implements OnDestroy {
     });
   }
 
-  togglePanel(): void {
-    this._panelOpen.update(open => !open);
-  }
-
-  openPanel(): void {
-    this._panelOpen.set(true);
-  }
-
-  closePanel(): void {
-    this._panelOpen.set(false);
-  }
-
   toggleConversations(): void {
     this._conversationsExpanded.update(v => !v);
   }
@@ -154,14 +134,19 @@ export class ChatStateService implements OnDestroy {
   async initialize(): Promise<void> {
     if (!this.ipc.isAvailable) return;
     try {
-      const [tools, conversations] = await Promise.all([
-        firstValueFrom(this.ipc.getChatTools()),
-        firstValueFrom(this.ipc.listConversations()),
-      ]);
-      this._tools.set(tools);
+      const conversations = await firstValueFrom(this.ipc.listConversations());
       this._conversations.set(conversations);
+
+      // If we have an initial conversation, load its messages
+      const convId = this._activeConversationId();
+      if (convId) {
+        const conv = await firstValueFrom(this.ipc.getConversation(convId));
+        if (conv) {
+          this._messages.set(conv.messages);
+        }
+      }
     } catch (error) {
-      console.error('Failed to initialize chat state:', error);
+      console.error('Failed to initialize chat instance:', error);
     }
   }
 
@@ -208,7 +193,6 @@ export class ChatStateService implements OnDestroy {
   async sendMessage(content: string): Promise<void> {
     if (!this.ipc.isAvailable || !content.trim()) return;
 
-    // Ensure we have an active conversation
     let conversationId = this._activeConversationId();
     if (!conversationId) {
       await this.newConversation();
@@ -216,7 +200,6 @@ export class ChatStateService implements OnDestroy {
     }
     if (!conversationId) return;
 
-    // Add user message to local state
     const userMessage: ChatMessage = {
       id: uuidv4(),
       role: 'user',
@@ -225,7 +208,6 @@ export class ChatStateService implements OnDestroy {
     };
     this._messages.update(msgs => [...msgs, userMessage]);
 
-    // Add placeholder assistant message
     const assistantMessage: ChatMessage = {
       id: uuidv4(),
       role: 'assistant',
@@ -239,7 +221,6 @@ export class ChatStateService implements OnDestroy {
     this._streaming.set(true);
     this._streamingContent.set('');
 
-    // Update conversation title in local state
     this._conversations.update(convs =>
       convs.map(c =>
         c.id === conversationId
@@ -260,7 +241,6 @@ export class ChatStateService implements OnDestroy {
     } catch (error) {
       console.error('Failed to send message:', error);
       this._streaming.set(false);
-      // Update the assistant message with error
       this._messages.update(msgs => {
         const last = msgs[msgs.length - 1];
         if (last?.role === 'assistant' && last.streaming) {
@@ -278,7 +258,6 @@ export class ChatStateService implements OnDestroy {
     const conversationId = this._activeConversationId();
     if (!conversationId || !this.ipc.isAvailable) return;
 
-    // Update local state to remove pending flag
     if (!confirmed) {
       this._messages.update(msgs => {
         const last = msgs[msgs.length - 1];
@@ -299,6 +278,21 @@ export class ChatStateService implements OnDestroy {
     } catch (error) {
       console.error('Failed to confirm tool call:', error);
     }
+  }
+
+  cancelStream(): void {
+    const conversationId = this._activeConversationId();
+    if (!conversationId || !this.ipc.isAvailable) return;
+
+    firstValueFrom(this.ipc.cancelChatStream(conversationId)).catch(() => {});
+    this._streaming.set(false);
+    this._streamingContent.set('');
+  }
+
+  consumeUiAction(): ChatStreamChunk['uiAction'] | null {
+    const action = this._pendingUiAction();
+    this._pendingUiAction.set(null);
+    return action;
   }
 
   private handleUiAction(action: NonNullable<ChatStreamChunk['uiAction']>): void {
@@ -324,28 +318,8 @@ export class ChatStateService implements OnDestroy {
       case 'open-settings':
       case 'open-create-db-dialog':
       case 'open-backup-dialog':
-        // These are handled by the chat panel component via an event
         this._pendingUiAction.set(action);
         break;
     }
-  }
-
-  // Exposed so the chat panel component can handle dialog-opening actions
-  private readonly _pendingUiAction = signal<ChatStreamChunk['uiAction'] | null>(null);
-  readonly pendingUiAction = this._pendingUiAction.asReadonly();
-
-  consumeUiAction(): ChatStreamChunk['uiAction'] | null {
-    const action = this._pendingUiAction();
-    this._pendingUiAction.set(null);
-    return action;
-  }
-
-  cancelStream(): void {
-    const conversationId = this._activeConversationId();
-    if (!conversationId || !this.ipc.isAvailable) return;
-
-    firstValueFrom(this.ipc.cancelChatStream(conversationId)).catch(() => {});
-    this._streaming.set(false);
-    this._streamingContent.set('');
   }
 }

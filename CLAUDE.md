@@ -18,32 +18,28 @@ MJ Forge is a native macOS desktop application providing SSMS-style database man
 
 ```
 mj-forge/
-├── src/
+├── packages/
 │   ├── main/                 # Electron main process
-│   │   ├── index.ts          # Main entry point
-│   │   ├── ipc/              # IPC handlers
-│   │   ├── services/         # Backend services
-│   │   │   ├── sql/          # SQL Server operations
-│   │   │   ├── docker/       # Docker detection
-│   │   │   ├── keychain/     # Credential storage
-│   │   │   └── backup/       # Backup/restore logic
-│   │   └── utils/            # Main process utilities
+│   │   └── src/
+│   │       ├── index.ts      # Main entry point
+│   │       ├── ipc/          # IPC handlers
+│   │       ├── services/
+│   │       │   ├── ai/       # AI service, chat, tool registry, LLM providers
+│   │       │   ├── sql/      # SQL Server operations
+│   │       │   ├── docker/   # Docker detection
+│   │       │   ├── keychain/ # Credential storage
+│   │       │   └── config/   # App state persistence
+│   │       └── utils/        # Logger, singleton
 │   ├── renderer/             # Angular application
-│   │   ├── app/
-│   │   │   ├── core/         # Singleton services, guards
-│   │   │   ├── shared/       # Shared components, pipes, directives
-│   │   │   ├── features/     # Feature modules
-│   │   │   │   ├── connections/
-│   │   │   │   ├── explorer/
-│   │   │   │   ├── query/
-│   │   │   │   ├── backup/
-│   │   │   │   └── restore/
-│   │   │   └── layout/       # Shell, sidebar, panels
-│   │   ├── assets/
-│   │   └── environments/
+│   │   └── src/app/
+│   │       ├── core/         # Singleton services, state (signals)
+│   │       ├── shared/       # Shared components (settings, dialogs)
+│   │       ├── features/     # Feature modules (chat, erd, query, etc.)
+│   │       └── layout/       # Shell, sidebar, panels
 │   ├── shared/               # Shared types between main/renderer
-│   │   ├── types/
-│   │   └── constants/
+│   │   └── src/
+│   │       ├── types/        # TypeScript interfaces
+│   │       └── config/       # ai-vendors.json
 │   └── preload/              # Electron preload scripts
 ├── plans/                    # Planning documents
 ├── scripts/                  # Build/dev scripts
@@ -142,6 +138,20 @@ mj-forge/
 3. **Memory**: Monitor and limit result set caching
 4. **Startup**: Defer non-critical initialization
 
+### AI Integration Rules
+
+1. **Never make direct LLM API calls.** All AI interactions MUST go through the multi-provider abstraction layer in `packages/main/src/services/ai/llm-providers.ts`. This ensures provider-agnostic code that works with Google, Anthropic, OpenAI, Groq, and Cerebras.
+
+2. **Use `@memberjunction/ng-markdown`** for rendering any AI-generated content or markdown in the renderer. Never use `innerHTML` with hand-rolled markdown parsing.
+
+3. **Streaming is required** for all chat/conversational AI features. Use the `StreamCallbacks` interface from `llm-providers.ts`.
+
+4. **Model/vendor configuration** is stored in `ai-vendors.json` (shared package) and user settings. The chat service auto-selects based on user preferences.
+
+5. **Tool calling** is handled through the `ToolRegistry` with provider-specific format conversion happening inside each LLM provider implementation.
+
+6. For simple AI features (tab rename, analysis) that don't need tool calling, the existing provider implementations in `ai-service.ts` are fine. For chat with tool calling, always use `llm-providers.ts`.
+
 ### Forbidden Patterns
 
 - `eval()` or `new Function()` in any context
@@ -150,6 +160,7 @@ mj-forge/
 - Direct DOM manipulation in Angular components
 - Synchronous IPC calls (`ipcRenderer.sendSync`)
 - Console.log in production code (use proper logging service)
+- Direct HTTP calls to LLM APIs (use the provider abstraction layer)
 
 ## Common Commands
 

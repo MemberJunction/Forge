@@ -5,7 +5,7 @@ import { IpcService } from '../services/ipc.service';
 import type { TabState } from '@mj-forge/shared';
 import { firstValueFrom } from 'rxjs';
 
-export type TabType = 'query' | 'results' | 'object' | 'welcome' | 'erd';
+export type TabType = 'query' | 'results' | 'object' | 'welcome' | 'erd' | 'chat';
 
 export interface Tab {
   id: string;
@@ -409,6 +409,19 @@ export class TabStateService {
     const welcomeTab: Tab = { id: 'welcome', type: 'welcome', title: 'Welcome', icon: 'home' };
     this._tabs.update(tabs => [welcomeTab, ...tabs]);
     this._activeTabId.set('welcome');
+  }
+
+  /**
+   * Open (or focus) an AI chat tab in the main content area.
+   */
+  openChatTab(conversationId?: string): string {
+    // Each chat tab is an independent instance — allow multiple
+    return this.openTab({
+      type: 'chat',
+      title: 'AI Chat',
+      icon: 'smart_toy',
+      metadata: conversationId ? { conversationId } : undefined,
+    });
   }
 
   closeAllTabs(): void {

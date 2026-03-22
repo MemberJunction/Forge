@@ -34,7 +34,8 @@ export class ToolRegistry extends BaseSingleton {
   }
 
   /**
-   * Get tools formatted for Google Gemini function calling API
+   * Get tools formatted for LLM provider APIs (provider-agnostic format).
+   * Each LLM provider in llm-providers.ts converts this to its native format.
    */
   getToolsForAPI(): Array<{
     name: string;
@@ -498,6 +499,70 @@ export class ToolRegistry extends BaseSingleton {
         const dbName = (args.name as string).replace(/[[\]]/g, '');
         await pool.query(connectionId, `ALTER DATABASE [${dbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [${dbName}]`);
         return { success: true, message: `Database [${dbName}] deleted` };
+      }
+    );
+
+    // ---- UI Action Tools ----
+
+    this.register(
+      {
+        name: 'open_query_tab',
+        description: 'Open a new query editor tab in the app, optionally pre-filled with SQL. Set autoExecute to true to immediately run the query and show results.',
+        parameters: {
+          type: 'object',
+          properties: {
+            sql: { type: 'string', description: 'SQL to pre-fill in the editor' },
+            title: { type: 'string', description: 'Tab title (optional)' },
+            autoExecute: { type: 'boolean', description: 'Whether to run the query immediately (default: false)' },
+          },
+          required: ['sql'],
+        },
+        category: 'utility',
+      },
+      async (args) => {
+        return {
+          success: true,
+          message: args.autoExecute ? 'Opening query tab and running query' : 'Opening query tab',
+          _uiAction: { type: 'open-query-tab', params: { sql: args.sql, title: args.title, autoExecute: args.autoExecute } },
+        };
+      }
+    );
+
+    this.register(
+      {
+        name: 'navigate_to_database',
+        description: 'Switch the active database context in the app. Use when the user wants to work with a different database.',
+        parameters: {
+          type: 'object',
+          properties: {
+            database: { type: 'string', description: 'Database name to switch to' },
+          },
+          required: ['database'],
+        },
+        category: 'utility',
+      },
+      async (args) => {
+        return {
+          success: true,
+          message: `Switching to database: ${args.database}`,
+          _uiAction: { type: 'navigate-database', params: { database: args.database } },
+        };
+      }
+    );
+
+    this.register(
+      {
+        name: 'open_settings',
+        description: 'Open the app settings dialog. Use when the user wants to configure settings, AI providers, or preferences.',
+        parameters: { type: 'object', properties: {} },
+        category: 'utility',
+      },
+      async () => {
+        return {
+          success: true,
+          message: 'Opening settings',
+          _uiAction: { type: 'open-settings' },
+        };
       }
     );
   }

@@ -307,9 +307,13 @@ EXPLANATION:
     return { model: null, provider: null, apiKey: null };
   }
 
-  private async getApiKey(vendorId: string): Promise<string | null> {
+  async getApiKeyForVendor(vendorId: string): Promise<string | null> {
     const credential = CredentialStore.getInstance();
     return credential.get(`ai-${vendorId}`);
+  }
+
+  private async getApiKey(vendorId: string): Promise<string | null> {
+    return this.getApiKeyForVendor(vendorId);
   }
 
   private buildTabRenamePrompt(request: TabRenameRequest): string {

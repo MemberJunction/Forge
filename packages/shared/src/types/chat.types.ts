@@ -109,6 +109,11 @@ export interface ChatStreamChunk {
   };
   /** Tool call result */
   toolResult?: ToolCallResult;
+  /** UI action to trigger in the renderer */
+  uiAction?: {
+    type: 'open-query-tab' | 'open-create-db-dialog' | 'navigate-database' | 'open-backup-dialog' | 'open-settings';
+    params?: Record<string, unknown>;
+  };
   /** Whether the response is complete */
   done: boolean;
   /** Full message ID once complete */

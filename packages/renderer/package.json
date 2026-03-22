@@ -23,6 +23,7 @@
     "@angular/platform-browser-dynamic": "^18.2.0",
     "@angular/router": "^18.2.0",
     "@dagrejs/dagre": "^2.0.3",
+    "@memberjunction/ng-markdown": "^3.2.0",
     "@memberjunction/ng-shared-generic": "^3.2.0",
     "@mj-forge/shared": "*",
     "@types/d3": "^7.4.3",

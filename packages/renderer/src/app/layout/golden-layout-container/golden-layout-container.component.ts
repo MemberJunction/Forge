@@ -30,6 +30,7 @@ import { WelcomeComponent } from '../../features/welcome/welcome.component';
 import { QueryComponent } from '../../features/query/query.component';
 import { ExplorerComponent } from '../../features/explorer/explorer.component';
 import { ErdComponent } from '../../features/erd/erd.component';
+import { ChatPanelComponent } from '../../features/chat/chat-panel.component';
 import type { LayoutConfig } from '@mj-forge/shared';
 
 /**
@@ -545,6 +546,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       query: QueryComponent,
       object: ExplorerComponent,
       erd: ErdComponent,
+      chat: ChatPanelComponent,
     };
 
     return componentMap[tab.type] || null;
@@ -559,6 +561,17 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
       const queryInstance = instance as { tabId?: string };
       if ('tabId' in queryInstance) {
         queryInstance.tabId = tab.id;
+      }
+    }
+
+    // For chat component in tab mode
+    if (tab.type === 'chat' && instance) {
+      const chatInstance = instance as { isTabMode?: boolean; conversationId?: string };
+      if ('isTabMode' in chatInstance) {
+        chatInstance.isTabMode = true;
+      }
+      if ('conversationId' in chatInstance && tab.metadata?.['conversationId']) {
+        chatInstance.conversationId = tab.metadata['conversationId'] as string;
       }
     }
 
