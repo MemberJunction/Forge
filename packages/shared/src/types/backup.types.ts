@@ -110,6 +110,7 @@ export interface BackupFileInfo {
   compatibilityLevel?: number;
   collation?: string;
   files?: BackupLogicalFile[];
+  description?: string;
 }
 
 export interface FileRelocation {

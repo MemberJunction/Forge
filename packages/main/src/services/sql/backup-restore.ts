@@ -162,6 +162,7 @@ export class BackupRestoreService extends BaseSingleton {
         CompatibilityLevel: number;
         Collation: string;
         RecoveryModel: string;
+        BackupDescription: string | null;
       }>(connectionId, headerSql);
 
       const header = headerResult.recordset?.[0];
@@ -199,6 +200,7 @@ export class BackupRestoreService extends BaseSingleton {
         compatibilityLevel: header.CompatibilityLevel || 150,
         collation: header.Collation || '',
         files,
+        description: header.BackupDescription || undefined,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to read backup file info';
