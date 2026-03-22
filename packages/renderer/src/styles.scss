@@ -7,24 +7,24 @@
 /* Golden Layout base styles - required for proper layout */
 @import 'golden-layout/dist/css/goldenlayout-base.css';
 
-// Custom color palette - SSMS-inspired dark theme
+// Custom color palette — purple-tinted theme
 $primary-palette: (
-  50: #e3f2fd,
-  100: #bbdefb,
-  200: #90caf9,
-  300: #64b5f6,
-  400: #42a5f5,
-  500: #2196f3,
-  600: #1e88e5,
-  700: #1976d2,
-  800: #1565c0,
-  900: #0d47a1,
+  50: #f0edff,
+  100: #ddd8ff,
+  200: #c4baff,
+  300: #a99cff,
+  400: #9b8ff8,
+  500: #7c6ef6,
+  600: #6b5de0,
+  700: #5a4dc6,
+  800: #4a3dab,
+  900: #362d80,
   contrast: (
     50: rgba(black, 0.87),
     100: rgba(black, 0.87),
     200: rgba(black, 0.87),
     300: rgba(black, 0.87),
-    400: rgba(black, 0.87),
+    400: white,
     500: white,
     600: white,
     700: white,
@@ -34,25 +34,25 @@ $primary-palette: (
 );
 
 $accent-palette: (
-  50: #fff3e0,
-  100: #ffe0b2,
-  200: #ffcc80,
-  300: #ffb74d,
-  400: #ffa726,
-  500: #ff9800,
-  600: #fb8c00,
-  700: #f57c00,
-  800: #ef6c00,
-  900: #e65100,
+  50: #e8faf0,
+  100: #bbf0d5,
+  200: #86e4b2,
+  300: #4ade80,
+  400: #22d360,
+  500: #16a34a,
+  600: #15803d,
+  700: #166534,
+  800: #14532d,
+  900: #0f3d21,
   contrast: (
     50: rgba(black, 0.87),
     100: rgba(black, 0.87),
     200: rgba(black, 0.87),
     300: rgba(black, 0.87),
     400: rgba(black, 0.87),
-    500: rgba(black, 0.87),
-    600: rgba(black, 0.87),
-    700: rgba(black, 0.87),
+    500: white,
+    600: white,
+    700: white,
     800: white,
     900: white,
   ),
@@ -112,40 +112,45 @@ $forge-theme: mat.m2-define-dark-theme(
   --transition-slow: 300ms ease;
 }
 
-// Dark theme colors
+// Dark theme colors — rich purple-tinted palette
 @mixin dark-theme {
   // Base colors
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d30;
-  --bg-elevated: #333333;
-  --bg-hover: #3c3c3c;
-  --bg-active: #094771;
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #262637;
+  --bg-tertiary: #2a2a3d;
+  --bg-elevated: #32324a;
+  --bg-hover: #32324a;
+  --bg-active: #3a3a55;
 
   // Text colors
-  --text-primary: #cccccc;
-  --text-secondary: #858585;
-  --text-muted: #6b6b6b;
-  --text-accent: #569cd6;
+  --text-primary: #e0e0f0;
+  --text-secondary: #a0a0c0;
+  --text-muted: #666690;
+  --text-accent: #9b8ff8;
 
   // Border colors
-  --border-primary: #3c3c3c;
-  --border-secondary: #454545;
-  --border-focus: #007acc;
+  --border-primary: #3a3a55;
+  --border-secondary: #4a4a65;
+  --border-focus: #7c6ef6;
+
+  // Accent
+  --accent: #7c6ef6;
+  --accent-light: #9b8ff8;
+  --accent-subtle: rgba(124, 110, 246, 0.15);
 
   // Status colors
-  --status-success: #4ec9b0;
-  --status-warning: #dcdcaa;
-  --status-error: #f14c4c;
-  --status-info: #3794ff;
+  --status-success: #4ade80;
+  --status-warning: #fbbf24;
+  --status-error: #f87171;
+  --status-info: #60a5fa;
 
   // Syntax highlighting (for query editor)
-  --syntax-keyword: #569cd6;
-  --syntax-string: #ce9178;
-  --syntax-number: #b5cea8;
-  --syntax-comment: #6a9955;
-  --syntax-function: #dcdcaa;
-  --syntax-type: #4ec9b0;
+  --syntax-keyword: #c792ea;
+  --syntax-string: #c3e88d;
+  --syntax-number: #f78c6c;
+  --syntax-comment: #666690;
+  --syntax-function: #82aaff;
+  --syntax-type: #4ade80;
 
   // Shadows
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -156,68 +161,73 @@ $forge-theme: mat.m2-define-dark-theme(
   --monaco-theme: vs-dark;
 
   // Grid/Table colors
-  --grid-row-odd: #1e1e1e;
-  --grid-row-even: #232323;
-  --grid-row-hover: #2a2d2e;
-  --grid-row-selected: rgba(33, 150, 243, 0.2);
-  --grid-range-selection: rgba(33, 150, 243, 0.3);
-  --grid-range-border: #2196f3;
-  --grid-header-bg: #252526;
-  --grid-cell-border: #2a2a2a;
+  --grid-row-odd: #1e1e2e;
+  --grid-row-even: #232336;
+  --grid-row-hover: #2a2d3e;
+  --grid-row-selected: rgba(124, 110, 246, 0.2);
+  --grid-range-selection: rgba(124, 110, 246, 0.3);
+  --grid-range-border: #7c6ef6;
+  --grid-header-bg: #262637;
+  --grid-cell-border: #2a2a3d;
 }
 
-// Light theme colors
+// Light theme colors — refined with purple accents
 @mixin light-theme {
   // Base colors
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f3f3;
-  --bg-tertiary: #e8e8e8;
+  --bg-primary: #fafafe;
+  --bg-secondary: #f0f0f8;
+  --bg-tertiary: #e6e6f0;
   --bg-elevated: #ffffff;
-  --bg-hover: #e4e6f1;
-  --bg-active: #cce5ff;
+  --bg-hover: #e8e8f4;
+  --bg-active: #ddd8ff;
 
   // Text colors
-  --text-primary: #1e1e1e;
-  --text-secondary: #616161;
-  --text-muted: #9e9e9e;
-  --text-accent: #0066bf;
+  --text-primary: #1e1e2e;
+  --text-secondary: #555570;
+  --text-muted: #9090a8;
+  --text-accent: #6356e0;
 
   // Border colors
-  --border-primary: #e0e0e0;
-  --border-secondary: #c8c8c8;
-  --border-focus: #0078d4;
+  --border-primary: #dddde8;
+  --border-secondary: #c8c8d8;
+  --border-focus: #7c6ef6;
+
+  // Accent
+  --accent: #7c6ef6;
+  --accent-light: #9b8ff8;
+  --accent-subtle: rgba(124, 110, 246, 0.1);
 
   // Status colors
-  --status-success: #107c10;
-  --status-warning: #ca5010;
-  --status-error: #d13438;
-  --status-info: #0078d4;
+  --status-success: #16a34a;
+  --status-warning: #d97706;
+  --status-error: #dc2626;
+  --status-info: #2563eb;
 
   // Syntax highlighting (for query editor)
-  --syntax-keyword: #0000ff;
-  --syntax-string: #a31515;
-  --syntax-number: #098658;
-  --syntax-comment: #008000;
-  --syntax-function: #795e26;
-  --syntax-type: #267f99;
+  --syntax-keyword: #7c3aed;
+  --syntax-string: #16a34a;
+  --syntax-number: #d97706;
+  --syntax-comment: #9090a8;
+  --syntax-function: #2563eb;
+  --syntax-type: #0891b2;
 
   // Shadows
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.15);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.14);
 
   // Monaco editor theme
   --monaco-theme: vs;
 
   // Grid/Table colors
-  --grid-row-odd: #ffffff;
-  --grid-row-even: #f9f9f9;
-  --grid-row-hover: #e8f4fd;
-  --grid-row-selected: rgba(0, 120, 212, 0.15);
-  --grid-range-selection: rgba(0, 120, 212, 0.2);
-  --grid-range-border: #0078d4;
-  --grid-header-bg: #f3f3f3;
-  --grid-cell-border: #e0e0e0;
+  --grid-row-odd: #fafafe;
+  --grid-row-even: #f4f4fc;
+  --grid-row-hover: #eae8ff;
+  --grid-row-selected: rgba(124, 110, 246, 0.12);
+  --grid-range-selection: rgba(124, 110, 246, 0.18);
+  --grid-range-border: #7c6ef6;
+  --grid-header-bg: #f0f0f8;
+  --grid-cell-border: #dddde8;
 }
 
 // Apply dark theme by default (most dev tools are dark)
@@ -571,9 +581,9 @@ pre {
 .mat-mdc-checkbox {
   --mdc-checkbox-unselected-icon-color: var(--text-secondary);
   --mdc-checkbox-selected-checkmark-color: #fff;
-  --mdc-checkbox-selected-icon-color: var(--border-focus);
-  --mdc-checkbox-selected-hover-icon-color: var(--border-focus);
-  --mdc-checkbox-selected-focus-icon-color: var(--border-focus);
+  --mdc-checkbox-selected-icon-color: var(--accent);
+  --mdc-checkbox-selected-hover-icon-color: var(--accent-light);
+  --mdc-checkbox-selected-focus-icon-color: var(--accent);
 
   .mdc-label {
     color: var(--text-primary);
@@ -1140,25 +1150,29 @@ button:focus-visible,
 
 // Notification snackbar color variants
 .notification-success .mdc-snackbar__surface {
-  background-color: #2e7d32 !important;
-  .mdc-snackbar__label { color: white !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: #a5d6a7 !important; }
+  background-color: var(--bg-tertiary) !important;
+  border-left: 3px solid var(--status-success) !important;
+  .mdc-snackbar__label { color: var(--text-primary) !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-success) !important; }
 }
 
 .notification-error .mdc-snackbar__surface {
-  background-color: #c62828 !important;
-  .mdc-snackbar__label { color: white !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: #ef9a9a !important; }
+  background-color: var(--bg-tertiary) !important;
+  border-left: 3px solid var(--status-error) !important;
+  .mdc-snackbar__label { color: var(--text-primary) !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-error) !important; }
 }
 
 .notification-warning .mdc-snackbar__surface {
-  background-color: #e65100 !important;
-  .mdc-snackbar__label { color: white !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: #ffcc80 !important; }
+  background-color: var(--bg-tertiary) !important;
+  border-left: 3px solid var(--status-warning) !important;
+  .mdc-snackbar__label { color: var(--text-primary) !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-warning) !important; }
 }
 
 .notification-info .mdc-snackbar__surface {
-  background-color: #1565c0 !important;
-  .mdc-snackbar__label { color: white !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: #90caf9 !important; }
+  background-color: var(--bg-tertiary) !important;
+  border-left: 3px solid var(--status-info) !important;
+  .mdc-snackbar__label { color: var(--text-primary) !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-info) !important; }
 }

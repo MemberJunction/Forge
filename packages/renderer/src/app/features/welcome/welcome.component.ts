@@ -355,7 +355,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         mat-icon {
           font-size: 14px;
           vertical-align: middle;
-          color: #e91e63;
+          color: var(--status-error);
         }
 
         a {

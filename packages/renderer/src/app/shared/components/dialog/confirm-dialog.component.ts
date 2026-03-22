@@ -211,7 +211,7 @@ export interface ConfirmDialogConfig {
           color: white;
 
           &:hover:not(:disabled) {
-            background-color: #c62828;
+            filter: brightness(0.85);
           }
 
           &:disabled {
@@ -224,7 +224,7 @@ export interface ConfirmDialogConfig {
           color: #000;
 
           &:hover:not(:disabled) {
-            background-color: #f57c00;
+            filter: brightness(0.85);
           }
         }
 
@@ -233,7 +233,7 @@ export interface ConfirmDialogConfig {
           color: white;
 
           &:hover:not(:disabled) {
-            background-color: #1976d2;
+            filter: brightness(0.85);
           }
         }
       }
