@@ -4,57 +4,50 @@ Thank you for your interest in contributing to MJ Forge! This document provides 
 
 ## Table of Contents
 
-- [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Project Structure](#project-structure)
 - [Making Changes](#making-changes)
+- [AI Integration Guidelines](#ai-integration-guidelines)
 - [Commit Guidelines](#commit-guidelines)
 - [Pull Request Process](#pull-request-process)
 - [Code Style](#code-style)
 
-## Code of Conduct
-
-Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
-
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/mj-forge.git`
-3. Add the upstream remote: `git remote add upstream https://github.com/MemberJunction/mj-forge.git`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/Forge.git`
+3. Add the upstream remote: `git remote add upstream https://github.com/MemberJunction/Forge.git`
 
 ## Development Setup
 
 ### Prerequisites
 
-- Node.js 20 or later
-- npm 10 or later
-- Xcode Command Line Tools (for native modules)
-- Docker (optional, for local SQL Server testing)
+- **Node.js** 20 or later
+- **npm** 10 or later
+- **Xcode Command Line Tools** (macOS, for native modules)
+- **Docker** (optional, for local SQL Server testing)
 
 ### Installation
 
 ```bash
-# Install dependencies
 npm install
-
-# Build all packages
-npm run build
-
-# Run in development mode
-npm run dev
-
-# Run tests
-npm test
+npm run build       # Build all packages
+npm run dev         # Development mode with hot reload
 ```
 
 ### Running SQL Server Locally
 
-The easiest way to test is with Docker:
-
 ```bash
 docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YourStrong@Passw0rd" \
   -p 1433:1433 --name sql1 -d mcr.microsoft.com/mssql/server:2022-latest
+```
+
+### Building Installers
+
+```bash
+npm run package:mac   # macOS DMG (arm64 + x64)
+npm run package       # Current platform
 ```
 
 ## Project Structure
@@ -62,44 +55,70 @@ docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YourStrong@Passw0rd" \
 ```
 mj-forge/
 ├── packages/
-│   ├── shared/      # Shared types, constants, validators
-│   ├── preload/     # Electron preload script
-│   ├── main/        # Electron main process
-│   └── renderer/    # Angular UI application
-├── resources/       # App icons and assets
-├── plans/           # Planning documents
-└── release/         # Build output
+│   ├── shared/        # Types, IPC channels, ai-vendors.json
+│   ├── preload/       # Electron context bridge
+│   ├── main/          # Electron main process
+│   │   └── src/
+│   │       ├── ipc/       # IPC handler registration
+│   │       └── services/
+│   │           ├── ai/    # LLM providers, chat service, tool registry
+│   │           ├── sql/   # SQL Server operations (mssql)
+│   │           ├── docker/# Container detection (dockerode)
+│   │           ├── keychain/ # Credential storage (keytar)
+│   │           └── config/   # App state persistence (electron-store)
+│   └── renderer/      # Angular 18 application
+│       └── src/app/
+│           ├── core/      # Services, state (signals), IPC service
+│           ├── features/  # Chat, ERD, query, explorer, welcome
+│           ├── shared/    # Settings dialogs, reusable components
+│           └── layout/    # App shell, sidebar, GoldenLayout container
+├── .github/workflows/ # CI/CD
+├── scripts/           # Build helpers
+├── resources/         # App icons
+└── plans/             # Design documents
 ```
 
 ### Package Overview
 
-- **@mj-forge/shared**: Type definitions, IPC channel constants, validators
-- **@mj-forge/preload**: Electron preload script with contextBridge
-- **@mj-forge/main**: Electron main process, SQL services, IPC handlers
-- **@mj-forge/renderer**: Angular 18 UI with standalone components
+| Package | Purpose |
+|---------|---------|
+| `@mj-forge/shared` | Type definitions, IPC channel constants, AI vendor config |
+| `@mj-forge/preload` | Electron preload script with typed contextBridge API |
+| `@mj-forge/main` | Main process: SQL, AI, Docker, Keychain services + IPC handlers |
+| `@mj-forge/renderer` | Angular 18 UI with standalone components, signals, OnPush CD |
 
 ## Making Changes
 
 1. Create a branch from `main`:
-
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
-2. Make your changes following our [code style guidelines](#code-style)
+2. Make changes following our [code style guidelines](#code-style)
 
-3. Write or update tests for your changes
+3. Build to check for type errors:
+   ```bash
+   npm run build
+   ```
 
-4. Run the test suite:
-
+4. Test your changes manually or with tests:
    ```bash
    npm test
    ```
 
-5. Build to check for type errors:
-   ```bash
-   npm run build
-   ```
+## AI Integration Guidelines
+
+If you're working on AI features, follow these rules:
+
+1. **Never make direct LLM API calls.** All AI interactions go through `packages/main/src/services/ai/llm-providers.ts`. This multi-provider abstraction supports Google, Anthropic, OpenAI, Groq, and Cerebras.
+
+2. **Streaming is required** for chat/conversational features. Use the `StreamCallbacks` interface from `llm-providers.ts`.
+
+3. **Tool definitions** go in `packages/main/src/services/ai/tool-registry.ts`. Tools that modify data must set `requiresConfirmation: true`.
+
+4. **Model/vendor config** lives in `packages/shared/src/config/ai-vendors.json`. User preferences are stored in app state.
+
+5. **Use `@memberjunction/ng-markdown`** for rendering AI-generated content in the renderer.
 
 ## Commit Guidelines
 
@@ -107,83 +126,83 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 type(scope): description
-
-[optional body]
-
-[optional footer]
 ```
 
 ### Types
 
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `style`: Code style changes (formatting, etc.)
-- `refactor`: Code refactoring
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks
+| Type | Description |
+|------|-------------|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation |
+| `refactor` | Code restructuring |
+| `test` | Test additions/changes |
+| `chore` | Build/tooling |
 
 ### Examples
 
 ```
-feat(backup): add compression option to backup dialog
-fix(connection): handle timeout errors gracefully
-docs(readme): add Docker setup instructions
-refactor(explorer): use signals for state management
+feat(chat): add image attachment support
+fix(query): handle timeout on large result sets
+docs(readme): update AI provider setup instructions
+refactor(explorer): migrate to Angular signals
 ```
 
 ## Pull Request Process
 
-1. Update documentation if needed
-2. Ensure all tests pass
-3. Ensure the build succeeds
-4. Create a pull request with a clear description
-5. Link any related issues
+1. Ensure the build succeeds: `npm run build`
+2. Update documentation if your change affects user-facing behavior
+3. Create a PR with a clear description of what and why
+4. Link related issues
 
 ### PR Title Format
 
-Use the same format as commits:
-
-```
-feat(scope): description
-```
+Same as commit format: `type(scope): description`
 
 ## Code Style
 
 ### TypeScript
 
-- Use strict TypeScript (`strict: true`)
-- Prefer explicit types over `any`
-- Use interfaces for object shapes
-- Use type guards for narrowing
+- Strict mode (`strict: true`) — no `any` without justification
+- Use interfaces for object shapes, type guards for narrowing
+- Static imports only — no dynamic `require()` or `import()`
 
-### Angular
+### Angular (Renderer)
 
-- Use standalone components
-- Use Angular signals for reactive state
-- Use OnPush change detection
-- Follow the smart/dumb component pattern
+- **Standalone components** — no NgModules
+- **Angular signals** for reactive state
+- **OnPush** change detection on all components
+- **Smart/dumb pattern** — containers handle logic, presentational components receive inputs
+
+### Electron (Main Process)
+
+- All Node operations in main process — never expose Node APIs to renderer
+- IPC channels typed in `@mj-forge/shared`
+- Use `invoke/handle` for request-response, `send/on` for streaming
+- Credentials via Keychain only — never in files or logs
 
 ### File Naming
 
-- Components: `kebab-case.component.ts`
-- Services: `kebab-case.service.ts`
-- Types: `kebab-case.types.ts`
-- Tests: `*.spec.ts`
+| Type | Pattern |
+|------|---------|
+| Components | `kebab-case.component.ts` |
+| Services | `kebab-case.service.ts` / `kebab-case.ts` |
+| Types | `kebab-case.types.ts` |
+| Tests | `*.spec.ts` |
 
-### Formatting
+### Forbidden Patterns
 
-We use Prettier for formatting. Run before committing:
-
-```bash
-npm run format
-```
-
-Or let lint-staged handle it automatically on commit.
+- `eval()` or `new Function()`
+- Dynamic `require()` or `import()`
+- Storing credentials outside Keychain
+- Direct DOM manipulation in Angular
+- `console.log` in production (use the logger service)
+- Direct HTTP calls to LLM APIs (use the provider abstraction)
+- Synchronous IPC (`ipcRenderer.sendSync`)
 
 ## Questions?
 
-- Open an issue for bugs or feature requests
-- Start a discussion for questions
+- **Bugs** — [Open an issue](https://github.com/MemberJunction/Forge/issues)
+- **Ideas** — [Start a discussion](https://github.com/MemberJunction/Forge/discussions)
 
 Thank you for contributing!
