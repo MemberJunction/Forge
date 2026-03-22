@@ -87,6 +87,26 @@ dmg:
     width: 540
     height: 380
 
+# Windows configuration
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.png
+
+# NSIS installer options
+nsis:
+  artifactName: "${productName}-${version}-${arch}-setup.exe"
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
 # Don't publish to any providers
 publish: null
 
