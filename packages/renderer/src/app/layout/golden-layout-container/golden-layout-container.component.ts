@@ -256,6 +256,7 @@ import type { LayoutConfig } from '@mj-forge/shared';
 })
 export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterViewInit {
   @ViewChild('glContainer', { static: false }) glContainer!: ElementRef<HTMLDivElement>;
+  @ViewChild('renameInput') renameInputRef?: ElementRef<HTMLInputElement>;
 
   @Output() layoutInitError = new EventEmitter<void>();
 
@@ -777,7 +778,7 @@ export class GoldenLayoutContainerComponent implements OnInit, OnDestroy, AfterV
 
         // Focus the input after it renders
         setTimeout(() => {
-          const input = document.querySelector('.rename-input') as HTMLInputElement;
+          const input = this.renameInputRef?.nativeElement;
           if (input) {
             input.focus();
             input.select();

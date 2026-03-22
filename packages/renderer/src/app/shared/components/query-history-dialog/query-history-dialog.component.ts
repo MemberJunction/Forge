@@ -88,7 +88,7 @@ import type { QueryHistoryDialogResult } from '../../../core/services/query-hist
 
       <mat-divider />
 
-      <div class="history-list">
+      <div class="history-list" #historyList>
         @if (historyState.loading()) {
           <div class="empty-state">
             <mat-icon>hourglass_empty</mat-icon>
@@ -437,6 +437,7 @@ export class QueryHistoryDialogComponent implements OnInit, OnDestroy {
   private readonly dialogRef = inject(MatDialogRef<QueryHistoryDialogComponent>);
 
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
+  @ViewChild('historyList') historyListRef?: ElementRef<HTMLElement>;
 
   searchText = '';
   readonly selectedIndex = signal(0);
@@ -567,7 +568,7 @@ export class QueryHistoryDialogComponent implements OnInit, OnDestroy {
   private scrollSelectedIntoView(): void {
     // Scroll the selected item into view after a brief delay for the DOM to update
     setTimeout(() => {
-      const container = document.querySelector('.history-list');
+      const container = this.historyListRef?.nativeElement;
       const selected = container?.querySelector('.history-entry.selected');
       selected?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 10);

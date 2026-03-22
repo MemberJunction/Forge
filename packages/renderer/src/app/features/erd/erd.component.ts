@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
+import { Component, inject, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -146,7 +146,7 @@ import { ERDDiagramComponent, ERDNode } from '../../shared/components/erd-diagra
     `,
   ],
 })
-export class ErdComponent implements OnInit, OnDestroy {
+export class ErdComponent implements OnInit {
   private readonly tabState = inject(TabStateService);
   private readonly connectionState = inject(ConnectionStateService);
   private readonly erdAdapter = inject(ERDAdapterService);
@@ -191,10 +191,6 @@ export class ErdComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     // Load ERD when component initializes
     this.loadERD();
-  }
-
-  ngOnDestroy(): void {
-    // Cleanup if needed
   }
 
   async loadERD(): Promise<void> {

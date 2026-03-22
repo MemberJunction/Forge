@@ -458,8 +458,13 @@ export class WelcomeComponent implements OnInit {
   }
 
   async startContainer(container: DockerContainer): Promise<void> {
-    await firstValueFrom(this.ipc.startDockerContainer(container.id));
-    await this.checkDocker();
+    try {
+      await firstValueFrom(this.ipc.startDockerContainer(container.id));
+      await this.checkDocker();
+    } catch {
+      // Container may have failed to start — refresh status to show current state
+      await this.checkDocker();
+    }
   }
 
   openDocs(event: Event): void {
