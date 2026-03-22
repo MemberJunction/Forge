@@ -10,7 +10,10 @@ import type {
   BackupHistoryEntry,
 } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
+import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
+
+const log = createLogger('ServerFS');
 
 export class ServerFilesystemService extends BaseSingleton {
   private poolManager: ConnectionPoolManager;
@@ -82,7 +85,7 @@ export class ServerFilesystemService extends BaseSingleton {
       }));
     } catch (error) {
       // If the directory doesn't exist or access denied, return empty
-      console.error('Error listing directory:', error);
+      log.error('Error listing directory:', error);
       return [];
     }
   }

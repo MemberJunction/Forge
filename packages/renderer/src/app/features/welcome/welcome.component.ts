@@ -1,4 +1,4 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -32,21 +32,21 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         <section class="quick-actions">
           <h2>Quick Actions</h2>
           <div class="action-cards">
-            <mat-card class="action-card" (click)="newConnection()">
+            <mat-card class="action-card" tabindex="0" role="button" aria-label="New Connection" (click)="newConnection()" (keydown.enter)="newConnection()" (keydown.space)="newConnection(); $event.preventDefault()">
               <mat-icon>add_circle</mat-icon>
               <h3>New Connection</h3>
               <p>Connect to a SQL Server instance</p>
             </mat-card>
 
             @if (connectionState.hasProfiles()) {
-              <mat-card class="action-card" (click)="reconnect()">
+              <mat-card class="action-card" tabindex="0" role="button" aria-label="Recent Connection" (click)="reconnect()" (keydown.enter)="reconnect()" (keydown.space)="reconnect(); $event.preventDefault()">
                 <mat-icon>refresh</mat-icon>
                 <h3>Recent Connection</h3>
                 <p>{{ recentConnectionName }}</p>
               </mat-card>
             }
 
-            <mat-card class="action-card" (click)="openDockerSection()">
+            <mat-card class="action-card" tabindex="0" role="button" aria-label="Docker Containers" (click)="openDockerSection()" (keydown.enter)="openDockerSection()" (keydown.space)="openDockerSection(); $event.preventDefault()">
               <mat-icon>sailing</mat-icon>
               <h3>Docker Containers</h3>
               <p>{{ dockerStatusText }}</p>
@@ -60,7 +60,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             <h2>Recent Connections</h2>
             <div class="connection-list">
               @for (profile of connectionState.profiles().slice(0, 5); track profile.id) {
-                <div class="connection-item" (click)="quickConnect(profile)">
+                <div class="connection-item" tabindex="0" role="button" [attr.aria-label]="'Connect to ' + profile.name" (click)="quickConnect(profile)" (keydown.enter)="quickConnect(profile)" (keydown.space)="quickConnect(profile); $event.preventDefault()">
                   <mat-icon>dns</mat-icon>
                   <div class="connection-info">
                     <span class="connection-name">{{ profile.name }}</span>
@@ -75,7 +75,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
 
         <!-- Docker Containers -->
         @if (dockerStatus?.isAvailable && sqlContainers.length > 0) {
-          <section class="docker-section">
+          <section class="docker-section" #dockerSection>
             <h2>SQL Server Containers</h2>
             <div class="container-list">
               @for (container of sqlContainers; track container.id) {
@@ -375,6 +375,8 @@ export class WelcomeComponent implements OnInit {
   private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
 
+  @ViewChild('dockerSection') dockerSectionRef?: ElementRef<HTMLElement>;
+
   dockerStatus: DockerStatus | null = null;
   sqlContainers: DockerContainer[] = [];
 
@@ -439,10 +441,7 @@ export class WelcomeComponent implements OnInit {
   }
 
   openDockerSection(): void {
-    const section = document.querySelector('.docker-section');
-    if (section) {
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    this.dockerSectionRef?.nativeElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   connectToContainer(container: DockerContainer): void {

@@ -19,7 +19,10 @@ import type {
   SchemaInfo,
 } from '@mj-forge/shared';
 import { MetadataService } from '../services/sql/metadata';
+import { createLogger } from '../utils/logger';
 import { safeHandle } from './safe-handle';
+
+const log = createLogger('IPC:Explorer');
 
 export function registerExplorerHandlers(): void {
   const metadataService = MetadataService.getInstance();
@@ -33,7 +36,7 @@ export function registerExplorerHandlers(): void {
       databaseName: string,
       parentPath: string
     ): Promise<ObjectMetadata[]> => {
-      console.log(`[Explorer] Getting children for ${databaseName}/${parentPath}`);
+      log.debug(`Getting children for ${databaseName}/${parentPath}`);
 
       if (parentPath === 'schemas') {
         const schemas = await metadataService.listSchemas(connectionId, databaseName);
@@ -279,7 +282,7 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<TableProperties> => {
-      console.log(`[Explorer] Getting table properties for ${database}.${schema}.${table}`);
+      log.debug(`Getting table properties for ${database}.${schema}.${table}`);
       return metadataService.getTableProperties(connectionId, database, schema, table);
     }
   );
@@ -294,7 +297,7 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<ExtendedProperty[]> => {
-      console.log(`[Explorer] Getting extended properties for ${database}.${schema}.${table}`);
+      log.debug(`Getting extended properties for ${database}.${schema}.${table}`);
       return metadataService.listExtendedProperties(connectionId, database, schema, table);
     }
   );
@@ -303,7 +306,7 @@ export function registerExplorerHandlers(): void {
   safeHandle(
     IPC_CHANNELS.EXPLORER.GET_ENRICHED_COLUMNS,
     async (_event, connectionId: string, database: string, schema: string, table: string) => {
-      console.log(`[Explorer] Getting enriched column metadata for ${database}.${schema}.${table}`);
+      log.debug(`Getting enriched columns for ${database}.${schema}.${table}`);
       return metadataService.getEnrichedColumnMetadata(connectionId, database, schema, table);
     }
   );
@@ -318,7 +321,7 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<string> => {
-      console.log(`[Explorer] Scripting ${database}.${schema}.${table} as CREATE`);
+      log.debug(`Scripting ${database}.${schema}.${table} as CREATE`);
       return metadataService.scriptTableAsCreate(connectionId, database, schema, table);
     }
   );
@@ -333,7 +336,7 @@ export function registerExplorerHandlers(): void {
       schema: string,
       table: string
     ): Promise<string> => {
-      console.log(`[Explorer] Scripting ${database}.${schema}.${table} as INSERT`);
+      log.debug(`Scripting ${database}.${schema}.${table} as INSERT`);
       return metadataService.scriptTableAsInsert(connectionId, database, schema, table);
     }
   );

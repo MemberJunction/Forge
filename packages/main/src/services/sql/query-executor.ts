@@ -7,8 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
 import type * as mssql from 'mssql';
 import type { QueryRequest, QueryResult, ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
+import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
 import { MetadataService } from './metadata';
+
+const log = createLogger('QueryExecutor');
 
 interface ParsedTableRef {
   schema: string;
@@ -191,10 +194,10 @@ export class QueryExecutor extends BaseSingleton {
       if (activeQuery.request) {
         try {
           activeQuery.request.cancel();
-          console.log(`Query ${queryId} cancelled successfully`);
+          log.info(`Query ${queryId} cancelled`);
           return true;
         } catch (error) {
-          console.error(`Error cancelling query ${queryId}:`, error);
+          log.error(`Error cancelling query ${queryId}:`, error);
         }
       }
       return true;

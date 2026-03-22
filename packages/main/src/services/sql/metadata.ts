@@ -32,7 +32,10 @@ import type {
 import { BaseSingleton } from '../../utils/singleton';
 import { ObjectCache } from '../../utils/object-cache';
 import { TsqlBuilder } from '../../utils/tsql-builder';
+import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
+
+const log = createLogger('Metadata');
 
 export class MetadataService extends BaseSingleton {
   private poolManager: ConnectionPoolManager;
@@ -915,7 +918,7 @@ export class MetadataService extends BaseSingleton {
         hasAuditLog: Boolean(detection.hasAuditLog),
       };
     } catch (error) {
-      console.error('Error detecting MJ database:', error);
+      log.error('Error detecting MJ database:', error);
       return { isMJEnabled: false };
     }
   }
@@ -1036,7 +1039,7 @@ export class MetadataService extends BaseSingleton {
       const result = await this.poolManager.query<MJApplicationInfo>(connectionId, sql);
       return result.recordset;
     } catch (error) {
-      console.error('[Metadata] getMJApplications:', error);
+      log.error('getMJApplications:', error);
       return [];
     }
   }
@@ -1082,7 +1085,7 @@ export class MetadataService extends BaseSingleton {
         displayInForm: Boolean(row.displayInForm),
       }));
     } catch (error) {
-      console.error('[Metadata] getMJEntityRelationships:', error);
+      log.error('getMJEntityRelationships:', error);
       return [];
     }
   }
@@ -1138,7 +1141,7 @@ export class MetadataService extends BaseSingleton {
       const result = await this.poolManager.query<MJRecordChange>(connectionId, sql);
       return result.recordset;
     } catch (error) {
-      console.error('[Metadata] getMJRecordChanges:', error);
+      log.error('getMJRecordChanges:', error);
       return [];
     }
   }
@@ -1192,7 +1195,7 @@ export class MetadataService extends BaseSingleton {
       const result = await this.poolManager.query<MJAuditLog>(connectionId, sql);
       return result.recordset;
     } catch (error) {
-      console.error('[Metadata] getMJAuditLogs:', error);
+      log.error('getMJAuditLogs:', error);
       return [];
     }
   }
@@ -1234,7 +1237,7 @@ export class MetadataService extends BaseSingleton {
       const result = await this.poolManager.query<MJQuery>(connectionId, sql);
       return result.recordset;
     } catch (error) {
-      console.error('[Metadata] getMJSavedQueries:', error);
+      log.error('getMJSavedQueries:', error);
       return [];
     }
   }
@@ -1275,7 +1278,7 @@ export class MetadataService extends BaseSingleton {
       const result = await this.poolManager.query<MJErrorLog>(connectionId, sql);
       return result.recordset;
     } catch (error) {
-      console.error('[Metadata] getMJErrorLogs:', error);
+      log.error('getMJErrorLogs:', error);
       return [];
     }
   }
@@ -1326,7 +1329,7 @@ export class MetadataService extends BaseSingleton {
       const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql);
       return result.recordset;
     } catch (error) {
-      console.error('[Metadata] getMJUserRecordLogs:', error);
+      log.error('getMJUserRecordLogs:', error);
       return [];
     }
   }

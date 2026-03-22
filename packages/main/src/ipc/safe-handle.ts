@@ -4,6 +4,9 @@
  */
 
 import { ipcMain } from 'electron';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('IPC');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IpcHandler = (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any;
@@ -19,7 +22,7 @@ export function safeHandle(channel: string, handler: IpcHandler): void {
       return await handler(event, ...args);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[IPC] ${channel}: ${message}`);
+      log.error(`${channel}: ${message}`);
       throw error;
     }
   });

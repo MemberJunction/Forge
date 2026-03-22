@@ -6,7 +6,10 @@ import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { ConnectionProfile, TestConnectionResult, ActiveConnection } from '@mj-forge/shared';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { ConnectionProfilesStore } from '../services/config/connection-profiles';
+import { createLogger } from '../utils/logger';
 import { safeHandle } from './safe-handle';
+
+const log = createLogger('IPC:Connection');
 
 export function registerConnectionHandlers(): void {
   const poolManager = ConnectionPoolManager.getInstance();
@@ -32,11 +35,8 @@ export function registerConnectionHandlers(): void {
   safeHandle(
     IPC_CHANNELS.CONNECTION.SAVE,
     async (_event, profile: ConnectionProfile, password?: string): Promise<ConnectionProfile> => {
-      console.log(
-        `[IPC:SAVE] Profile ID: ${profile.id || 'NEW'}, Name: ${profile.name}, Password provided: ${!!password}, Password length: ${password?.length || 0}`
-      );
+      log.info(`Saving profile: ${profile.name}`);
       const savedProfile = await profileStore.save({ profile, password });
-      console.log(`[IPC:SAVE] Saved profile ID: ${savedProfile.id}`);
       return savedProfile;
     }
   );
@@ -60,16 +60,15 @@ export function registerConnectionHandlers(): void {
   safeHandle(
     IPC_CHANNELS.CONNECTION.CONNECT,
     async (_event, id: string): Promise<ActiveConnection> => {
-      console.log(`[IPC:CONNECT] Connecting with profile ID: ${id}`);
+      log.info(`Connecting with profile: ${id}`);
       const profile = profileStore.getById(id);
       if (!profile) {
-        console.error(`[IPC:CONNECT] Profile not found: ${id}`);
+        log.error(`Profile not found: ${id}`);
         throw new Error('Connection profile not found');
       }
-      console.log(`[IPC:CONNECT] Found profile: ${profile.name}`);
 
       await poolManager.getPool(id);
-      console.log(`[IPC:CONNECT] Successfully connected`);
+      log.info(`Connected to ${profile.name}`);
 
       return {
         id,

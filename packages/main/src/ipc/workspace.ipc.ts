@@ -10,7 +10,10 @@ import { watch, FSWatcher } from 'fs';
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { FileTreeNode, WorkspaceInfo, WorkspaceSettings } from '@mj-forge/shared';
 import { AppStateStore } from '../services/config/app-state';
+import { createLogger } from '../utils/logger';
 import { safeHandle } from './safe-handle';
+
+const log = createLogger('Workspace');
 
 const WORKSPACE_SETTINGS_FILE = '.forge.json';
 const SQL_EXTENSIONS = ['.sql', '.tsql', '.prc', '.fnc', '.trg', '.vw'];
@@ -180,7 +183,7 @@ function setupFileWatcher(workspacePath: string, mainWindow: Electron.BrowserWin
 
     activeWatchers.set(workspacePath, watcher);
   } catch (error) {
-    console.error('Failed to set up file watcher:', error);
+    log.error('Failed to set up file watcher:', error);
   }
 }
 

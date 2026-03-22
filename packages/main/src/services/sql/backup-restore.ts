@@ -18,8 +18,11 @@ import type {
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { TsqlBuilder } from '../../utils/tsql-builder';
+import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
 import { MetadataService } from './metadata';
+
+const log = createLogger('BackupRestore');
 
 interface ActiveOperation {
   operationId: string;
@@ -363,7 +366,7 @@ export class BackupRestoreService extends BaseSingleton {
           type === 'backup' ? IPC_CHANNELS.BACKUP.PROGRESS : IPC_CHANNELS.RESTORE.PROGRESS;
         this.sendToRenderer(channel, progress);
       } catch (err) {
-        console.warn(`[BackupRestore] Progress poll error for ${operation.operationId}:`, err);
+        log.warn(`Progress poll error for ${operation.operationId}:`, err);
       }
     }, 2000);
   }

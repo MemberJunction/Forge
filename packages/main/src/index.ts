@@ -6,8 +6,11 @@ import { app, BrowserWindow } from 'electron';
 import { createMainWindow } from './window';
 import { createMenu } from './menu';
 import { registerAllHandlers } from './ipc';
+import { createLogger } from './utils/logger';
 import { ConnectionPoolManager } from './services/sql/connection-pool';
 import { CredentialStore } from './services/keychain/credential-store';
+
+const log = createLogger('App');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 // This is only needed for Windows Squirrel installers
@@ -77,9 +80,9 @@ if (!gotTheLock) {
 
 // Handle uncaught exceptions
 process.on('uncaughtException', error => {
-  console.error('Uncaught exception:', error);
+  log.error('Uncaught exception:', error);
 });
 
 process.on('unhandledRejection', reason => {
-  console.error('Unhandled rejection:', reason);
+  log.error('Unhandled rejection:', reason);
 });
