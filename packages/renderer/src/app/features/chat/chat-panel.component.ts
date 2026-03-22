@@ -9,6 +9,7 @@ import {
   inject,
   signal,
   computed,
+  effect,
   ViewChild,
   ElementRef,
   AfterViewChecked,
@@ -876,6 +877,15 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   // Per-instance state for tab mode
   private instanceState: ChatInstanceState | null = null;
+
+  // Refocus input when streaming ends
+  private streamingEffect = effect(() => {
+    const streaming = this.state.streaming();
+    if (!streaming) {
+      // Streaming just stopped — focus the input after Angular re-enables it
+      setTimeout(() => this.chatInputRef?.nativeElement?.focus(), 50);
+    }
+  });
 
   /**
    * Unified state accessor — in tab mode uses independent instance state,
