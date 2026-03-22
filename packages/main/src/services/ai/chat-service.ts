@@ -290,7 +290,7 @@ export class ChatService extends BaseSingleton {
 
     // Get the model name — try to use the configured model, fallback to gemini-2.5-flash-lite
     const settings = this.aiService.getSettings();
-    let modelName = 'gemini-2.5-flash-lite-preview-06-17';
+    let modelName = 'gemini-2.5-flash-lite';
     const googleVendor = settings.vendorSettings.find(v => v.vendorId === 'google');
     if (googleVendor?.preferredModelId) {
       // Look up the API name from vendors
