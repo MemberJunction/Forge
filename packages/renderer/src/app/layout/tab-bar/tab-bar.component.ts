@@ -5,6 +5,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { TabStateService, Tab } from '../../core/state/tab.state';
+import { ConnectionStateService } from '../../core/state/connection.state';
 
 @Component({
   selector: 'app-tab-bar',
@@ -176,6 +177,7 @@ import { TabStateService, Tab } from '../../core/state/tab.state';
 })
 export class TabBarComponent {
   readonly tabState = inject(TabStateService);
+  private readonly connectionState = inject(ConnectionStateService);
   private readonly router = inject(Router);
 
   activateTab(tab: Tab): void {
@@ -203,14 +205,15 @@ export class TabBarComponent {
   }
 
   newQueryTab(): void {
-    // This would need connection context
-    // For now, just navigate to query page
-    this.router.navigate(['/query']);
+    const connId = this.connectionState.activeConnectionId();
+    const db = this.connectionState.selectedDatabase();
+    if (connId && db) {
+      this.tabState.openQueryTab(connId, db);
+    }
   }
 
   canCreateQuery(): boolean {
-    // Would check if there's an active connection
-    return true;
+    return this.connectionState.isConnected() && !!this.connectionState.selectedDatabase();
   }
 
   private navigateToTab(tab: Tab): void {

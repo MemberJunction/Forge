@@ -168,10 +168,12 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
     {
       name: 'General',
       shortcuts: [
+        { keys: '⌘ + K', description: 'Command Palette' },
+        { keys: '⌘ + Shift + P', description: 'Command Palette (Alt)' },
         { keys: '⌘ + ,', description: 'Settings' },
         { keys: '⌘ + \\', description: 'Toggle Sidebar' },
-        { keys: '⌘ + Shift + \\', description: 'Toggle Results Panel' },
         { keys: '⌘ + Shift + ?', description: 'Keyboard Shortcuts' },
+        { keys: '⌘ + P', description: 'Quick Object Search' },
       ],
     },
     {
@@ -190,7 +192,8 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       name: 'Query Execution',
       shortcuts: [
         { keys: '⌘ + Return', description: 'Execute Query' },
-        { keys: '⌘ + Shift + Return', description: 'Execute Selection' },
+        { keys: 'F5', description: 'Execute Query (Alt)' },
+        { keys: 'Ctrl + E', description: 'Execute Query (SSMS)' },
         { keys: '⌘ + .', description: 'Cancel Execution' },
         { keys: '⌘ + Shift + F', description: 'Format SQL' },
       ],
@@ -200,6 +203,7 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       shortcuts: [
         { keys: '⌘ + F', description: 'Find' },
         { keys: '⌘ + ⌥ + F', description: 'Find and Replace' },
+        { keys: '⌘ + G', description: 'Go to Line' },
         { keys: '⌘ + /', description: 'Toggle Comment' },
         { keys: '⌘ + Z', description: 'Undo' },
         { keys: '⌘ + Shift + Z', description: 'Redo' },
@@ -208,13 +212,11 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      name: 'Results',
+      name: 'Results & History',
       shortcuts: [
-        { keys: '⌘ + Shift + H', description: 'Result History' },
-        { keys: '⌘ + Shift + C', description: 'Compare Results' },
+        { keys: '⌘ + Shift + H', description: 'Query History' },
         { keys: '⌘ + E', description: 'Export Results' },
         { keys: '⌘ + C', description: 'Copy Selected Cells' },
-        { keys: '⌘ + Shift + R', description: 'Rerun Last Query' },
       ],
     },
   ];

@@ -1137,3 +1137,28 @@ button:focus-visible,
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+// Notification snackbar color variants
+.notification-success .mdc-snackbar__surface {
+  background-color: #2e7d32 !important;
+  .mdc-snackbar__label { color: white !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: #a5d6a7 !important; }
+}
+
+.notification-error .mdc-snackbar__surface {
+  background-color: #c62828 !important;
+  .mdc-snackbar__label { color: white !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: #ef9a9a !important; }
+}
+
+.notification-warning .mdc-snackbar__surface {
+  background-color: #e65100 !important;
+  .mdc-snackbar__label { color: white !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: #ffcc80 !important; }
+}
+
+.notification-info .mdc-snackbar__surface {
+  background-color: #1565c0 !important;
+  .mdc-snackbar__label { color: white !important; }
+  .mat-mdc-button.mat-mdc-snack-bar-action { color: #90caf9 !important; }
+}

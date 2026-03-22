@@ -183,7 +183,7 @@ declare const monaco: {
         <button mat-icon-button matTooltip="Find (⌘F)" aria-label="Find" (click)="openFind()">
           <mat-icon>search</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Find & Replace (⌘H)" aria-label="Find and Replace" (click)="openFindReplace()">
+        <button mat-icon-button matTooltip="Find & Replace (⌘⌥F)" aria-label="Find and Replace" (click)="openFindReplace()">
           <mat-icon>find_replace</mat-icon>
         </button>
         <button mat-icon-button matTooltip="Go to Line (⌘G)" aria-label="Go to Line" (click)="goToLine()">
@@ -1053,8 +1053,8 @@ export class QueryComponent implements OnInit, OnDestroy {
       this.goToLine();
       return;
     }
-    // Cmd+H / Ctrl+H - Find & Replace
-    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'h') {
+    // Cmd+Option+F / Ctrl+Alt+F - Find & Replace (standard macOS shortcut)
+    if ((event.metaKey || event.ctrlKey) && event.altKey && event.key.toLowerCase() === 'f') {
       event.preventDefault();
       this.openFindReplace();
       return;
