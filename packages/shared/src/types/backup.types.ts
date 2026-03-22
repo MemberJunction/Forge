@@ -36,6 +36,7 @@ export interface BackupHistoryEntry {
   userName: string;
   firstLsn?: string;
   lastLsn?: string;
+  description?: string;
 }
 
 export type BackupType = 'full' | 'differential' | 'log';

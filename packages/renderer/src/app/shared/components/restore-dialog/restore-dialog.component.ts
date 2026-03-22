@@ -135,6 +135,9 @@ export interface RestoreDialogData {
                         <span class="history-type">{{ entry.backupType }}</span>
                         <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
                       </div>
+                      @if (entry.description) {
+                        <div class="history-description">{{ entry.description }}</div>
+                      }
                     </div>
                   }
                 </div>
@@ -162,6 +165,12 @@ export interface RestoreDialogData {
               <span class="label">Size:</span>
               <span class="value">{{ formatBytes(backupInfo()!.backupSizeBytes) }}</span>
             </div>
+            @if (backupInfo()!.description) {
+              <div class="info-row">
+                <span class="label">Comment:</span>
+                <span class="value">{{ backupInfo()!.description }}</span>
+              </div>
+            }
           </div>
         }
 
@@ -374,6 +383,16 @@ export interface RestoreDialogData {
         color: var(--text-secondary);
         min-width: 60px;
         text-align: right;
+      }
+
+      .history-description {
+        font-size: 11px;
+        color: var(--text-secondary);
+        opacity: 0.8;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .backup-info {

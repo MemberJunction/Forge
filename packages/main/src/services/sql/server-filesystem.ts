@@ -208,7 +208,8 @@ export class ServerFilesystemService extends BaseSingleton {
         bs.recovery_model as recoveryModel,
         bs.user_name as userName,
         bs.first_lsn as firstLsn,
-        bs.last_lsn as lastLsn
+        bs.last_lsn as lastLsn,
+        bs.description as description
       FROM msdb.dbo.backupset bs
       INNER JOIN msdb.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
       ${whereClause}
@@ -228,6 +229,7 @@ export class ServerFilesystemService extends BaseSingleton {
       userName: string;
       firstLsn: string | null;
       lastLsn: string | null;
+      description: string | null;
     }>(connectionId, sql);
 
     return result.recordset.map(row => ({
@@ -243,6 +245,7 @@ export class ServerFilesystemService extends BaseSingleton {
       userName: row.userName,
       firstLsn: row.firstLsn || undefined,
       lastLsn: row.lastLsn || undefined,
+      description: row.description || undefined,
     }));
   }
 

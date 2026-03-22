@@ -55,36 +55,26 @@ export class QueryExecutor extends BaseSingleton {
 
     try {
       const pool = await this.poolManager.getPool(request.connectionId);
-      const sqlRequest = pool.request();
-
-      // Store the request object for cancellation
-      activeQuery.request = sqlRequest;
 
       // Check if cancelled before executing
       if (activeQuery.cancelled) {
         return this.createCancelledResult(queryId, startTime);
       }
 
-      // Prepend USE [database] to the SQL and execute as a raw batch.
-      // We use batch() instead of query() because query() uses sp_executesql
-      // which doesn't support USE statements. batch() sends raw T-SQL.
-      let sql = request.sql;
+      // Split SQL on GO batch separators (GO is a client-side command, not T-SQL).
+      // Each batch between GO statements must be sent as a separate batch() call.
+      const batches = this.splitBatches(request.sql);
+
+      // Build USE prefix for database context
+      let usePrefix = '';
       if (request.database) {
         const safeDb = request.database.replace(/\]/g, ']]');
-        sql = `USE [${safeDb}];\n${sql}`;
+        usePrefix = `USE [${safeDb}];\n`;
       }
 
-      // Execute as a batch (raw T-SQL) to support USE and other batch commands
-      const result = await sqlRequest.batch(sql);
-
-      // Check if cancelled
-      if (activeQuery.cancelled) {
-        return this.createCancelledResult(queryId, startTime);
-      }
-
-      // Process result sets
-      const resultSets: ResultSet[] = [];
-      const messages: string[] = [];
+      const allResultSets: ResultSet[] = [];
+      const allMessages: string[] = [];
+      let totalRowsAffected = 0;
 
       // Try to parse the SQL to detect a single-table SELECT for FK enrichment
       const parsedTable = this.parseSimpleSelect(request.sql);
@@ -119,50 +109,105 @@ export class QueryExecutor extends BaseSingleton {
         }
       }
 
-      // Handle multiple result sets
-      if (Array.isArray(result.recordsets)) {
-        for (let i = 0; i < result.recordsets.length; i++) {
-          const recordset = result.recordsets[i];
-          let columns = this.extractColumns(recordset.columns);
+      // If we need USE and there's only one batch, check if it requires being
+      // the first statement (CREATE VIEW/TRIGGER/PROC/FUNCTION/SCHEMA).
+      // If so, run USE as a separate batch first.
+      const needsSeparateUse = usePrefix && batches.length === 1
+        && this.requiresFirstInBatch(batches[0]);
 
-          // Enrich columns with FK metadata if available
-          if (enrichedColumns) {
-            columns = columns.map(col => {
-              const enriched = enrichedColumns!.get(col.name.toLowerCase());
-              if (enriched) {
-                return {
-                  ...col,
-                  isPrimaryKey: enriched.isPrimaryKey,
-                  foreignKey: enriched.foreignKey,
-                };
-              }
-              return col;
+      if (needsSeparateUse) {
+        // Set database context in its own batch
+        const setupReq = pool.request();
+        activeQuery.request = setupReq;
+        await setupReq.batch(usePrefix.trimEnd());
+      }
+
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        if (activeQuery.cancelled) {
+          return this.createCancelledResult(queryId, startTime);
+        }
+
+        const batchSql = batches[batchIdx];
+
+        // Build the final SQL for this batch
+        let sql: string;
+        if (needsSeparateUse) {
+          // USE already executed separately
+          sql = batchSql;
+        } else if (usePrefix && batchIdx === 0) {
+          // For multi-batch scripts, prepend USE to first batch if it's safe,
+          // otherwise run USE separately then the batch
+          if (this.requiresFirstInBatch(batchSql)) {
+            const setupReq = pool.request();
+            activeQuery.request = setupReq;
+            await setupReq.batch(usePrefix.trimEnd());
+            sql = batchSql;
+          } else {
+            sql = usePrefix + batchSql;
+          }
+        } else {
+          sql = batchSql;
+        }
+
+        const sqlRequest = pool.request();
+        activeQuery.request = sqlRequest;
+
+        const result = await sqlRequest.batch(sql);
+
+        // Process result sets from this batch
+        if (Array.isArray(result.recordsets)) {
+          for (let i = 0; i < result.recordsets.length; i++) {
+            const recordset = result.recordsets[i];
+            let columns = this.extractColumns(recordset.columns);
+
+            if (enrichedColumns) {
+              columns = columns.map(col => {
+                const enriched = enrichedColumns!.get(col.name.toLowerCase());
+                if (enriched) {
+                  return {
+                    ...col,
+                    isPrimaryKey: enriched.isPrimaryKey,
+                    foreignKey: enriched.foreignKey,
+                  };
+                }
+                return col;
+              });
+            }
+
+            allResultSets.push({
+              columns,
+              rows: recordset as unknown as Record<string, unknown>[],
+              rowCount: recordset.length,
             });
           }
+        }
 
-          resultSets.push({
-            columns,
-            rows: recordset as unknown as Record<string, unknown>[],
-            rowCount: recordset.length,
-          });
+        const batchRows = result.rowsAffected?.reduce((a, b) => a + b, 0) || 0;
+        totalRowsAffected += batchRows;
+
+        if (batches.length > 1) {
+          allMessages.push(`Batch ${batchIdx + 1}: (${batchRows} row(s) affected)`);
         }
       }
 
-      // Add per-result-set row count messages
-      if (resultSets.length > 1) {
-        for (let i = 0; i < resultSets.length; i++) {
-          messages.push(`Result ${i + 1}: (${resultSets[i].rowCount || 0} row(s) returned)`);
+      if (activeQuery.cancelled) {
+        return this.createCancelledResult(queryId, startTime);
+      }
+
+      // Summary messages
+      if (allResultSets.length > 1) {
+        for (let i = 0; i < allResultSets.length; i++) {
+          allMessages.push(`Result ${i + 1}: (${allResultSets[i].rowCount || 0} row(s) returned)`);
         }
       }
-      const rowsAffected = result.rowsAffected?.reduce((a, b) => a + b, 0) || 0;
-      messages.push(`(${rowsAffected} row(s) affected)`);
+      allMessages.push(`(${totalRowsAffected} row(s) affected)`);
 
       return {
         queryId,
         success: true,
-        resultSets,
-        messages,
-        rowsAffected,
+        resultSets: allResultSets,
+        messages: allMessages,
+        rowsAffected: totalRowsAffected,
         executionTime: Date.now() - startTime,
       };
     } catch (error) {
@@ -250,7 +295,97 @@ export class QueryExecutor extends BaseSingleton {
   }
 
   /**
-   * Parse a simple SELECT statement to extract the source table
+   * Split a SQL script on GO batch separators.
+   * GO must appear on its own line (optionally with whitespace or a repeat count).
+   * Respects strings and comments — GO inside a string or comment is ignored.
+   */
+  private splitBatches(sql: string): string[] {
+    // Match GO on its own line: optional whitespace, GO, optional count, optional whitespace
+    const goRegex = /^\s*GO\s*(\d*)\s*$/gim;
+    const batches: string[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = goRegex.exec(sql)) !== null) {
+      // Make sure this GO isn't inside a string or block comment
+      const preceding = sql.substring(lastIndex, match.index);
+      if (this.isInsideStringOrComment(preceding)) continue;
+
+      const batch = sql.substring(lastIndex, match.index).trim();
+      if (batch) {
+        const count = match[1] ? parseInt(match[1], 10) : 1;
+        for (let i = 0; i < count; i++) {
+          batches.push(batch);
+        }
+      }
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Remaining SQL after last GO (or entire script if no GO found)
+    const remaining = sql.substring(lastIndex).trim();
+    if (remaining) {
+      batches.push(remaining);
+    }
+
+    return batches.length > 0 ? batches : [''];
+  }
+
+  /**
+   * Check if the end of a SQL fragment is inside an unclosed string or block comment.
+   */
+  private isInsideStringOrComment(sql: string): boolean {
+    let inSingleQuote = false;
+    let inBlockComment = false;
+
+    for (let i = 0; i < sql.length; i++) {
+      if (inBlockComment) {
+        if (sql[i] === '*' && sql[i + 1] === '/') {
+          inBlockComment = false;
+          i++;
+        }
+        continue;
+      }
+      if (inSingleQuote) {
+        if (sql[i] === "'" && sql[i + 1] === "'") {
+          i++; // escaped quote
+        } else if (sql[i] === "'") {
+          inSingleQuote = false;
+        }
+        continue;
+      }
+      if (sql[i] === '-' && sql[i + 1] === '-') {
+        // Single-line comment — skip to end of line
+        const eol = sql.indexOf('\n', i);
+        if (eol === -1) return false; // comment extends to end, GO is after it
+        i = eol;
+        continue;
+      }
+      if (sql[i] === '/' && sql[i + 1] === '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
+      if (sql[i] === "'") {
+        inSingleQuote = true;
+      }
+    }
+
+    return inSingleQuote || inBlockComment;
+  }
+
+  /**
+   * Check if a SQL batch starts with a statement that must be the first
+   * statement in a batch (CREATE/ALTER VIEW, TRIGGER, PROCEDURE, FUNCTION, SCHEMA).
+   */
+  private requiresFirstInBatch(sql: string): boolean {
+    const normalized = sql
+      .replace(/--.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .trimStart();
+    return /^(CREATE|ALTER)\s+(VIEW|TRIGGER|PROC(EDURE)?|FUNCTION|SCHEMA)\b/i.test(normalized);
+  }
+
+  /**
    * Returns schema and table name if it's a single-table SELECT, null otherwise
    *
    * Matches patterns like:
