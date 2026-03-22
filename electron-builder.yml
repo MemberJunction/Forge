@@ -37,6 +37,7 @@ files:
   - "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}"
   - "!**/{appveyor.yml,.travis.yml,circle.yml}"
   - "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+  - "!**/node_modules/cpu-features/**"
   - "!**/node_modules/@angular-devkit/**"
   - "!**/node_modules/@angular/cli/**"
   - "!**/node_modules/typescript/**"
@@ -89,9 +90,10 @@ dmg:
 # Don't publish to any providers
 publish: null
 
-# Rebuild native modules
+# Rebuild native modules (beforeBuild removes cpu-features which is incompatible)
 npmRebuild: true
 nodeGypRebuild: false
+beforeBuild: scripts/before-build.js
 
 # Use asar archive
 asar: true
