@@ -16,6 +16,7 @@ import type {
   TriggerInfo,
   ExtendedProperty,
   TableProperties,
+  SchemaInfo,
 } from '@mj-forge/shared';
 import { MetadataService } from '../services/sql/metadata';
 import { safeHandle } from './safe-handle';
@@ -140,6 +141,14 @@ export function registerExplorerHandlers(): void {
         return schemas.filter(s => !s.isSystem).map(s => ({ name: s.name, type: 'schema' as const, schema: s.name }));
       }
       return [];
+    }
+  );
+
+  // List schemas
+  safeHandle(
+    IPC_CHANNELS.EXPLORER.LIST_SCHEMAS,
+    async (_event, connectionId: string, database: string): Promise<SchemaInfo[]> => {
+      return metadataService.listSchemas(connectionId, database);
     }
   );
 

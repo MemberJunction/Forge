@@ -98,6 +98,46 @@ export async function getTables(
   return result.recordset;
 }
 
+export async function getViews(
+  database?: string
+): Promise<Array<{ schema: string; name: string }>> {
+  if (!currentPool) {
+    throw new Error('Not connected to a server.');
+  }
+
+  const db = database ? `[${database}].` : '';
+  const result = await currentPool.request().query(`
+    SELECT
+      s.name AS [schema],
+      v.name AS [name]
+    FROM ${db}sys.views v
+    INNER JOIN ${db}sys.schemas s ON v.schema_id = s.schema_id
+    ORDER BY s.name, v.name
+  `);
+
+  return result.recordset;
+}
+
+export async function getProcedures(
+  database?: string
+): Promise<Array<{ schema: string; name: string }>> {
+  if (!currentPool) {
+    throw new Error('Not connected to a server.');
+  }
+
+  const db = database ? `[${database}].` : '';
+  const result = await currentPool.request().query(`
+    SELECT
+      s.name AS [schema],
+      p.name AS [name]
+    FROM ${db}sys.procedures p
+    INNER JOIN ${db}sys.schemas s ON p.schema_id = s.schema_id
+    ORDER BY s.name, p.name
+  `);
+
+  return result.recordset;
+}
+
 export async function getConnectionInfo(): Promise<{
   server: string;
   version: string;

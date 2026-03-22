@@ -1035,7 +1035,8 @@ export class MetadataService extends BaseSingleton {
 
       const result = await this.poolManager.query<MJApplicationInfo>(connectionId, sql);
       return result.recordset;
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJApplications:', error);
       return [];
     }
   }
@@ -1080,7 +1081,8 @@ export class MetadataService extends BaseSingleton {
         bundleInAPI: Boolean(row.bundleInAPI),
         displayInForm: Boolean(row.displayInForm),
       }));
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJEntityRelationships:', error);
       return [];
     }
   }
@@ -1135,7 +1137,8 @@ export class MetadataService extends BaseSingleton {
 
       const result = await this.poolManager.query<MJRecordChange>(connectionId, sql);
       return result.recordset;
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJRecordChanges:', error);
       return [];
     }
   }
@@ -1188,7 +1191,8 @@ export class MetadataService extends BaseSingleton {
 
       const result = await this.poolManager.query<MJAuditLog>(connectionId, sql);
       return result.recordset;
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJAuditLogs:', error);
       return [];
     }
   }
@@ -1229,7 +1233,8 @@ export class MetadataService extends BaseSingleton {
 
       const result = await this.poolManager.query<MJQuery>(connectionId, sql);
       return result.recordset;
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJSavedQueries:', error);
       return [];
     }
   }
@@ -1269,7 +1274,8 @@ export class MetadataService extends BaseSingleton {
 
       const result = await this.poolManager.query<MJErrorLog>(connectionId, sql);
       return result.recordset;
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJErrorLogs:', error);
       return [];
     }
   }
@@ -1319,7 +1325,8 @@ export class MetadataService extends BaseSingleton {
 
       const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql);
       return result.recordset;
-    } catch {
+    } catch (error) {
+      console.error('[Metadata] getMJUserRecordLogs:', error);
       return [];
     }
   }
