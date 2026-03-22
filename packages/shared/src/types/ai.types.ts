@@ -22,6 +22,8 @@ export interface AIModel {
   maxContextTokens?: number;
   /** Max output tokens */
   maxOutputTokens?: number;
+  /** Whether this is the vendor's default model */
+  default?: boolean;
 }
 
 /**

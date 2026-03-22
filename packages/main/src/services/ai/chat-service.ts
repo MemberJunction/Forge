@@ -414,7 +414,10 @@ export class ChatService extends BaseSingleton {
     mainWindow: BrowserWindow,
     signal: AbortSignal
   ): Promise<void> {
-    const selection = await this.selectVendorAndModel();
+    // Use per-message override if provided, otherwise fall back to default selection
+    const selection = request.vendorId && request.modelApiName
+      ? await this.resolveExplicitModel(request.vendorId, request.modelApiName)
+      : await this.selectVendorAndModel();
     if (!selection) {
       this.sendChunk(mainWindow, {
         conversationId: conversation.id,
@@ -644,11 +647,16 @@ export class ChatService extends BaseSingleton {
         const preferred = vendor.models.find(m => m.id === vs.preferredModelId);
         if (preferred) model = preferred;
       } else {
-        // Pick highest powerRank stable model; fall back to any model
-        const stable = vendor.models
-          .filter(m => !m.apiName.includes('preview'))
-          .sort((a, b) => (b.powerRank ?? 0) - (a.powerRank ?? 0));
-        if (stable.length > 0) model = stable[0];
+        // Pick the vendor's default model, or highest powerRank stable model
+        const defaultModel = vendor.models.find(m => m.default === true);
+        if (defaultModel) {
+          model = defaultModel;
+        } else {
+          const stable = vendor.models
+            .filter(m => !m.apiName.includes('preview'))
+            .sort((a, b) => (b.powerRank ?? 0) - (a.powerRank ?? 0));
+          if (stable.length > 0) model = stable[0];
+        }
       }
 
       return {
@@ -659,6 +667,19 @@ export class ChatService extends BaseSingleton {
     }
 
     return null;
+  }
+
+  /**
+   * Resolve an explicitly requested vendor+model (from the chat model picker).
+   * Returns null if the vendor's API key is missing.
+   */
+  private async resolveExplicitModel(
+    vendorId: string,
+    modelApiName: string,
+  ): Promise<{ vendorId: string; modelApiName: string; apiKey: string } | null> {
+    const apiKey = await this.aiService.getApiKeyForVendor(vendorId);
+    if (!apiKey) return null;
+    return { vendorId, modelApiName, apiKey };
   }
 
   // ---- Message Building ----

@@ -1,9 +1,10 @@
 import { Injectable, NgZone, OnDestroy, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Subject } from 'rxjs';
+import { Subject, firstValueFrom } from 'rxjs';
 import { ConnectionStateService } from '../state/connection.state';
 import { TabStateService } from '../state/tab.state';
 import { ExplorerStateService } from '../state/explorer.state';
+import { IpcService } from './ipc.service';
 import { SettingsService } from './settings.service';
 
 @Injectable({ providedIn: 'root' })
@@ -13,6 +14,7 @@ export class MenuService implements OnDestroy {
   private readonly connectionState = inject(ConnectionStateService);
   private readonly tabState = inject(TabStateService);
   private readonly explorerState = inject(ExplorerStateService);
+  private readonly ipc = inject(IpcService);
   private readonly settingsService = inject(SettingsService);
 
   // File menu events
@@ -82,7 +84,16 @@ export class MenuService implements OnDestroy {
 
     this.unsubscribers.push(
       menu.onOpenQuery(() => {
-        this.zone.run(() => this.openQuery$.next());
+        this.zone.run(() => {
+          // If a query tab is active, let it handle the open
+          const activeTab = this.tabState.activeTab();
+          if (activeTab?.type === 'query') {
+            this.openQuery$.next();
+          } else {
+            // No active query tab — handle directly
+            this.openQueryFromFile();
+          }
+        });
       })
     );
 
@@ -278,6 +289,32 @@ export class MenuService implements OnDestroy {
     } else {
       // Navigate to connections if not connected
       this.router.navigate(['/connections']);
+    }
+  }
+
+  private async openQueryFromFile(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+
+    const connectionId = this.connectionState.activeConnectionId();
+    const databaseName = this.connectionState.selectedDatabase();
+    if (!connectionId || !databaseName) return;
+
+    try {
+      const result = await firstValueFrom(this.ipc.showOpenDialog({
+        title: 'Open Query',
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      }));
+      if (result?.filePaths?.length) {
+        const content = await firstValueFrom(this.ipc.readWorkspaceFile(result.filePaths[0]));
+        const fileName = result.filePaths[0].split('/').pop()?.replace('.sql', '') || 'Query';
+        this.tabState.openQueryTab(connectionId, databaseName, content, false);
+      }
+    } catch {
+      console.error('Failed to open query file');
     }
   }
 

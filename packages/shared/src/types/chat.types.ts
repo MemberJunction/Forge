@@ -78,6 +78,10 @@ export interface ChatRequest {
   databaseName?: string;
   /** Available schema for context */
   schemaContext?: SchemaContext;
+  /** Override vendor (e.g. 'google', 'anthropic') — if omitted, uses default selection */
+  vendorId?: string;
+  /** Override model API name (e.g. 'gemini-3.1-flash-lite-preview') — if omitted, uses default */
+  modelApiName?: string;
 }
 
 /**

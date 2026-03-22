@@ -190,7 +190,7 @@ export class ChatInstanceState {
     }
   }
 
-  async sendMessage(content: string): Promise<void> {
+  async sendMessage(content: string, vendorId?: string, modelApiName?: string): Promise<void> {
     if (!this.ipc.isAvailable || !content.trim()) return;
 
     let conversationId = this._activeConversationId();
@@ -236,6 +236,8 @@ export class ChatInstanceState {
           message: content.trim(),
           connectionId: this.connectionState.activeConnectionId() || undefined,
           databaseName: this.connectionState.selectedDatabase() || undefined,
+          vendorId: vendorId || undefined,
+          modelApiName: modelApiName || undefined,
         })
       );
     } catch (error) {

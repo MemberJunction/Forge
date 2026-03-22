@@ -205,7 +205,7 @@ export class ChatStateService implements OnDestroy {
     }
   }
 
-  async sendMessage(content: string): Promise<void> {
+  async sendMessage(content: string, vendorId?: string, modelApiName?: string): Promise<void> {
     if (!this.ipc.isAvailable || !content.trim()) return;
 
     // Ensure we have an active conversation
@@ -255,6 +255,8 @@ export class ChatStateService implements OnDestroy {
           message: content.trim(),
           connectionId: this.connectionState.activeConnectionId() || undefined,
           databaseName: this.connectionState.selectedDatabase() || undefined,
+          vendorId: vendorId || undefined,
+          modelApiName: modelApiName || undefined,
         })
       );
     } catch (error) {

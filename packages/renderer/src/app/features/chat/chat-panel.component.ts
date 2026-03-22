@@ -8,6 +8,7 @@ import {
   OnDestroy,
   inject,
   signal,
+  computed,
   ViewChild,
   ElementRef,
   AfterViewChecked,
@@ -208,7 +209,7 @@ import type { ToolCallResult } from '@mj-forge/shared';
                 </div>
               }
             } @else {
-              <div class="message-bubble">{{ msg.content }}</div>
+              <div class="message-bubble user-content">{{ msg.content }}</div>
             }
           </div>
         }
@@ -220,19 +221,46 @@ import type { ToolCallResult } from '@mj-forge/shared';
 
       <!-- Input area -->
       <div class="chat-input-area">
-        <textarea
-          class="chat-input"
-          [(ngModel)]="inputText"
-          (keydown.enter)="onEnter($event)"
-          placeholder="Ask about your database..."
-          rows="1"
-          [disabled]="state.streaming()"
-        ></textarea>
-        @if (state.streaming()) {
-          <button class="send-btn stop" (click)="state.cancelStream()" title="Stop">■</button>
-        } @else {
-          <button class="send-btn" (click)="send()" title="Send" [disabled]="!inputText.trim()">↑</button>
+        <div class="input-top-row">
+          <button class="model-picker-btn" (click)="toggleModelPicker($event)" title="Select AI model">
+            <span class="model-picker-label">{{ selectedModelLabel() }}</span>
+            <span class="model-picker-chevron" [class.open]="modelPickerOpen()">▾</span>
+          </button>
+        </div>
+        @if (modelPickerOpen()) {
+          <div class="model-picker-dropdown">
+            @for (group of modelGroups(); track group.vendorId) {
+              <div class="model-group-header">{{ group.vendorName }}</div>
+              @for (model of group.models; track model.id) {
+                <div class="model-option"
+                     [class.selected]="selectedVendorId() === group.vendorId && selectedModelApiName() === model.apiName"
+                     (click)="selectModel(group.vendorId, model)">
+                  <span class="model-option-name">{{ model.name }}</span>
+                  <span class="model-option-tier">{{ model.costTier }}</span>
+                </div>
+              }
+            }
+            <div class="model-option add-more" (click)="openSetupDialog(); modelPickerOpen.set(false)">
+              + Add more providers...
+            </div>
+          </div>
         }
+        <div class="input-row">
+          <textarea
+            class="chat-input"
+            #chatInput
+            [(ngModel)]="inputText"
+            (keydown.enter)="onEnter($event)"
+            placeholder="Ask about your database..."
+            rows="1"
+            [disabled]="state.streaming()"
+          ></textarea>
+          @if (state.streaming()) {
+            <button class="send-btn stop" (click)="state.cancelStream()" title="Stop">■</button>
+          } @else {
+            <button class="send-btn" (click)="send()" title="Send" [disabled]="!inputText.trim()">↑</button>
+          }
+        </div>
       </div>
     </div>
   `,
@@ -474,6 +502,7 @@ import type { ToolCallResult } from '@mj-forge/shared';
       color: white;
       border-bottom-right-radius: 4px;
     }
+    .message-bubble.user-content { white-space: pre-wrap; }
     .message.assistant .message-bubble {
       background: transparent;
       border: 1px solid var(--border-primary);
@@ -591,12 +620,85 @@ import type { ToolCallResult } from '@mj-forge/shared';
     /* Input area */
     .chat-input-area {
       border-top: 1px solid var(--border-primary);
-      padding: 10px 14px;
+      padding: 8px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .input-top-row {
+      display: flex;
+      align-items: center;
+    }
+    .input-row {
       display: flex;
       gap: 8px;
       align-items: flex-end;
-      flex-shrink: 0;
     }
+
+    /* Model picker */
+    .model-picker-btn {
+      background: none;
+      border: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+    .model-picker-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+    .model-picker-label { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-picker-chevron { font-size: 10px; transition: transform 0.15s ease; }
+    .model-picker-chevron.open { transform: rotate(180deg); }
+
+    .model-picker-dropdown {
+      position: absolute;
+      bottom: 100%;
+      left: 10px;
+      right: 10px;
+      background: var(--bg-elevated, var(--bg-secondary));
+      border: 1px solid var(--border-primary);
+      border-radius: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+      z-index: 20;
+      box-shadow: var(--shadow-lg, 0 4px 16px rgba(0,0,0,0.25));
+      padding: 4px 0;
+    }
+    .model-group-header {
+      padding: 6px 12px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .model-option {
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .model-option:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .model-option.selected { background: var(--bg-active); color: var(--text-primary); }
+    .model-option-name { flex: 1; }
+    .model-option-tier { font-size: 10px; color: var(--text-muted); text-transform: capitalize; }
+    .model-option.add-more {
+      border-top: 1px solid var(--border-primary);
+      margin-top: 4px;
+      padding-top: 8px;
+      color: var(--accent);
+      font-size: 11px;
+    }
+    .model-option.add-more:hover { color: var(--accent); filter: brightness(1.2); }
+
     .chat-input {
       flex: 1;
       background: var(--bg-primary);
@@ -726,6 +828,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
   @Input() conversationId?: string;
 
   @ViewChild('messagesContainer') messagesContainer!: ElementRef<HTMLElement>;
+  @ViewChild('chatInput') chatInputRef!: ElementRef<HTMLTextAreaElement>;
 
   inputText = '';
 
@@ -738,6 +841,34 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
   renameValue = '';
   private renameConvId: string | null = null;
   private dropdownCleanup: (() => void) | null = null;
+
+  // Model picker state
+  readonly modelPickerOpen = signal(false);
+  readonly selectedVendorId = signal<string | null>(null);
+  readonly selectedModelApiName = signal<string | null>(null);
+  private modelPickerCleanup: (() => void) | null = null;
+
+  /** Grouped models from all enabled vendors */
+  readonly modelGroups = computed(() => {
+    const vendors = this.aiState.enabledVendors();
+    return vendors.map(v => ({
+      vendorId: v.id,
+      vendorName: v.name,
+      models: v.models,
+    }));
+  });
+
+  /** Label for the model picker button */
+  readonly selectedModelLabel = computed(() => {
+    const vendorId = this.selectedVendorId();
+    const modelApi = this.selectedModelApiName();
+    if (vendorId && modelApi) {
+      const vendor = this.aiState.vendors().find(v => v.id === vendorId);
+      const model = vendor?.models.find(m => m.apiName === modelApi);
+      if (model) return model.name;
+    }
+    return 'Auto';
+  });
 
   // Smart auto-scroll state
   readonly showScrollToBottom = signal(false);
@@ -952,22 +1083,76 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!this.inputText.trim()) return;
     this.userScrolledUp = false;
     this.showScrollToBottom.set(false);
-    this.state.sendMessage(this.inputText);
+    this.state.sendMessage(
+      this.inputText,
+      this.selectedVendorId() || undefined,
+      this.selectedModelApiName() || undefined,
+    );
     this.inputText = '';
-    // Scroll to bottom after DOM updates with new message
-    setTimeout(() => this.scrollToBottom(), 50);
+    setTimeout(() => {
+      this.scrollToBottom();
+      this.chatInputRef?.nativeElement?.focus();
+    }, 50);
   }
 
   sendSuggestion(text: string): void {
     this.userScrolledUp = false;
     this.showScrollToBottom.set(false);
-    this.state.sendMessage(text);
-    setTimeout(() => this.scrollToBottom(), 50);
+    this.state.sendMessage(
+      text,
+      this.selectedVendorId() || undefined,
+      this.selectedModelApiName() || undefined,
+    );
+    setTimeout(() => {
+      this.scrollToBottom();
+      this.chatInputRef?.nativeElement?.focus();
+    }, 50);
   }
 
   deleteConv(event: Event, id: string): void {
     event.stopPropagation();
     this.state.deleteConversation(id);
+  }
+
+  // -- Model picker --
+
+  toggleModelPicker(event: Event): void {
+    event.stopPropagation();
+    const opening = !this.modelPickerOpen();
+    this.modelPickerOpen.set(opening);
+
+    if (opening) {
+      setTimeout(() => {
+        const clickHandler = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          if (!target.closest('.model-picker-dropdown') && !target.closest('.model-picker-btn')) {
+            this.modelPickerOpen.set(false);
+            cleanup();
+          }
+        };
+        const cleanup = () => {
+          document.removeEventListener('click', clickHandler);
+          this.modelPickerCleanup = null;
+        };
+        this.modelPickerCleanup = cleanup;
+        document.addEventListener('click', clickHandler);
+      }, 0);
+    } else {
+      this.modelPickerCleanup?.();
+    }
+  }
+
+  selectModel(vendorId: string, model: { apiName: string }): void {
+    // Toggle off if re-selecting same model (back to auto)
+    if (this.selectedVendorId() === vendorId && this.selectedModelApiName() === model.apiName) {
+      this.selectedVendorId.set(null);
+      this.selectedModelApiName.set(null);
+    } else {
+      this.selectedVendorId.set(vendorId);
+      this.selectedModelApiName.set(model.apiName);
+    }
+    this.modelPickerOpen.set(false);
+    this.modelPickerCleanup?.();
   }
 
   toggleTool(id: string): void {
