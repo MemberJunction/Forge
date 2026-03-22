@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/MemberJunction/Forge/releases/latest"><strong>⬇️ Download Latest Release</strong></a>
+</p>
+
+<p align="center">
   <a href="#features">Features</a> •
   <a href="#ai-assistant">AI Assistant</a> •
   <a href="#download">Download</a> •
@@ -145,21 +149,31 @@ The AI has access to these tools, each with schema awareness:
 
 ## Download
 
+<p align="center">
+  <a href="https://github.com/MemberJunction/Forge/releases/latest">
+    <img src="https://img.shields.io/badge/⬇_Download_Latest-v0.2.0-purple?style=for-the-badge&logo=github" alt="Download Latest">
+  </a>
+</p>
+
 ### macOS
 
-| Chip | Download |
-|------|----------|
-| Apple Silicon (M1–M4) | [MJ Forge-arm64.dmg](https://github.com/MemberJunction/Forge/releases/latest) |
-| Intel | [MJ Forge-x64.dmg](https://github.com/MemberJunction/Forge/releases/latest) |
+| Chip | Installer | Portable |
+|------|-----------|----------|
+| Apple Silicon (M1–M4) | [MJ Forge.dmg](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
+| Intel | [MJ Forge.dmg](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
 
 ### Windows
 
-| Architecture | Download |
-|-------------|----------|
-| x64 (most PCs) | [MJ Forge-x64-setup.exe](https://github.com/MemberJunction/Forge/releases/latest) |
-| ARM64 | [MJ Forge-arm64-setup.exe](https://github.com/MemberJunction/Forge/releases/latest) |
+| Architecture | Installer | Portable |
+|-------------|-----------|----------|
+| x64 (most PCs) | [MJ Forge Setup.exe](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
+| ARM64 | [MJ Forge Setup.exe](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
 
-> **macOS note:** On first launch, right-click the app and select "Open" to bypass Gatekeeper (the app is not yet notarized with Apple).
+All downloads available on the **[Releases page](https://github.com/MemberJunction/Forge/releases/latest)**.
+
+> **macOS:** On first launch, right-click → Open to bypass Gatekeeper (not yet notarized).
+>
+> **Windows:** If SmartScreen warns you, click "More info" → "Run anyway" (not yet code-signed).
 
 ### Requirements
 
