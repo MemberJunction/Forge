@@ -191,9 +191,9 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
     {
       name: 'Query Execution',
       shortcuts: [
-        { keys: '⌘ + Return', description: 'Execute Query' },
+        { keys: '⌘ + E', description: 'Execute Query' },
+        { keys: '⌘ + Return', description: 'Execute Query (Alt)' },
         { keys: 'F5', description: 'Execute Query (Alt)' },
-        { keys: 'Ctrl + E', description: 'Execute Query (SSMS)' },
         { keys: '⌘ + .', description: 'Cancel Execution' },
         { keys: '⌘ + Shift + F', description: 'Format SQL' },
       ],
@@ -215,7 +215,7 @@ export class ShortcutsDialogComponent implements OnInit, OnDestroy {
       name: 'Results & History',
       shortcuts: [
         { keys: '⌘ + Shift + H', description: 'Query History' },
-        { keys: '⌘ + E', description: 'Export Results' },
+        { keys: '⌘ + Shift + X', description: 'Export Results' },
         { keys: '⌘ + C', description: 'Copy Selected Cells' },
       ],
     },

@@ -95,7 +95,7 @@ export function createMenu(): void {
         { type: 'separator' },
         {
           label: 'Export Results...',
-          accelerator: 'CmdOrCtrl+E',
+          accelerator: 'CmdOrCtrl+Shift+X',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:export-results');
@@ -171,7 +171,7 @@ export function createMenu(): void {
       submenu: [
         {
           label: 'Execute',
-          accelerator: isMac ? 'Cmd+Return' : 'F5',
+          accelerator: 'CmdOrCtrl+E',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:execute-query');

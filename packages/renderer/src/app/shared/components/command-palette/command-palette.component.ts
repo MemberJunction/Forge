@@ -350,7 +350,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         description: 'Run the current SQL query',
         icon: 'play_arrow',
         category: 'query',
-        shortcut: '⌘⏎',
+        shortcut: '⌘E',
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:execute-query'));
         },
@@ -568,7 +568,6 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         description: 'Show entity relationship diagram for current database',
         icon: 'account_tree',
         category: 'view',
-        shortcut: '⌘E',
         action: () => {
           const connId = this.connectionState.activeConnectionId();
           const db = this.connectionState.selectedDatabase();

@@ -68,6 +68,7 @@ interface MonacoEditorInstance {
   revealLineInCenter(lineNumber: number): void;
   updateOptions(options: Record<string, unknown>): void;
   onDidChangeCursorPosition(callback: (e: { position: MonacoPosition }) => void): { dispose(): void };
+  addCommand(keybinding: number, handler: () => void): void;
 }
 
 interface MonacoAction {
@@ -88,6 +89,8 @@ interface MonacoModel {
 }
 
 declare const monaco: {
+  KeyMod: { CtrlCmd: number; Shift: number; Alt: number; WinCtrl: number };
+  KeyCode: { KeyE: number; [key: string]: number };
   editor: MonacoEditor & {
     setTheme(themeName: string): void;
   };
@@ -1042,11 +1045,10 @@ export class QueryComponent implements OnInit, OnDestroy {
       this.executeQuery();
       return;
     }
-    // Ctrl+E - Execute query (SSMS-style shortcut)
-    // Note: Uses ctrlKey specifically, not metaKey, to match SSMS behavior
-    if (event.ctrlKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'e') {
+    // Ctrl+E / Cmd+E - Execute query (SSMS-style shortcut)
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'e') {
       event.preventDefault();
-      this.executeQuery();
+      this.handleCtrlEExecute();
       return;
     }
     // Cmd+G / Ctrl+G - Go to Line
@@ -1173,6 +1175,13 @@ export class QueryComponent implements OnInit, OnDestroy {
       selectionHighlight: true,
     });
 
+    // Override Monaco's Ctrl+E / Cmd+E (normally "Expand Line Selection")
+    // to fire Execute Query instead, matching SSMS behavior
+    this.editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE,
+      () => this.handleCtrlEExecute()
+    );
+
     // Emit cursor position changes for status bar
     this.editor.onDidChangeCursorPosition((e: { position: MonacoPosition }) => {
       window.dispatchEvent(new CustomEvent('forge:cursor-position', {
@@ -1295,6 +1304,92 @@ export class QueryComponent implements OnInit, OnDestroy {
     } catch {
       // Silently fail - autocomplete is optional
     }
+  }
+
+  private static readonly CTRL_E_CONFIRMED_KEY = 'mj-forge-ctrl-e-execute-confirmed';
+
+  /**
+   * Handle Ctrl+E / Cmd+E — shows a one-time confirmation dialog for new users,
+   * then executes the query directly on subsequent uses.
+   */
+  private handleCtrlEExecute(): void {
+    if (localStorage.getItem(QueryComponent.CTRL_E_CONFIRMED_KEY) === 'true') {
+      this.executeQuery();
+      return;
+    }
+
+    // Show first-time confirmation dialog
+    this.showCtrlEConfirmDialog();
+  }
+
+  private showCtrlEConfirmDialog(): void {
+    // Create a simple inline dialog
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+    const isMac = navigator.platform.includes('Mac');
+    const shortcutLabel = isMac ? '⌘E' : 'Ctrl+E';
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-primary);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3); width: 420px; max-width: 90vw; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `;
+    dialog.innerHTML = `
+      <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-primary); display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 20px;">⚡</span>
+        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary);">Execute Query?</h3>
+      </div>
+      <div style="padding: 20px;">
+        <p style="margin: 0 0 16px 0; color: var(--text-secondary); line-height: 1.5; font-size: 13px;">
+          <strong style="color: var(--text-primary);">${shortcutLabel}</strong> will execute the current query against the connected database. This matches the familiar SSMS shortcut.
+        </p>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary); font-size: 13px;">
+          <input type="checkbox" id="ctrl-e-dont-ask" style="cursor: pointer;" />
+          Don't ask me again
+        </label>
+      </div>
+      <div style="padding: 12px 20px; border-top: 1px solid var(--border-primary); background: var(--bg-tertiary); display: flex; justify-content: flex-end; gap: 8px; border-radius: 0 0 12px 12px;">
+        <button id="ctrl-e-execute" style="
+          padding: 6px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500;
+          background: var(--status-info, #007acc); color: white;
+        ">Execute</button>
+        <button id="ctrl-e-cancel" style="
+          padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border-primary); cursor: pointer; font-size: 13px;
+          background: transparent; color: var(--text-primary);
+        ">Cancel</button>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+
+    const cleanup = () => overlay.remove();
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup();
+    });
+
+    dialog.querySelector('#ctrl-e-cancel')!.addEventListener('click', cleanup);
+
+    dialog.querySelector('#ctrl-e-execute')!.addEventListener('click', () => {
+      const checkbox = dialog.querySelector('#ctrl-e-dont-ask') as HTMLInputElement;
+      if (checkbox.checked) {
+        localStorage.setItem(QueryComponent.CTRL_E_CONFIRMED_KEY, 'true');
+      }
+      cleanup();
+      this.executeQuery();
+    });
+
+    // ESC to dismiss
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { cleanup(); document.removeEventListener('keydown', escHandler); }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    document.body.appendChild(overlay);
+
+    // Focus the Execute button
+    setTimeout(() => (dialog.querySelector('#ctrl-e-execute') as HTMLButtonElement)?.focus(), 50);
   }
 
   async executeQuery(): Promise<void> {
