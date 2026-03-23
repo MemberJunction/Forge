@@ -1397,6 +1397,19 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
   autoSizeAllColumns(): void {
     if (!this.gridApi) return;
     this.gridApi.autoSizeAllColumns();
+
+    // Cap auto-sized columns at ~150 characters width so long values
+    // don't blow out the grid. Users can still drag-resize beyond this.
+    const maxAutoWidth = 1100;
+    const allColumns = this.gridApi.getColumns();
+    if (allColumns) {
+      for (const col of allColumns) {
+        const width = col.getActualWidth();
+        if (width > maxAutoWidth) {
+          this.gridApi.setColumnWidths([{ key: col, newWidth: maxAutoWidth }]);
+        }
+      }
+    }
   }
 
   copySelectedToClipboard(includeHeaders = false): void {
