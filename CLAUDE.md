@@ -121,7 +121,11 @@ mj-forge/
 
 ### Git Workflow
 
-1. **Commits**: Conventional commits format
+1. **NEVER commit directly to `main`.** Always create a feature branch and open a PR. This is a hard rule — no exceptions.
+
+2. **Branch naming**: `feature/`, `fix/`, `refactor/` prefixes (e.g. `feature/model-picker`, `fix/ctrl-e-shortcut`)
+
+3. **Commits**: Conventional commits format
    - `feat:` new features
    - `fix:` bug fixes
    - `refactor:` code changes without feature/fix
@@ -129,7 +133,7 @@ mj-forge/
    - `test:` test additions/changes
    - `chore:` build/tooling changes
 
-2. **Branches**: `feature/`, `fix/`, `refactor/` prefixes
+4. **PR flow**: Create branch → commit work → push → open PR via `gh pr create` → merge after review
 
 ### Performance Guidelines
 
