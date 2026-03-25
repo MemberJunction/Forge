@@ -1339,6 +1339,7 @@ export class MetadataService extends BaseSingleton {
    */
   invalidateConnection(connectionId: string): void {
     this.databaseCache.invalidatePrefix(`databases:${connectionId}`);
+    this.schemaCache.invalidatePrefix(`schemas:${connectionId}`);
     this.tableCache.invalidatePrefix(`tables:${connectionId}`);
     this.viewCache.invalidatePrefix(`views:${connectionId}`);
     this.procedureCache.invalidatePrefix(`procedures:${connectionId}`);

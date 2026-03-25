@@ -146,6 +146,7 @@ export interface ForgeAPI {
       databaseName: string,
       path: string
     ) => Promise<ObjectMetadata[]>;
+    invalidateCache: (connectionId: string) => Promise<void>;
     getDefinition: (
       connectionId: string,
       databaseName: string,
@@ -291,7 +292,11 @@ export interface ForgeAPI {
     deleteConversation: (id: string) => Promise<boolean>;
     renameConversation: (id: string, title: string) => Promise<Conversation | null>;
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>;
-    confirmTool: (conversationId: string, toolCallId: string, confirmed: boolean) => Promise<{ confirmed: boolean }>;
+    confirmTool: (
+      conversationId: string,
+      toolCallId: string,
+      confirmed: boolean
+    ) => Promise<{ confirmed: boolean }>;
     cancelStream: (conversationId: string) => Promise<{ cancelled: boolean }>;
     onStreamChunk: (callback: (chunk: ChatStreamChunk) => void) => () => void;
   };
@@ -546,8 +551,7 @@ const forgeAPI: ForgeAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.START_CONTAINER, containerId),
     stopContainer: containerId =>
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.STOP_CONTAINER, containerId),
-    createContainer: options =>
-      ipcRenderer.invoke(IPC_CHANNELS.DOCKER.CREATE_CONTAINER, options),
+    createContainer: options => ipcRenderer.invoke(IPC_CHANNELS.DOCKER.CREATE_CONTAINER, options),
   },
 
   database: {
@@ -583,6 +587,8 @@ const forgeAPI: ForgeAPI = {
       ),
     refreshNode: (connectionId, databaseName, path) =>
       ipcRenderer.invoke(IPC_CHANNELS.EXPLORER.REFRESH_NODE, connectionId, databaseName, path),
+    invalidateCache: connectionId =>
+      ipcRenderer.invoke(IPC_CHANNELS.EXPLORER.REFRESH, connectionId),
     getDefinition: (connectionId, databaseName, schema, name, objectType) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.EXPLORER.GET_DEFINITION,
@@ -731,11 +737,13 @@ const forgeAPI: ForgeAPI = {
     getConversation: id => ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_CONVERSATION, id),
     createConversation: title => ipcRenderer.invoke(CHAT_IPC_CHANNELS.CREATE_CONVERSATION, title),
     deleteConversation: id => ipcRenderer.invoke(CHAT_IPC_CHANNELS.DELETE_CONVERSATION, id),
-    renameConversation: (id, title) => ipcRenderer.invoke(CHAT_IPC_CHANNELS.RENAME_CONVERSATION, id, title),
+    renameConversation: (id, title) =>
+      ipcRenderer.invoke(CHAT_IPC_CHANNELS.RENAME_CONVERSATION, id, title),
     sendMessage: request => ipcRenderer.invoke(CHAT_IPC_CHANNELS.SEND_MESSAGE, request),
     confirmTool: (conversationId, toolCallId, confirmed) =>
       ipcRenderer.invoke(CHAT_IPC_CHANNELS.CONFIRM_TOOL, conversationId, toolCallId, confirmed),
-    cancelStream: conversationId => ipcRenderer.invoke(CHAT_IPC_CHANNELS.CANCEL_STREAM, conversationId),
+    cancelStream: conversationId =>
+      ipcRenderer.invoke(CHAT_IPC_CHANNELS.CANCEL_STREAM, conversationId),
     onStreamChunk: callback => createEventListener(CHAT_IPC_CHANNELS.STREAM_CHUNK, callback),
   },
 

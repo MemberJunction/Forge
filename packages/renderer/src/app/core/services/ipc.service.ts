@@ -184,6 +184,7 @@ interface ForgeAPI {
       databaseName: string,
       path: string
     ) => Promise<ObjectMetadata[]>;
+    invalidateCache: (connectionId: string) => Promise<void>;
     getDefinition: (
       connectionId: string,
       databaseName: string,
@@ -301,7 +302,11 @@ interface ForgeAPI {
     deleteConversation: (id: string) => Promise<boolean>;
     renameConversation: (id: string, title: string) => Promise<Conversation | null>;
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>;
-    confirmTool: (conversationId: string, toolCallId: string, confirmed: boolean) => Promise<{ confirmed: boolean }>;
+    confirmTool: (
+      conversationId: string,
+      toolCallId: string,
+      confirmed: boolean
+    ) => Promise<{ confirmed: boolean }>;
     cancelStream: (conversationId: string) => Promise<{ cancelled: boolean }>;
     onStreamChunk: (callback: (chunk: ChatStreamChunk) => void) => () => void;
   };
@@ -613,6 +618,10 @@ export class IpcService {
     return from(this.api.explorer.refreshNode(connectionId, databaseName, path));
   }
 
+  invalidateExplorerCache(connectionId: string): Observable<void> {
+    return from(this.api.explorer.invalidateCache(connectionId));
+  }
+
   getTableColumns(
     connectionId: string,
     databaseName: string,
@@ -667,7 +676,9 @@ export class IpcService {
     name: string,
     schema: string
   ): Observable<ObjectDefinition> {
-    return from(this.api.explorer.getDefinition(connectionId, databaseName, schema, name, objectType));
+    return from(
+      this.api.explorer.getDefinition(connectionId, databaseName, schema, name, objectType)
+    );
   }
 
   scriptTableCreate(
@@ -676,7 +687,9 @@ export class IpcService {
     schema: string,
     tableName: string
   ): Observable<string> {
-    return from(this.api.explorer.scriptTableAsCreate(connectionId, databaseName, schema, tableName));
+    return from(
+      this.api.explorer.scriptTableAsCreate(connectionId, databaseName, schema, tableName)
+    );
   }
 
   // Query methods
@@ -1087,7 +1100,11 @@ export class IpcService {
     return from(this.api.chat.sendMessage(request));
   }
 
-  confirmChatTool(conversationId: string, toolCallId: string, confirmed: boolean): Observable<{ confirmed: boolean }> {
+  confirmChatTool(
+    conversationId: string,
+    toolCallId: string,
+    confirmed: boolean
+  ): Observable<{ confirmed: boolean }> {
     return from(this.api.chat.confirmTool(conversationId, toolCallId, confirmed));
   }
 
