@@ -1,10 +1,14 @@
-# SSH Tunnel Support for SQL Server Connections
+# SSH Tunnel Support for Database Connections
 
 ## Context
 
-MJ Forge currently connects to SQL Server via direct TCP (`node-mssql`/`tedious`). Many production SQL Servers sit behind firewalls accessible only via SSH bastion hosts. This feature adds SSH tunnel support so users can connect through an SSH jump host, with SSH passwords and key passphrases stored securely in the macOS Keychain alongside existing SQL credentials.
+MJ Forge connects to SQL Server and PostgreSQL (via `feature/multi-db-provider`). Many production databases sit behind firewalls accessible only via SSH bastion hosts. This feature adds SSH tunnel support so users can connect through an SSH jump host, with SSH passwords and key passphrases stored securely in the macOS Keychain alongside existing DB credentials.
+
+**Base branch:** `feature/multi-db-provider` (not `main`) — this feature builds on top of the multi-database provider architecture.
 
 ## Architecture
+
+SSH tunneling is **engine-agnostic** — it sits between the `ConnectionPoolManager` and the network, before any engine-specific provider code runs. The tunnel forwards a random local port to the remote database host:port through the SSH bastion.
 
 ```mermaid
 flowchart TD
@@ -15,29 +19,31 @@ flowchart TD
     end
 
     subgraph "Main Process"
-        CIPC[connection.ipc.ts]
+        CIPC[database.ipc.ts]
         CPS[ConnectionProfilesStore]
         CRED[CredentialStore<br/>Keychain vault]
         CPM[ConnectionPoolManager]
         SSH[SshTunnelManager<br/>NEW]
+        PROV[DatabaseProvider<br/>MSSQL / PG / ...]
     end
 
     subgraph External
         SSHD[SSH Bastion Host]
-        SQL[SQL Server]
+        DB[SQL Server / PostgreSQL]
     end
 
     CD -->|profile + passwords| CS
     CS --> IPC
-    IPC -->|connection:save<br/>profile, sqlPwd, sshCreds| CIPC
+    IPC -->|connection:save<br/>profile, dbPwd, sshCreds| CIPC
     CIPC --> CPS
-    CPS -->|sql pwd: profileId<br/>ssh pwd: profileId:ssh-password<br/>ssh pass: profileId:ssh-passphrase| CRED
+    CPS -->|db pwd: profileId<br/>ssh pwd: profileId:ssh-password<br/>ssh pass: profileId:ssh-passphrase| CRED
 
     CIPC -->|connect| CPM
     CPM -->|"if sshTunnel enabled"| SSH
-    SSH -->|"ssh2 tunnel<br/>localhost:autoPort → sqlHost:sqlPort"| SSHD
-    SSHD -->|forwarded TCP| SQL
-    CPM -->|"mssql connects to<br/>localhost:autoPort"| SSH
+    SSH -->|"ssh2 tunnel<br/>localhost:autoPort → dbHost:dbPort"| SSHD
+    SSHD -->|forwarded TCP| DB
+    CPM -->|"route by engine"| PROV
+    PROV -->|"connects to<br/>localhost:autoPort"| SSH
 ```
 
 ## Credential Storage Strategy
@@ -151,9 +157,11 @@ async getSshPassphrase(id: string): Promise<string | null> {
 
 ### 5. Connection Pool Manager — `packages/main/src/services/sql/connection-pool.ts`
 
-**`testConnection(profile, password)`:** If `profile.sshTunnel?.enabled`, open a temporary SSH tunnel first, connect mssql to `localhost:tunnelPort`, then close tunnel in `finally`.
+The multi-db branch's `ConnectionPoolManager` routes to engine-specific providers (`DatabaseProvider` subclasses for MSSQL and PG). SSH tunneling intercepts **before** engine routing — it modifies the effective server/port the provider connects to.
 
-**`getPool(profileId)`:** If profile has SSH tunnel enabled, open a persistent tunnel via `SshTunnelManager`, then create the mssql pool connecting to `localhost:tunnelPort` instead of `profile.server:profile.port`.
+**`testConnection(profile, password)`:** If `profile.sshTunnel?.enabled`, open a temporary SSH tunnel first, create a modified profile with `server: '127.0.0.1', port: tunnelPort`, pass that to the engine-specific test, then close tunnel in `finally`.
+
+**`getPool(profileId)`:** If profile has SSH tunnel enabled, open a persistent tunnel via `SshTunnelManager`, then create the engine-specific pool connecting to `localhost:tunnelPort` instead of `profile.server:profile.port`. The tunnel endpoint is engine-agnostic — both MSSQL and PG providers connect to the same local forwarded port.
 
 **`closePool(profileId)`:** Also close the SSH tunnel via `SshTunnelManager.closeTunnel(profileId)`.
 
@@ -161,7 +169,9 @@ async getSshPassphrase(id: string): Promise<string | null> {
 
 The `PoolEntry` interface gains an optional `tunnelLocalPort?: number` for tracking.
 
-### 6. IPC Handlers — `packages/main/src/ipc/connection.ipc.ts`
+### 6. IPC Handlers — `packages/main/src/ipc/database.ipc.ts`
+
+> **Note:** On the multi-db branch, connection IPC handlers live in `database.ipc.ts`, not `connection.ipc.ts`.
 
 Update the SAVE handler to pass SSH credentials through:
 
@@ -272,11 +282,23 @@ Update `isValid()` — when SSH is enabled, require `sshHost`, `sshUsername`, an
 | `packages/main/src/services/ssh/ssh-tunnel-manager.ts`                                         | **NEW** — SSH tunnel lifecycle management                                                 |
 | `packages/main/src/services/config/connection-profiles.ts`                                     | Store/delete/retrieve SSH credentials                                                     |
 | `packages/main/src/services/sql/connection-pool.ts`                                            | Integrate tunnel into `testConnection()`, `getPool()`, `closePool()`                      |
-| `packages/main/src/ipc/connection.ipc.ts`                                                      | Pass SSH credentials in SAVE and TEST handlers                                            |
+| `packages/main/src/ipc/database.ipc.ts`                                                        | Pass SSH credentials in SAVE and TEST handlers                                            |
+| `packages/main/src/index.ts`                                                                   | Add `SshTunnelManager.closeAll()` to shutdown sequence                                    |
 | `packages/preload/src/index.ts`                                                                | Update `ForgeAPI` type + `save`/`test` calls                                              |
 | `packages/renderer/src/app/core/services/ipc.service.ts`                                       | Update `saveConnection()`, `testConnection()` signatures                                  |
 | `packages/renderer/src/app/core/state/connection.state.ts`                                     | Forward SSH credentials                                                                   |
 | `packages/renderer/src/app/shared/components/connection-dialog/connection-dialog.component.ts` | SSH Tunnel UI section                                                                     |
+
+## Compatibility with Multi-DB Provider Architecture
+
+This plan targets `feature/multi-db-provider`, not `main`. Key integration notes:
+
+- **Engine-agnostic:** SSH tunneling works identically for MSSQL, PostgreSQL, and any future engine. The tunnel just forwards TCP — the engine provider sees `localhost:localPort` and doesn't know it's tunneled.
+- **ConnectionProfile now has `engine: DatabaseEngine`:** The `sshTunnel` field is orthogonal to `engine`. Both MSSQL and PG connections can optionally enable SSH.
+- **Connection handlers are in `database.ipc.ts`:** Not `connection.ipc.ts` as on `main`.
+- **Provider abstraction:** `DatabaseProvider` subclasses (MSSQL, PG) receive a `ConnectionProfile` with `server`/`port`. The pool manager swaps these to the tunnel endpoint before passing to the provider — providers need zero SSH awareness.
+- **PG pool-per-database:** PostgreSQL creates separate pools per database. All of them connect through the same SSH tunnel (one tunnel per profileId, multiple DB pools share it).
+- **Backward compat:** Profiles without `sshTunnel` field (or `sshTunnel.enabled === false`) work exactly as before — no migration needed.
 
 ## Verification
 
