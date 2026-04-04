@@ -242,22 +242,27 @@ The `before-quit` handler performs ordered cleanup:
 
 ## Testing
 
-**Framework:** Jest with ts-jest
+**Framework:** Vitest with @vitest/coverage-v8 (matching MemberJunction/MJ pattern)
 
 ```bash
-npm test              # Run all tests
-npx jest --coverage   # Run with coverage report
+npm test              # Run all tests (vitest run)
+npm run test:watch    # Watch mode (vitest watch)
+npm run test:coverage # Run with v8 coverage report
 ```
 
 **Test structure:**
-- `*.spec.ts` files co-located with source
+- `*.spec.ts` files co-located with source (explicit `import { describe, it, expect } from 'vitest'`)
+- `packages/*/src/__tests__/setup.ts` — per-package setup files
 - `packages/main/src/__mocks__/keytar.ts` — mock for native keytar module
-- Root `jest.config.js` runs both `shared` and `main` projects
+- Root `vitest.config.ts` with vite-tsconfig-paths for alias resolution
+
+**Coverage thresholds:** 10% minimum for statements, branches, functions, lines
 
 **CI:** GitHub Actions runs on every PR to `main`:
+- Triggers on changes to `packages/**`, `package-lock.json`, `vitest.config.ts`
 - Type-check all packages (main, renderer, preload)
 - Run full test suite with coverage
-- Coverage artifact uploaded for review
+- Coverage artifact uploaded (30-day retention)
 
 ## Common Commands
 

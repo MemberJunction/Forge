@@ -1,3 +1,5 @@
+import { describe, it, expect, afterAll } from 'vitest';
+
 /**
  * Tests for Query Executor
  *

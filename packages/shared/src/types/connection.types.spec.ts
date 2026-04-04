@@ -2,6 +2,7 @@
  * Tests for connection types and constants
  */
 
+import { describe, it, expect } from 'vitest';
 import { DEFAULT_PORTS, ENGINE_LABELS } from './connection.types';
 import type { DatabaseEngine, ConnectionProfile } from './connection.types';
 

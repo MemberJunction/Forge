@@ -1,6 +1,7 @@
 /**
  * Unit tests for multi-provider LLM abstraction
  */
+import { describe, it, expect } from 'vitest';
 import { getLLMProvider, GeminiStreamProvider, AnthropicStreamProvider, OpenAICompatibleStreamProvider } from './llm-providers';
 
 describe('LLM Providers', () => {

@@ -2,6 +2,7 @@
  * Tests for Connection Profiles Store
  */
 
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ConnectionProfilesStore } from './connection-profiles';
 
 describe('ConnectionProfilesStore', () => {

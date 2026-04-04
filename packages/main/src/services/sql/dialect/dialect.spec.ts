@@ -2,6 +2,7 @@
  * Tests for SQL Dialect implementations
  */
 
+import { describe, it, expect } from 'vitest';
 import { MSSQLDialect } from './mssql-dialect';
 import { PgDialect } from './pg-dialect';
 import { getDialect } from './index';
