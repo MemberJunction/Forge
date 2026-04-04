@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint, Type-check & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: cd packages/shared && npx tsc --build
+
+      - name: Type-check main
+        run: npx tsc --noEmit -p packages/main/tsconfig.json
+
+      - name: Type-check renderer
+        run: npx tsc --noEmit -p packages/renderer/tsconfig.json
+
+      - name: Type-check preload
+        run: npx tsc --noEmit -p packages/preload/tsconfig.json
+
+      - name: Run tests
+        run: npx jest --config jest.config.js --ci --coverage --passWithNoTests
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14

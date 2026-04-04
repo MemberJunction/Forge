@@ -13,6 +13,7 @@ module.exports = {
   },
   moduleNameMapper: {
     '^@mj-forge/shared$': '<rootDir>/../shared/src',
+    '^keytar$': '<rootDir>/src/__mocks__/keytar.ts',
   },
   collectCoverageFrom: [
     'src/**/*.ts',
