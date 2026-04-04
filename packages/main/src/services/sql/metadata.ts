@@ -1,6 +1,7 @@
 /**
  * Metadata Service
- * Queries SQL Server for database metadata
+ * Queries databases for metadata (SQL Server, PostgreSQL, MySQL).
+ * Uses the SQL dialect abstraction for engine-specific queries.
  */
 
 import type {
@@ -34,6 +35,7 @@ import { ObjectCache } from '../../utils/object-cache';
 import { TsqlBuilder } from '../../utils/tsql-builder';
 import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
+import type { SQLDialect } from './dialect';
 
 const log = createLogger('Metadata');
 
@@ -45,6 +47,31 @@ export class MetadataService extends BaseSingleton {
   private viewCache: ObjectCache<ViewInfo[]>;
   private procedureCache: ObjectCache<ProcedureInfo[]>;
   private functionCache: ObjectCache<FunctionInfo[]>;
+
+  /**
+   * Get the SQL dialect for a connection
+   */
+  private getDialect(connectionId: string): SQLDialect {
+    return this.poolManager.getDialectForProfile(connectionId);
+  }
+
+  /**
+   * Execute a query on any engine (MSSQL or PG).
+   * Routes to the correct pool based on the connection's engine.
+   */
+  private async queryAny<T>(connectionId: string, sql: string, database?: string): Promise<T[]> {
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    if (engine === 'postgresql') {
+      const pool = await this.poolManager.getPgPool(connectionId);
+      const result = await pool.query(sql);
+      return result.rows as T[];
+    }
+
+    // Default: SQL Server
+    const result = await this.poolManager.query<T>(connectionId, sql, database);
+    return result.recordset;
+  }
 
   /** Escape a SQL identifier for use inside square brackets (doubles any `]` characters) */
   private escId(name: string): string {
@@ -82,10 +109,11 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listDatabases();
-    const result = await this.poolManager.query<DatabaseInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listDatabasesSQL();
+    const rows = await this.queryAny<DatabaseInfo>(connectionId, sql);
 
-    const databases = result.recordset.map(row => ({
+    const databases = rows.map(row => ({
       ...row,
       isSystemDb: Boolean(row.isSystemDb),
       state: (row.state?.toLowerCase() || 'online') as DatabaseInfo['state'],
@@ -114,10 +142,11 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listSchemas(database);
-    const result = await this.poolManager.query<SchemaInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listSchemasSQL(database);
+    const rows = await this.queryAny<SchemaInfo>(connectionId, sql);
 
-    const schemas = result.recordset.map(row => ({
+    const schemas = rows.map(row => ({
       ...row,
       isSystem: Boolean(row.isSystem),
     }));
@@ -143,11 +172,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listTables(database);
-    const result = await this.poolManager.query<TableInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listTablesSQL(database);
+    const rows = await this.queryAny<TableInfo>(connectionId, sql);
 
-    this.tableCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.tableCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -167,11 +197,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listViews(database);
-    const result = await this.poolManager.query<ViewInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listViewsSQL(database);
+    const rows = await this.queryAny<ViewInfo>(connectionId, sql);
 
-    this.viewCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.viewCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -191,11 +222,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listProcedures(database);
-    const result = await this.poolManager.query<ProcedureInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listProceduresSQL(database);
+    const rows = await this.queryAny<ProcedureInfo>(connectionId, sql);
 
-    this.procedureCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.procedureCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -215,11 +247,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listFunctions(database);
-    const result = await this.poolManager.query<FunctionInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listFunctionsSQL(database);
+    const rows = await this.queryAny<FunctionInfo>(connectionId, sql);
 
-    this.functionCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.functionCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -232,14 +265,15 @@ export class MetadataService extends BaseSingleton {
     name: string,
     objectType: string
   ): Promise<ObjectDefinition> {
-    const sql = TsqlBuilder.getObjectDefinition(database, schema, name);
-    const result = await this.poolManager.query<{ definition: string }>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.getObjectDefinitionSQL(database, schema, name);
+    const rows = await this.queryAny<{ definition: string }>(connectionId, sql);
 
     return {
       objectType: objectType as ObjectDefinition['objectType'],
       schema,
       name,
-      definition: result.recordset[0]?.definition || '-- Definition not available',
+      definition: rows[0]?.definition || '-- Definition not available',
     };
   }
 
@@ -252,9 +286,10 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ColumnInfo[]> {
-    const sql = TsqlBuilder.listColumns(database, schema, table);
-    const result = await this.poolManager.query<ColumnInfo>(connectionId, sql);
-    return result.recordset.map(row => ({
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listColumnsSQL(database, schema, table);
+    const rows = await this.queryAny<ColumnInfo>(connectionId, sql);
+    return rows.map(row => ({
       ...row,
       isNullable: Boolean(row.isNullable),
       isPrimaryKey: Boolean(row.isPrimaryKey),
@@ -271,15 +306,16 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<IndexInfo[]> {
-    const sql = TsqlBuilder.listIndexes(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listIndexesSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       type: string;
       isUnique: boolean;
       isPrimaryKey: boolean;
       columns: string;
     }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    return rows.map(row => ({
       name: row.name,
       type: row.type as IndexInfo['type'],
       isUnique: Boolean(row.isUnique),
@@ -297,8 +333,9 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ForeignKeyInfo[]> {
-    const sql = TsqlBuilder.listForeignKeys(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listForeignKeysSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       columns: string;
       referencedSchema: string;
@@ -307,7 +344,7 @@ export class MetadataService extends BaseSingleton {
       onDelete: string;
       onUpdate: string;
     }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    return rows.map(row => ({
       name: row.name,
       columns: row.columns ? row.columns.split(', ') : [],
       referencedSchema: row.referencedSchema,
@@ -327,14 +364,15 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ConstraintInfo[]> {
-    const sql = TsqlBuilder.listConstraints(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listConstraintsSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       type: string;
       columns: string;
       definition: string;
     }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    return rows.map(row => ({
       name: row.name,
       type: row.type as ConstraintInfo['type'],
       columns: row.columns ? row.columns.split(', ') : [],
@@ -351,14 +389,15 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<TriggerInfo[]> {
-    const sql = TsqlBuilder.listTriggers(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listTriggersSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       isDisabled: boolean;
       triggerType: string;
       createdAt: string;
     }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    return rows.map(row => ({
       name: row.name,
       isEnabled: !row.isDisabled,
       triggerType: row.triggerType as TriggerInfo['triggerType'],

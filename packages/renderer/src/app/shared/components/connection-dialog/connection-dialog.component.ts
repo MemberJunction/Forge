@@ -61,6 +61,16 @@ export interface ConnectionDialogResult {
       </h2>
 
       <mat-dialog-content>
+        <!-- Database Engine -->
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Database Engine</mat-label>
+          <mat-select [(ngModel)]="formData.engine" (ngModelChange)="onEngineChange($event)">
+            <mat-option value="mssql">SQL Server</mat-option>
+            <mat-option value="postgresql">PostgreSQL</mat-option>
+            <mat-option value="mysql" disabled>MySQL (coming soon)</mat-option>
+          </mat-select>
+        </mat-form-field>
+
         <!-- Connection Name -->
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Connection Name</mat-label>
@@ -347,6 +357,7 @@ export class ConnectionDialogComponent {
 
   formData: Partial<ConnectionProfile> & { password?: string } = {
     name: '',
+    engine: 'mssql',
     server: 'localhost',
     port: 1433,
     authenticationType: 'sql',
@@ -444,6 +455,21 @@ export class ConnectionDialogComponent {
     );
   }
 
+  onEngineChange(engine: string): void {
+    const ports: Record<string, number> = { mssql: 1433, postgresql: 5432, mysql: 3306 };
+    this.formData.port = ports[engine] || 1433;
+    // Adjust default username for engine
+    if (engine === 'postgresql' && (!this.formData.username || this.formData.username === 'sa')) {
+      this.formData.username = 'postgres';
+    } else if (engine === 'mssql' && (!this.formData.username || this.formData.username === 'postgres')) {
+      this.formData.username = 'sa';
+    }
+    // PG/MySQL don't support Windows auth
+    if (engine !== 'mssql' && this.formData.authenticationType !== 'sql') {
+      this.formData.authenticationType = 'sql';
+    }
+  }
+
   canTestConnection(): boolean {
     return !!(
       this.formData.server &&
@@ -456,6 +482,7 @@ export class ConnectionDialogComponent {
     return {
       id: 'test-connection',
       name: this.formData.name || 'Test Connection',
+      engine: this.formData.engine || 'mssql',
       server: this.formData.server!,
       port: this.formData.port!,
       authenticationType: this.formData.authenticationType as AuthenticationType,
@@ -474,6 +501,7 @@ export class ConnectionDialogComponent {
     return {
       ...(existingId ? { id: existingId } : {}),
       name: this.formData.name!,
+      engine: this.formData.engine || 'mssql',
       server: this.formData.server!,
       port: this.formData.port!,
       authenticationType: this.formData.authenticationType as AuthenticationType,

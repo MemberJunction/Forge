@@ -49,6 +49,7 @@ export interface DeleteDatabaseOptions {
 // Unified result type for database operations
 export interface DatabaseOperationResult {
   success: boolean;
+  /** The SQL statement that was executed (T-SQL, PL/pgSQL, or MySQL) */
   tsql: string;
   error?: string;
   message?: string;
