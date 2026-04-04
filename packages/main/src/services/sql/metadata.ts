@@ -144,7 +144,7 @@ export class MetadataService extends BaseSingleton {
 
     const dialect = this.getDialect(connectionId);
     const sql = dialect.listSchemasSQL(database);
-    const rows = await this.queryAny<SchemaInfo>(connectionId, sql);
+    const rows = await this.queryAny<SchemaInfo>(connectionId, sql, database);
 
     const schemas = rows.map(row => ({
       ...row,
@@ -174,7 +174,7 @@ export class MetadataService extends BaseSingleton {
 
     const dialect = this.getDialect(connectionId);
     const sql = dialect.listTablesSQL(database);
-    const rows = await this.queryAny<TableInfo>(connectionId, sql);
+    const rows = await this.queryAny<TableInfo>(connectionId, sql, database);
 
     this.tableCache.set(cacheKey, rows);
     return rows;
@@ -199,7 +199,7 @@ export class MetadataService extends BaseSingleton {
 
     const dialect = this.getDialect(connectionId);
     const sql = dialect.listViewsSQL(database);
-    const rows = await this.queryAny<ViewInfo>(connectionId, sql);
+    const rows = await this.queryAny<ViewInfo>(connectionId, sql, database);
 
     this.viewCache.set(cacheKey, rows);
     return rows;
@@ -224,7 +224,7 @@ export class MetadataService extends BaseSingleton {
 
     const dialect = this.getDialect(connectionId);
     const sql = dialect.listProceduresSQL(database);
-    const rows = await this.queryAny<ProcedureInfo>(connectionId, sql);
+    const rows = await this.queryAny<ProcedureInfo>(connectionId, sql, database);
 
     this.procedureCache.set(cacheKey, rows);
     return rows;
@@ -249,7 +249,7 @@ export class MetadataService extends BaseSingleton {
 
     const dialect = this.getDialect(connectionId);
     const sql = dialect.listFunctionsSQL(database);
-    const rows = await this.queryAny<FunctionInfo>(connectionId, sql);
+    const rows = await this.queryAny<FunctionInfo>(connectionId, sql, database);
 
     this.functionCache.set(cacheKey, rows);
     return rows;
@@ -267,7 +267,7 @@ export class MetadataService extends BaseSingleton {
   ): Promise<ObjectDefinition> {
     const dialect = this.getDialect(connectionId);
     const sql = dialect.getObjectDefinitionSQL(database, schema, name);
-    const rows = await this.queryAny<{ definition: string }>(connectionId, sql);
+    const rows = await this.queryAny<{ definition: string }>(connectionId, sql, database);
 
     return {
       objectType: objectType as ObjectDefinition['objectType'],
@@ -288,7 +288,7 @@ export class MetadataService extends BaseSingleton {
   ): Promise<ColumnInfo[]> {
     const dialect = this.getDialect(connectionId);
     const sql = dialect.listColumnsSQL(database, schema, table);
-    const rows = await this.queryAny<ColumnInfo>(connectionId, sql);
+    const rows = await this.queryAny<ColumnInfo>(connectionId, sql, database);
     return rows.map(row => ({
       ...row,
       isNullable: Boolean(row.isNullable),
@@ -314,7 +314,7 @@ export class MetadataService extends BaseSingleton {
       isUnique: boolean;
       isPrimaryKey: boolean;
       columns: string;
-    }>(connectionId, sql);
+    }>(connectionId, sql, database);
     return rows.map(row => ({
       name: row.name,
       type: row.type as IndexInfo['type'],
@@ -343,7 +343,7 @@ export class MetadataService extends BaseSingleton {
       referencedColumns: string;
       onDelete: string;
       onUpdate: string;
-    }>(connectionId, sql);
+    }>(connectionId, sql, database);
     return rows.map(row => ({
       name: row.name,
       columns: row.columns ? row.columns.split(', ') : [],
@@ -371,7 +371,7 @@ export class MetadataService extends BaseSingleton {
       type: string;
       columns: string;
       definition: string;
-    }>(connectionId, sql);
+    }>(connectionId, sql, database);
     return rows.map(row => ({
       name: row.name,
       type: row.type as ConstraintInfo['type'],
@@ -396,7 +396,7 @@ export class MetadataService extends BaseSingleton {
       isDisabled: boolean;
       triggerType: string;
       createdAt: string;
-    }>(connectionId, sql);
+    }>(connectionId, sql, database);
     return rows.map(row => ({
       name: row.name,
       isEnabled: !row.isDisabled,
@@ -419,7 +419,7 @@ export class MetadataService extends BaseSingleton {
     const sql = dialect.listObjectCommentsSQL(database, schema, table);
     if (!sql) return [];
 
-    const rows = await this.queryAny<ExtendedProperty>(connectionId, sql);
+    const rows = await this.queryAny<ExtendedProperty>(connectionId, sql, database);
     return rows;
   }
 
@@ -540,17 +540,18 @@ WHERE n.nspname = '${this.escId(schema)}'
   AND c.relname = '${this.escId(table)}';`;
 
     const rows = await this.queryAny<TableProperties>(connectionId, sql, database);
-    const props = rows[0] || {} as TableProperties;
+    const props = rows[0] || ({} as TableProperties);
 
     // Fetch sub-resources using dialect-routed methods
-    const [columns, indexes, foreignKeys, constraints, triggers, extendedProperties] = await Promise.all([
-      this.listColumns(connectionId, database, schema, table),
-      this.listIndexes(connectionId, database, schema, table),
-      this.listForeignKeys(connectionId, database, schema, table),
-      this.listConstraints(connectionId, database, schema, table),
-      this.listTriggers(connectionId, database, schema, table),
-      this.listExtendedProperties(connectionId, database, schema, table),
-    ]);
+    const [columns, indexes, foreignKeys, constraints, triggers, extendedProperties] =
+      await Promise.all([
+        this.listColumns(connectionId, database, schema, table),
+        this.listIndexes(connectionId, database, schema, table),
+        this.listForeignKeys(connectionId, database, schema, table),
+        this.listConstraints(connectionId, database, schema, table),
+        this.listTriggers(connectionId, database, schema, table),
+        this.listExtendedProperties(connectionId, database, schema, table),
+      ]);
 
     return {
       ...props,
@@ -939,7 +940,7 @@ WHERE n.nspname = '${this.escId(schema)}'
     const engine = this.poolManager.getEngineForProfile(connectionId);
 
     // Get identity column info (MSSQL uses TsqlBuilder, PG uses column defaults)
-    let identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
+    const identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
     if (engine !== 'postgresql') {
       const identitySql = TsqlBuilder.getTableScriptData(database, schema, table);
       const identityResult = await this.poolManager.query<{
@@ -948,7 +949,10 @@ WHERE n.nspname = '${this.escId(schema)}'
         defaultValue: string;
       }>(connectionId, identitySql);
       for (const r of identityResult.recordset) {
-        identityMap.set(r.columnName, { isIdentity: Boolean(r.isIdentity), defaultValue: r.defaultValue });
+        identityMap.set(r.columnName, {
+          isIdentity: Boolean(r.isIdentity),
+          defaultValue: r.defaultValue,
+        });
       }
     } else {
       // PG: detect identity from column defaults (nextval, GENERATED)
@@ -1057,11 +1061,12 @@ WHERE n.nspname = '${this.escId(schema)}'
       // MJ is detected - get additional info
       const dialect = this.getDialect(connectionId);
       const mjQuoted = dialect.quoteIdentifier(mjSchemaName);
-      const countsSql = engine === 'postgresql'
-        ? `SELECT
+      const countsSql =
+        engine === 'postgresql'
+          ? `SELECT
             (SELECT COUNT(*) FROM ${mjQuoted}."Entity") AS "entityCount",
             (SELECT COUNT(*) FROM ${mjQuoted}."Application") AS "applicationCount"`
-        : `USE [${db}];
+          : `USE [${db}];
           SELECT
             (SELECT COUNT(*) FROM [${this.escId(mjSchemaName)}].[Entity]) AS entityCount,
             (SELECT COUNT(*) FROM [${this.escId(mjSchemaName)}].[Application]) AS applicationCount`;
@@ -1076,10 +1081,11 @@ WHERE n.nspname = '${this.escId(schema)}'
       // Try to get version from VersionInstallation if it exists
       let version: string | undefined;
       try {
-        const versionSql = engine === 'postgresql'
-          ? `SELECT "MJVersion" AS version FROM ${mjQuoted}."VersionInstallation"
+        const versionSql =
+          engine === 'postgresql'
+            ? `SELECT "MJVersion" AS version FROM ${mjQuoted}."VersionInstallation"
              ORDER BY "InstalledAt" DESC LIMIT 1`
-          : `USE [${db}];
+            : `USE [${db}];
             IF OBJECT_ID('${mjStr}.VersionInstallation') IS NOT NULL
               SELECT TOP 1 MJVersion as version FROM [${this.escId(mjSchemaName)}].[VersionInstallation]
               ORDER BY InstalledAt DESC`;
@@ -1115,7 +1121,12 @@ WHERE n.nspname = '${this.escId(schema)}'
    * Execute an MJ schema query using the correct engine.
    * PG uses queryAny with double-quoted identifiers; MSSQL uses USE + bracket quoting.
    */
-  private async queryMJ<T>(connectionId: string, database: string, _mjSchemaName: string, selectSql: string): Promise<T[]> {
+  private async queryMJ<T>(
+    connectionId: string,
+    database: string,
+    _mjSchemaName: string,
+    selectSql: string
+  ): Promise<T[]> {
     const engine = this.poolManager.getEngineForProfile(connectionId);
     if (engine === 'postgresql') {
       return this.queryAny<T>(connectionId, selectSql, database);
@@ -1136,8 +1147,9 @@ WHERE n.nspname = '${this.escId(schema)}'
     const dialect = this.getDialect(connectionId);
     const mj = dialect.quoteIdentifier(mjSchemaName);
 
-    const sql = engine === 'postgresql'
-      ? `SELECT
+    const sql =
+      engine === 'postgresql'
+        ? `SELECT
           "ID"::text AS id, "Name" AS name, "Description" AS description,
           "BaseTable" AS "baseTable", "BaseView" AS "baseView", "SchemaName" AS "schemaName",
           "VirtualEntity" AS "isVirtual", "TrackRecordChanges" AS "trackRecordChanges",
@@ -1146,7 +1158,7 @@ WHERE n.nspname = '${this.escId(schema)}'
           "AllowDeleteAPI" AS "allowDeleteAPI",
           "__mj_CreatedAt"::text AS "createdAt", "__mj_UpdatedAt"::text AS "updatedAt"
         FROM ${mj}."Entity" ORDER BY "Name"`
-      : `SELECT
+        : `SELECT
           CAST(ID AS NVARCHAR(36)) AS id,
           Name AS name, Description AS description,
           BaseTable AS baseTable, BaseView AS baseView, SchemaName AS schemaName,

@@ -493,7 +493,9 @@ pre {
   .mdc-dialog__surface {
     border-radius: var(--radius-lg) !important;
     border: 1px solid var(--border-secondary) !important;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.4),
+      0 4px 12px rgba(0, 0, 0, 0.3) !important;
     overflow: hidden !important;
   }
 }
@@ -607,6 +609,7 @@ pre {
 .mat-mdc-outlined-button,
 .mat-mdc-stroked-button {
   --mdc-outlined-button-outline-color: var(--border-secondary);
+  --mdc-outlined-button-label-text-color: var(--text-primary);
   border-radius: var(--radius-md) !important;
   font-size: 13px !important;
   font-weight: 500 !important;
@@ -614,10 +617,35 @@ pre {
 
 .mat-mdc-unelevated-button,
 .mat-mdc-raised-button {
+  --mdc-filled-button-label-text-color: white;
   border-radius: var(--radius-md) !important;
   font-size: 13px !important;
   font-weight: 500 !important;
   box-shadow: none !important;
+}
+
+// Light theme: ensure primary-colored buttons are legible
+@mixin light-button-overrides {
+  .mat-mdc-unelevated-button.mat-primary {
+    --mdc-filled-button-container-color: var(--accent);
+    --mdc-filled-button-label-text-color: white;
+  }
+
+  .mat-mdc-outlined-button.mat-primary,
+  .mat-mdc-stroked-button.mat-primary {
+    --mdc-outlined-button-label-text-color: var(--text-primary);
+    --mdc-outlined-button-outline-color: var(--border-secondary);
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    @include light-button-overrides;
+  }
+}
+
+:root[data-theme='light'] {
+  @include light-button-overrides;
 }
 
 .mat-mdc-icon-button {
@@ -974,7 +1002,9 @@ pre {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-focus) !important;
   border-radius: var(--radius-md) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    0 2px 8px rgba(0, 0, 0, 0.15) !important;
   opacity: 0.92 !important;
   z-index: 9999 !important;
 
@@ -1136,13 +1166,17 @@ pre {
 
 // Subtle fade in
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 // Focus visible ring for all buttons (keyboard-only)
 button:focus-visible,
-[role="button"]:focus-visible {
+[role='button']:focus-visible {
   outline: 2px solid var(--status-info);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
@@ -1152,27 +1186,43 @@ button:focus-visible,
 .notification-success .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-success) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-success) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-success) !important;
+  }
 }
 
 .notification-error .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-error) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-error) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-error) !important;
+  }
 }
 
 .notification-warning .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-warning) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-warning) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-warning) !important;
+  }
 }
 
 .notification-info .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-info) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-info) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-info) !important;
+  }
 }

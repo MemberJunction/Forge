@@ -5,7 +5,11 @@
  * Identifier quoting uses double-quotes per SQL standard.
  */
 
-import type { CreateDatabaseOptions, RenameDatabaseOptions, DeleteDatabaseOptions } from '@mj-forge/shared';
+import type {
+  CreateDatabaseOptions,
+  RenameDatabaseOptions,
+  DeleteDatabaseOptions,
+} from '@mj-forge/shared';
 import { SQLDialect } from './sql-dialect';
 
 export class PgDialect extends SQLDialect {
@@ -77,7 +81,7 @@ SELECT
   d.datcollate AS collation,
   CASE WHEN d.datistemplate OR d.datname IN ('postgres', 'template0', 'template1')
     THEN true ELSE false END AS "isSystemDb",
-  (pg_stat_file('base/' || d.oid || '/PG_VERSION')).modification AS "createdAt"
+  NULL AS "createdAt"
 FROM pg_database d
 WHERE d.datistemplate = false
 ORDER BY d.datname;`;
