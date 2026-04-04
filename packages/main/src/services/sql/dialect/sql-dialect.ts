@@ -94,8 +94,19 @@ export abstract class SQLDialect {
   /** Whether this dialect supports backup/restore commands */
   abstract readonly supportsBackupRestore: boolean;
 
-  /** Whether this dialect has extended properties (SQL Server feature) */
+  /** Whether this dialect has extended properties (SQL Server) or comments (PostgreSQL) */
   abstract readonly supportsExtendedProperties: boolean;
+
+  /** Whether this dialect supports object comments (COMMENT ON for PG, extended properties for MSSQL) */
+  abstract readonly supportsObjectComments: boolean;
+
+  /**
+   * Query to list comments/descriptions for a table and its columns.
+   * Returns rows with: name, value, level2Type, level2Name (matching ExtendedProperty shape).
+   * SQL Server: uses fn_listextendedproperty
+   * PostgreSQL: uses pg_description + obj_description
+   */
+  abstract listObjectCommentsSQL(database: string, schema: string, table: string): string | null;
 
   /** Whether this dialect supports server-side file browsing (xp_dirtree etc.) */
   abstract readonly supportsServerFileBrowsing: boolean;

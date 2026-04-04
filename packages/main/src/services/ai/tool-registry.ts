@@ -282,13 +282,25 @@ export class ToolRegistry extends BaseSingleton {
     this.register(
       {
         name: 'get_server_info',
-        description: 'Get SQL Server version, edition, and configuration info.',
+        description: 'Get database server version, edition, and configuration info.',
         parameters: { type: 'object', properties: {} },
         category: 'server',
       },
       async (_args, connectionId) => {
         if (!connectionId) throw new Error('No active connection');
         const pool = ConnectionPoolManager.getInstance();
+        const engine = pool.getEngineForProfile(connectionId);
+
+        if (engine === 'postgresql') {
+          const pgPool = await pool.getPgPool(connectionId);
+          const result = await pgPool.query(`
+            SELECT version() AS version,
+                   current_database() AS database,
+                   current_user AS user,
+                   inet_server_addr()::text AS server_address`);
+          return result.rows?.[0] || {};
+        }
+
         const sql = `
           SELECT
             SERVERPROPERTY('ProductVersion') AS version,

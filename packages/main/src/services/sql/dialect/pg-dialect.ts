@@ -17,6 +17,7 @@ export class PgDialect extends SQLDialect {
   readonly supportsWindowsAuth = false;
   readonly supportsBackupRestore = false; // pg_dump/pg_restore are CLI tools, not SQL
   readonly supportsExtendedProperties = false; // PG uses COMMENT ON instead
+  readonly supportsObjectComments = true; // PG supports COMMENT ON
   readonly supportsServerFileBrowsing = false;
 
   quoteIdentifier(name: string): string {
@@ -312,5 +313,48 @@ SELECT
      WHERE n.nspname = '${this.escapeString(schema)}' AND p.proname = '${this.escapeString(name)}'
      LIMIT 1)
   ) AS definition;`;
+  }
+
+  /**
+   * List COMMENT ON descriptions for a table and its columns.
+   * Returns data shaped like ExtendedProperty for UI consistency.
+   */
+  listObjectCommentsSQL(_database: string, schema: string, table: string): string {
+    return `
+-- Table comment
+SELECT
+  'MS_Description' AS name,
+  obj_description(c.oid) AS value,
+  'SCHEMA' AS "level0Type",
+  '${this.escapeString(schema)}' AS "level0Name",
+  'TABLE' AS "level1Type",
+  '${this.escapeString(table)}' AS "level1Name",
+  NULL AS "level2Type",
+  NULL AS "level2Name"
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE n.nspname = '${this.escapeString(schema)}'
+  AND c.relname = '${this.escapeString(table)}'
+  AND obj_description(c.oid) IS NOT NULL
+
+UNION ALL
+
+-- Column comments
+SELECT
+  'MS_Description' AS name,
+  col_description(c.oid, a.attnum) AS value,
+  'SCHEMA' AS "level0Type",
+  '${this.escapeString(schema)}' AS "level0Name",
+  'TABLE' AS "level1Type",
+  '${this.escapeString(table)}' AS "level1Name",
+  'COLUMN' AS "level2Type",
+  a.attname AS "level2Name"
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE n.nspname = '${this.escapeString(schema)}'
+  AND c.relname = '${this.escapeString(table)}'
+  AND col_description(c.oid, a.attnum) IS NOT NULL
+ORDER BY "level2Type" NULLS FIRST, "level2Name";`;
   }
 }

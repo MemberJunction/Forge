@@ -199,11 +199,15 @@ import {
             <span class="expand-placeholder"></span>
           }
           @if (node.icon === 'database-cylinder') {
-            <mat-icon
-              class="node-icon"
-              [class]="'icon-' + node.type"
-              svgIcon="database-cylinder"
-            ></mat-icon>
+            @if (connectionState.activeProfile()?.engine === 'postgresql') {
+              <mat-icon class="node-icon icon-pg" [class]="'icon-' + node.type">view_cozy</mat-icon>
+            } @else {
+              <mat-icon
+                class="node-icon"
+                [class]="'icon-' + node.type"
+                svgIcon="database-cylinder"
+              ></mat-icon>
+            }
           } @else {
             <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
           }
@@ -654,12 +658,24 @@ export class SidebarComponent {
     }
   }
 
+  /** Check if the active connection's engine supports a feature */
+  engineSupports(feature: 'backupRestore' | 'serverFileBrowsing' | 'extendedProperties'): boolean {
+    const engine = this.connectionState.activeProfile()?.engine;
+    if (!engine || engine === 'mssql') return true; // MSSQL supports all
+    return false; // PG/MySQL don't support these MSSQL-specific features
+  }
+
   openBackup(databaseName?: string): void {
     const connectionId = this.connectionState.activeConnectionId();
     const dbName = databaseName || this.connectionState.selectedDatabase();
 
     if (!connectionId) {
       this.notification.error('No active connection');
+      return;
+    }
+
+    if (!this.engineSupports('backupRestore')) {
+      this.notification.warning('SQL backup is not available for this database engine. Use pg_dump/pg_restore CLI tools instead.');
       return;
     }
 
@@ -691,6 +707,11 @@ export class SidebarComponent {
 
     if (!connectionId) {
       this.notification.error('No active connection');
+      return;
+    }
+
+    if (!this.engineSupports('backupRestore')) {
+      this.notification.warning('SQL restore is not available for this database engine. Use pg_restore CLI tool instead.');
       return;
     }
 

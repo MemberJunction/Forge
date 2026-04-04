@@ -86,7 +86,7 @@ export interface ConnectionDialogResult {
           </mat-form-field>
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>Port</mat-label>
-            <input matInput type="number" [(ngModel)]="formData.port" placeholder="1433" />
+            <input matInput type="number" [(ngModel)]="formData.port" [placeholder]="formData.engine === 'postgresql' ? '5432' : formData.engine === 'mysql' ? '3306' : '1433'" />
           </mat-form-field>
         </div>
 
@@ -94,16 +94,18 @@ export interface ConnectionDialogResult {
 
         <!-- Authentication -->
         <h3>Authentication</h3>
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Authentication Type</mat-label>
-          <mat-select [(ngModel)]="formData.authenticationType">
-            <mat-option value="sql">SQL Server Authentication</mat-option>
-            <mat-option value="windows">Windows Authentication</mat-option>
-            <mat-option value="azure-ad">Azure AD Authentication</mat-option>
-          </mat-select>
-        </mat-form-field>
+        @if (formData.engine === 'mssql') {
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Authentication Type</mat-label>
+            <mat-select [(ngModel)]="formData.authenticationType">
+              <mat-option value="sql">SQL Server Authentication</mat-option>
+              <mat-option value="windows">Windows Authentication</mat-option>
+              <mat-option value="azure-ad">Azure AD Authentication</mat-option>
+            </mat-select>
+          </mat-form-field>
+        }
 
-        @if (formData.authenticationType === 'sql') {
+        @if (formData.authenticationType === 'sql' || formData.engine !== 'mssql') {
           <div class="form-row">
             <mat-form-field appearance="outline" class="flex-1">
               <mat-label>Username</mat-label>
@@ -160,7 +162,7 @@ export interface ConnectionDialogResult {
           </mat-form-field>
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>Default Database</mat-label>
-            <input matInput [(ngModel)]="formData.database" placeholder="master" />
+            <input matInput [(ngModel)]="formData.database" [placeholder]="formData.engine === 'postgresql' ? 'postgres' : formData.engine === 'mysql' ? 'mysql' : 'master'" />
           </mat-form-field>
         </div>
       </mat-dialog-content>

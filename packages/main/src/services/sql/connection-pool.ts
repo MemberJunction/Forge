@@ -340,6 +340,28 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
+   * Execute DDL statements on any engine (MSSQL or PostgreSQL).
+   * Routes to the correct pool based on the connection's engine.
+   */
+  async executeDDL(profileId: string, sql: string): Promise<void> {
+    const engine = this.getEngineForProfile(profileId);
+
+    if (engine === 'postgresql') {
+      const pool = await this.getPgPool(profileId);
+      const client = await pool.connect();
+      try {
+        await client.query(sql);
+      } finally {
+        client.release();
+      }
+      return;
+    }
+
+    // Default: SQL Server
+    await this.batch(profileId, sql);
+  }
+
+  /**
    * Close a specific connection pool (SQL Server or PostgreSQL)
    */
   async closePool(profileId: string): Promise<void> {

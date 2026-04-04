@@ -696,7 +696,13 @@ export class ChatService extends BaseSingleton {
   // ---- Message Building ----
 
   private buildSystemPrompt(request: ChatRequest): string {
-    let prompt = `You are Forge AI, a helpful database assistant built into MJ Forge — a SQL Server management tool.
+    const engineLabel = request.databaseEngine === 'postgresql' ? 'PostgreSQL'
+      : request.databaseEngine === 'mysql' ? 'MySQL' : 'SQL Server';
+    const dialectHint = request.databaseEngine === 'postgresql' ? 'PostgreSQL SQL'
+      : request.databaseEngine === 'mysql' ? 'MySQL SQL' : 'T-SQL';
+
+    let prompt = `You are Forge AI, a helpful database assistant built into MJ Forge — a multi-database management tool.
+The user is currently connected to a ${engineLabel} database. Generate ${dialectHint} syntax for all queries.
 You help users manage their databases through natural conversation. You can execute SQL queries, create databases, inspect schema, and more using the available tools.
 
 Guidelines:

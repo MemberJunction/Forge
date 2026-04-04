@@ -76,6 +76,8 @@ export interface ChatRequest {
   /** Current database context */
   connectionId?: string;
   databaseName?: string;
+  /** Database engine type for dialect-aware prompts */
+  databaseEngine?: 'mssql' | 'postgresql' | 'mysql';
   /** Available schema for context */
   schemaContext?: SchemaContext;
   /** Override vendor (e.g. 'google', 'anthropic') — if omitted, uses default selection */

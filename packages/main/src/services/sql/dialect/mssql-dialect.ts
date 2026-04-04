@@ -19,6 +19,7 @@ export class MSSQLDialect extends SQLDialect {
   readonly supportsWindowsAuth = true;
   readonly supportsBackupRestore = true;
   readonly supportsExtendedProperties = true;
+  readonly supportsObjectComments = true;
   readonly supportsServerFileBrowsing = true;
 
   quoteIdentifier(name: string): string {
@@ -91,5 +92,9 @@ export class MSSQLDialect extends SQLDialect {
 
   getObjectDefinitionSQL(database: string, schema: string, name: string): string {
     return TsqlBuilder.getObjectDefinition(database, schema, name);
+  }
+
+  listObjectCommentsSQL(database: string, schema: string, table: string): string {
+    return TsqlBuilder.listExtendedProperties(database, schema, table);
   }
 }

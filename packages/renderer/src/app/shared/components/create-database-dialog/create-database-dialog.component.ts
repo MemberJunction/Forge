@@ -20,6 +20,7 @@ import type { RecoveryModel } from '@mj-forge/shared';
 
 export interface CreateDatabaseDialogData {
   connectionId: string;
+  engine?: 'mssql' | 'postgresql' | 'mysql';
 }
 
 @Component({
@@ -59,15 +60,17 @@ export interface CreateDatabaseDialogData {
           </mat-hint>
         </mat-form-field>
 
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Recovery Model</mat-label>
-          <mat-select [(ngModel)]="recoveryModel" [disabled]="creating()">
-            <mat-option value="simple">Simple</mat-option>
-            <mat-option value="full">Full</mat-option>
-            <mat-option value="bulk_logged">Bulk-Logged</mat-option>
-          </mat-select>
-          <mat-hint> Simple: No log backups needed. Full: Point-in-time recovery. </mat-hint>
-        </mat-form-field>
+        @if (data.engine !== 'postgresql' && data.engine !== 'mysql') {
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Recovery Model</mat-label>
+            <mat-select [(ngModel)]="recoveryModel" [disabled]="creating()">
+              <mat-option value="simple">Simple</mat-option>
+              <mat-option value="full">Full</mat-option>
+              <mat-option value="bulk_logged">Bulk-Logged</mat-option>
+            </mat-select>
+            <mat-hint> Simple: No log backups needed. Full: Point-in-time recovery. </mat-hint>
+          </mat-form-field>
+        }
 
         @if (error()) {
           <div class="error-message">

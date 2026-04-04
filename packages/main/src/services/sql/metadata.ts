@@ -406,8 +406,8 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
-   * List extended properties for a table and its columns.
-   * This is a SQL Server-only feature; returns empty array for other engines.
+   * List extended properties (MSSQL) or COMMENT ON descriptions (PG) for a table and its columns.
+   * Returns data shaped as ExtendedProperty[] for UI consistency across engines.
    */
   async listExtendedProperties(
     connectionId: string,
@@ -416,11 +416,11 @@ export class MetadataService extends BaseSingleton {
     table: string
   ): Promise<ExtendedProperty[]> {
     const dialect = this.getDialect(connectionId);
-    if (!dialect.supportsExtendedProperties) return [];
+    const sql = dialect.listObjectCommentsSQL(database, schema, table);
+    if (!sql) return [];
 
-    const sql = TsqlBuilder.listExtendedProperties(database, schema, table);
-    const result = await this.poolManager.query<ExtendedProperty>(connectionId, sql);
-    return result.recordset;
+    const rows = await this.queryAny<ExtendedProperty>(connectionId, sql);
+    return rows;
   }
 
   /**

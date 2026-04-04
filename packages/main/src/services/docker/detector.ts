@@ -53,13 +53,24 @@ export class DockerDetector extends BaseSingleton {
       const sqlContainers: DockerContainer[] = [];
 
       for (const container of containers) {
+        const imageLower = container.Image.toLowerCase();
         const isSqlServer =
-          container.Image.toLowerCase().includes('mssql') ||
-          container.Image.toLowerCase().includes('sqlserver') ||
-          container.Image.toLowerCase().includes('azure-sql-edge');
+          imageLower.includes('mssql') ||
+          imageLower.includes('sqlserver') ||
+          imageLower.includes('azure-sql-edge');
+        const isPostgres =
+          imageLower.includes('postgres') ||
+          imageLower.includes('postgresql') ||
+          imageLower.includes('postgis');
+        const isMySQL =
+          imageLower.includes('mysql') ||
+          imageLower.includes('mariadb');
 
-        if (isSqlServer) {
-          const portBinding = container.Ports.find(p => p.PrivatePort === 1433);
+        const isDatabase = isSqlServer || isPostgres || isMySQL;
+
+        if (isDatabase) {
+          const defaultPort = isPostgres ? 5432 : isMySQL ? 3306 : 1433;
+          const portBinding = container.Ports.find(p => p.PrivatePort === defaultPort);
 
           const volumeMappings: DockerVolumeMapping[] = (container.Mounts || [])
             .filter(m => m.Type === 'bind')
@@ -250,16 +261,20 @@ export class DockerDetector extends BaseSingleton {
   }
 
   /**
-   * Get default SQL Server backup path in container
+   * Get default backup path in container based on database engine
    */
-  getDefaultBackupPath(): string {
+  getDefaultBackupPath(engine: string = 'mssql'): string {
+    if (engine === 'postgresql') return '/var/lib/postgresql/backups';
+    if (engine === 'mysql') return '/var/lib/mysql/backups';
     return '/var/opt/mssql/backups';
   }
 
   /**
-   * Get default SQL Server data path in container
+   * Get default data path in container based on database engine
    */
-  getDefaultDataPath(): string {
+  getDefaultDataPath(engine: string = 'mssql'): string {
+    if (engine === 'postgresql') return '/var/lib/postgresql/data';
+    if (engine === 'mysql') return '/var/lib/mysql';
     return '/var/opt/mssql/data';
   }
 }
