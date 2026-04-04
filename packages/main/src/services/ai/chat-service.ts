@@ -145,6 +145,17 @@ export class ChatService extends BaseSingleton {
   }
 
   /**
+   * Abort all active streams (used during app shutdown)
+   */
+  abortAll(): void {
+    for (const [id, controller] of this.activeStreams) {
+      controller.abort();
+      log.info(`Shutdown: aborted chat stream ${id}`);
+    }
+    this.activeStreams.clear();
+  }
+
+  /**
    * Send a message and stream the response back via IPC events
    */
   async sendMessage(request: ChatRequest, mainWindow: BrowserWindow): Promise<void> {

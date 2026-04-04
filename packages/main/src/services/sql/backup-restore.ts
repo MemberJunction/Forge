@@ -464,6 +464,19 @@ export class BackupRestoreService extends BaseSingleton {
   }
 
   /**
+   * Stop all active operations and clear their progress intervals (used during app shutdown)
+   */
+  stopAllOperations(): void {
+    for (const [id, operation] of this.activeOperations) {
+      if (operation.progressInterval) {
+        clearInterval(operation.progressInterval);
+      }
+      log.info(`Shutdown: stopped ${operation.type} operation ${id}`);
+    }
+    this.activeOperations.clear();
+  }
+
+  /**
    * Send a message to the renderer process
    */
   private sendToRenderer(channel: string, data: unknown): void {

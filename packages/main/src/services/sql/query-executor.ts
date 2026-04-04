@@ -251,6 +251,24 @@ export class QueryExecutor extends BaseSingleton {
   }
 
   /**
+   * Cancel all running queries (used during app shutdown)
+   */
+  cancelAll(): void {
+    for (const [queryId, activeQuery] of this.activeQueries) {
+      activeQuery.cancelled = true;
+      if (activeQuery.request) {
+        try {
+          activeQuery.request.cancel();
+        } catch {
+          // Ignore cancel errors during shutdown
+        }
+      }
+      log.info(`Shutdown: cancelled query ${queryId}`);
+    }
+    this.activeQueries.clear();
+  }
+
+  /**
    * Extract column metadata from a recordset
    */
   private extractColumns(columns: Record<string, unknown>): ColumnMetadata[] {
