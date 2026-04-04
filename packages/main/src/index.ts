@@ -11,6 +11,7 @@ import { ConnectionPoolManager } from './services/sql/connection-pool';
 import { QueryExecutor } from './services/sql/query-executor';
 import { BackupRestoreService } from './services/sql/backup-restore';
 import { PgBackupService } from './services/sql/pg-backup';
+import { SQLConverterService } from './services/sql/sql-converter';
 import { ChatService } from './services/ai/chat-service';
 import { AIService } from './services/ai/ai-service';
 import { CredentialStore } from './services/keychain/credential-store';
@@ -111,6 +112,9 @@ if (!gotTheLock) {
     try { ChatService.getInstance().abortAll(); } catch { /* singleton may not exist */ }
     try { AIService.getInstance().abortAll(); } catch { /* singleton may not exist */ }
     log.info('Shutdown: aborted active AI streams');
+
+    try { SQLConverterService.getInstance().stop().catch(() => {}); } catch { /* singleton may not exist */ }
+    log.info('Shutdown: stopped sqlglot microservice');
 
     // --- Async cleanup (close SQL pools) ---
     poolManager.closeAll()
