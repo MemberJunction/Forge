@@ -43,9 +43,6 @@ jobs:
       - name: Type-check preload
         run: npx tsc --noEmit -p packages/preload/tsconfig.json
 
-      - name: Run tests
-        run: npm test
-
       - name: Run tests with coverage
         run: npm run test:coverage
 
