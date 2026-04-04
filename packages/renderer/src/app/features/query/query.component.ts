@@ -1312,6 +1312,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   private static readonly CTRL_E_CONFIRMED_KEY = 'mj-forge-ctrl-e-execute-confirmed';
+  private static readonly PLACEHOLDER_VALUES_KEY = 'mj-forge-flyway-placeholder-values';
 
   /**
    * Handle Ctrl+E / Cmd+E — shows a one-time confirmation dialog for new users,
@@ -1397,11 +1398,148 @@ export class QueryComponent implements OnInit, OnDestroy {
     setTimeout(() => (dialog.querySelector('#ctrl-e-execute') as HTMLButtonElement)?.focus(), 50);
   }
 
+  // --- Flyway / Skyway placeholder detection ---
+
+  /**
+   * Detect Flyway-style ${placeholder} tokens in SQL.
+   * Returns unique placeholder names (without the ${} wrapper).
+   */
+  private detectPlaceholders(sql: string): string[] {
+    const regex = /\$\{([^}]+)\}/g;
+    const names = new Set<string>();
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(sql)) !== null) {
+      names.add(match[1]);
+    }
+    return Array.from(names);
+  }
+
+  /** Load remembered placeholder values from localStorage. */
+  private loadPlaceholderValues(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem(QueryComponent.PLACEHOLDER_VALUES_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Persist placeholder values to localStorage. */
+  private savePlaceholderValues(values: Record<string, string>): void {
+    localStorage.setItem(QueryComponent.PLACEHOLDER_VALUES_KEY, JSON.stringify(values));
+  }
+
+  /**
+   * Show a dialog asking the user to fill in placeholder values.
+   * Resolves with the substituted SQL, or null if the user cancelled.
+   */
+  private showPlaceholderDialog(placeholders: string[], sql: string): Promise<string | null> {
+    return new Promise(resolve => {
+      const remembered = this.loadPlaceholderValues();
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-primary);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3); width: 480px; max-width: 90vw; overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      `;
+
+      const inputRows = placeholders.map(name => {
+        const val = remembered[name] || '';
+        return `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <label style="min-width:120px;color:var(--text-secondary);font-size:13px;font-family:monospace;text-align:right;flex-shrink:0;">
+              \${${name}}
+            </label>
+            <input type="text" data-placeholder="${name}" value="${val.replace(/"/g, '&quot;')}"
+              style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border-primary);
+                background:var(--bg-primary);color:var(--text-primary);font-size:13px;font-family:monospace;outline:none;"
+              placeholder="Enter value…" />
+          </div>`;
+      }).join('');
+
+      dialog.innerHTML = `
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border-primary);display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">&#123;&#125;</span>
+          <h3 style="margin:0;font-size:15px;font-weight:600;color:var(--text-primary);">Flyway Placeholders Detected</h3>
+        </div>
+        <div style="padding:20px;">
+          <p style="margin:0 0 16px 0;color:var(--text-secondary);line-height:1.5;font-size:13px;">
+            This SQL contains <strong style="color:var(--text-primary);">${placeholders.length}</strong>
+            placeholder${placeholders.length > 1 ? 's' : ''}. Provide values to substitute before executing.
+          </p>
+          ${inputRows}
+        </div>
+        <div style="padding:12px 20px;border-top:1px solid var(--border-primary);background:var(--bg-tertiary);
+          display:flex;justify-content:flex-end;gap:8px;border-radius:0 0 12px 12px;">
+          <button id="ph-execute" style="
+            padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;
+            background:var(--status-info,#007acc);color:white;">Execute</button>
+          <button id="ph-cancel" style="
+            padding:6px 16px;border-radius:6px;border:1px solid var(--border-primary);cursor:pointer;font-size:13px;
+            background:transparent;color:var(--text-primary);">Cancel</button>
+        </div>`;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      const cleanup = () => { overlay.remove(); };
+
+      const doExecute = () => {
+        const inputs = dialog.querySelectorAll<HTMLInputElement>('input[data-placeholder]');
+        const values: Record<string, string> = {};
+        inputs.forEach(inp => { values[inp.dataset['placeholder']!] = inp.value; });
+
+        // Persist for next time
+        const merged = { ...remembered, ...values };
+        this.savePlaceholderValues(merged);
+
+        // Replace all ${name} occurrences in the SQL
+        let resolved = sql;
+        for (const [name, value] of Object.entries(values)) {
+          resolved = resolved.split('${' + name + '}').join(value);
+        }
+        cleanup();
+        resolve(resolved);
+      };
+
+      dialog.querySelector('#ph-execute')!.addEventListener('click', doExecute);
+      dialog.querySelector('#ph-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+      // Enter key in any input triggers execute
+      dialog.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key === 'Enter') { e.preventDefault(); doExecute(); }
+          if (e.key === 'Escape') { e.preventDefault(); cleanup(); resolve(null); }
+        });
+      });
+
+      // Focus the first input
+      setTimeout(() => {
+        const first = dialog.querySelector<HTMLInputElement>('input[data-placeholder]');
+        first?.focus();
+        first?.select();
+      }, 50);
+    });
+  }
+
   async executeQuery(): Promise<void> {
-    const sql = this.getSelectedOrAllText();
+    let sql = this.getSelectedOrAllText();
     if (!sql.trim()) {
       this.notification.warning('No query to execute');
       return;
+    }
+
+    // Detect Flyway-style ${placeholder} tokens and prompt for values
+    const placeholders = this.detectPlaceholders(sql);
+    if (placeholders.length > 0) {
+      const resolved = await this.showPlaceholderDialog(placeholders, sql);
+      if (resolved === null) return; // User cancelled
+      sql = resolved;
     }
 
     const connectionId = this.connectionState.activeConnectionId();
