@@ -8,7 +8,12 @@ import { createMenu } from './menu';
 import { registerAllHandlers } from './ipc';
 import { createLogger } from './utils/logger';
 import { ConnectionPoolManager } from './services/sql/connection-pool';
+import { QueryExecutor } from './services/sql/query-executor';
+import { BackupRestoreService } from './services/sql/backup-restore';
+import { ChatService } from './services/ai/chat-service';
+import { AIService } from './services/ai/ai-service';
 import { CredentialStore } from './services/keychain/credential-store';
+import { cleanupWorkspaceWatchers } from './ipc/workspace.ipc';
 
 const log = createLogger('App');
 
@@ -69,12 +74,51 @@ if (!gotTheLock) {
     }
   });
 
-  // Cleanup before quit
-  app.on('before-quit', async () => {
-    // Close all SQL connections
+  // Cleanup before quit — Electron does NOT await async before-quit handlers,
+  // so we prevent the default quit, run cleanup ourselves, then force exit.
+  let isQuitting = false;
+  app.on('before-quit', (event) => {
+    if (isQuitting) return; // Already running shutdown sequence
+    isQuitting = true;
+    event.preventDefault(); // Hold quit until cleanup finishes (or times out)
+
+    const shutdownStart = Date.now();
+    log.info('Shutdown: starting graceful cleanup...');
+
+    // Force-exit safety net — if cleanup hangs, exit anyway
+    const SHUTDOWN_TIMEOUT_MS = 3000;
+    const forceExitTimer = setTimeout(() => {
+      log.warn(`Shutdown: timed out after ${SHUTDOWN_TIMEOUT_MS}ms, forcing exit`);
+      app.exit(0);
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    // --- Synchronous cleanup (timers, watchers, in-flight work) ---
     const poolManager = ConnectionPoolManager.getInstance();
     poolManager.stopCleanupTimer();
-    await poolManager.closeAll();
+    log.info('Shutdown: stopped pool cleanup timer');
+
+    cleanupWorkspaceWatchers();
+    log.info('Shutdown: closed workspace file watchers');
+
+    try { QueryExecutor.getInstance().cancelAll(); } catch { /* singleton may not exist */ }
+    log.info('Shutdown: cancelled active queries');
+
+    try { BackupRestoreService.getInstance().stopAllOperations(); } catch { /* singleton may not exist */ }
+    log.info('Shutdown: stopped backup/restore operations');
+
+    try { ChatService.getInstance().abortAll(); } catch { /* singleton may not exist */ }
+    try { AIService.getInstance().abortAll(); } catch { /* singleton may not exist */ }
+    log.info('Shutdown: aborted active AI streams');
+
+    // --- Async cleanup (close SQL pools) ---
+    poolManager.closeAll()
+      .then(() => log.info(`Shutdown: closed all SQL pools in ${Date.now() - shutdownStart}ms`))
+      .catch((err) => log.error('Shutdown: error closing SQL pools:', err))
+      .finally(() => {
+        clearTimeout(forceExitTimer);
+        log.info(`Shutdown: complete in ${Date.now() - shutdownStart}ms`);
+        app.exit(0);
+      });
   });
 }
 

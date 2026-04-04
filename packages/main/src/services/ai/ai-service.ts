@@ -241,6 +241,17 @@ EXPLANATION:
     }
   }
 
+  /**
+   * Abort all active AI requests (used during app shutdown)
+   */
+  abortAll(): void {
+    for (const [id, controller] of this.activeRequests) {
+      controller.abort();
+      log.info(`Shutdown: aborted AI request ${id}`);
+    }
+    this.activeRequests.clear();
+  }
+
   // Private helpers
 
   private async selectModelForFeature(
