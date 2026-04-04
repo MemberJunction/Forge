@@ -85,9 +85,13 @@ import {
                 [class.active]="profile.id === connectionState.activeConnectionId()"
               >
                 <mat-icon>{{
-                  profile.id === connectionState.activeConnectionId() ? 'check' : 'dns'
+                  profile.id === connectionState.activeConnectionId() ? 'check'
+                  : profile.engine === 'postgresql' ? 'view_cozy'
+                  : profile.engine === 'mysql' ? 'grid_on'
+                  : 'dns'
                 }}</mat-icon>
                 <span>{{ profile.name }}</span>
+                <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{ profile.engine === 'postgresql' ? 'PG' : 'MY' }}</span>
               </button>
             }
             <mat-divider />

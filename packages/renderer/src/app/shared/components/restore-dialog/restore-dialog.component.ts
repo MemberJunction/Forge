@@ -78,18 +78,20 @@ export interface RestoreDialogData {
                     matInput
                     [(ngModel)]="formData.backupPath"
                     [disabled]="restoring()"
-                    placeholder="e.g., /var/opt/mssql/backup/db.bak"
+                    [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
                     (ngModelChange)="onBackupPathChange()"
                   />
                 </mat-form-field>
-                <button
-                  mat-icon-button
-                  [disabled]="restoring()"
-                  (click)="browseBackupFile()"
-                  matTooltip="Browse server"
-                >
-                  <mat-icon>folder_open</mat-icon>
-                </button>
+                @if (data.engine !== 'postgresql') {
+                  <button
+                    mat-icon-button
+                    [disabled]="restoring()"
+                    (click)="browseBackupFile()"
+                    matTooltip="Browse server"
+                  >
+                    <mat-icon>folder_open</mat-icon>
+                  </button>
+                }
                 <button
                   mat-icon-button
                   [disabled]="restoring() || !formData.backupPath"

@@ -200,6 +200,26 @@ declare const monaco: {
         <button mat-icon-button matTooltip="Show Execution Plan" aria-label="Show Execution Plan" (click)="showExecutionPlan()">
           <mat-icon>account_tree</mat-icon>
         </button>
+        <button mat-icon-button [matMenuTriggerFor]="convertMenu" matTooltip="Convert SQL Dialect">
+          <mat-icon>translate</mat-icon>
+        </button>
+        <mat-menu #convertMenu="matMenu">
+          @if (connectionState.activeProfile()?.engine !== 'mssql') {
+            <button mat-menu-item (click)="convertSqlTo('mssql')">
+              <mat-icon>dns</mat-icon> To SQL Server
+            </button>
+          }
+          @if (connectionState.activeProfile()?.engine !== 'postgresql') {
+            <button mat-menu-item (click)="convertSqlTo('postgresql')">
+              <mat-icon>view_cozy</mat-icon> To PostgreSQL
+            </button>
+          }
+          @if (connectionState.activeProfile()?.engine !== 'mysql') {
+            <button mat-menu-item (click)="convertSqlTo('mysql')">
+              <mat-icon>grid_on</mat-icon> To MySQL
+            </button>
+          }
+        </mat-menu>
 
         @if (activeResultSet()) {
           <div class="toolbar-divider"></div>
@@ -1921,6 +1941,30 @@ export class QueryComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.notification.error('Failed to format SQL');
       console.error('SQL formatting error:', error);
+    }
+  }
+
+  async convertSqlTo(targetEngine: string): Promise<void> {
+    if (!this.editor) return;
+
+    const sql = this.getSelectedOrAllText();
+    if (!sql.trim()) {
+      this.notification.warning('No SQL to convert');
+      return;
+    }
+
+    const fromEngine = this.connectionState.activeProfile()?.engine || 'mssql';
+    try {
+      const result = await firstValueFrom(this.ipc.convertSql(sql, fromEngine, targetEngine));
+      if (result.success) {
+        this.editor.setValue(result.sql);
+        const labels: Record<string, string> = { mssql: 'SQL Server', postgresql: 'PostgreSQL', mysql: 'MySQL' };
+        this.notification.success(`Converted to ${labels[targetEngine] || targetEngine}`);
+      } else {
+        this.notification.error(result.error || 'Conversion failed');
+      }
+    } catch {
+      this.notification.error('SQL conversion failed');
     }
   }
 

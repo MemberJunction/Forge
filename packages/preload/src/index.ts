@@ -683,6 +683,8 @@ const forgeAPI: ForgeAPI = {
     exportResults: (resultSet, options) =>
       ipcRenderer.invoke(IPC_CHANNELS.QUERY.EXPORT_RESULTS, resultSet, options),
     fetchFkRecord: request => ipcRenderer.invoke(IPC_CHANNELS.QUERY.FETCH_FK_RECORD, request),
+    convertSql: (sql: string, fromEngine: string, toEngine: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY.CONVERT_SQL, sql, fromEngine, toEngine),
   },
 
   queryResults: {

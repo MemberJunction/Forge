@@ -287,14 +287,12 @@ export class QueryExecutor extends BaseSingleton {
     queryId: string,
     startTime: number
   ): Promise<QueryResult> {
-    const pool = await this.poolManager.getPgPool(request.connectionId);
+    // PG sets database at the connection/pool level — pass database to get the right pool
+    const pool = await this.poolManager.getPgPool(request.connectionId, request.database);
 
     if (activeQuery.cancelled) {
       return this.createCancelledResult(queryId, startTime);
     }
-
-    // PostgreSQL doesn't use GO separators or USE statements.
-    // Database context is set at the connection/pool level.
     const client = await pool.connect();
     try {
       const result = await client.query(request.sql);

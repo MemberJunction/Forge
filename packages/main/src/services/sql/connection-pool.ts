@@ -176,17 +176,22 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
-   * Get a PostgreSQL pool for a profile
+   * Get a PostgreSQL pool for a profile.
+   * PG sets database at the connection level, so a separate pool is created
+   * per database. The pool key includes the database name.
    */
-  async getPgPool(profileId: string): Promise<PgPool> {
-    const existing = this.pgPools.get(profileId);
+  async getPgPool(profileId: string, database?: string): Promise<PgPool> {
+    const profile = this.profileStore.getById(profileId);
+    if (!profile) throw new Error('Connection profile not found');
+
+    const dbName = database || profile.database || 'postgres';
+    const poolKey = `${profileId}:${dbName}`;
+
+    const existing = this.pgPools.get(poolKey);
     if (existing) {
       existing.lastUsed = new Date();
       return existing.pool;
     }
-
-    const profile = this.profileStore.getById(profileId);
-    if (!profile) throw new Error('Connection profile not found');
 
     const password = await this.profileStore.getPassword(profileId);
     if (!password) throw new Error('Connection password not found in Keychain');
@@ -196,7 +201,7 @@ export class ConnectionPoolManager extends BaseSingleton {
       port: profile.port,
       user: profile.username,
       password,
-      database: profile.database || 'postgres',
+      database: dbName,
       ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : false,
       connectionTimeoutMillis: profile.connectionTimeout * 1000,
       query_timeout: (profile.requestTimeout || 30) * 1000,
@@ -208,7 +213,7 @@ export class ConnectionPoolManager extends BaseSingleton {
     const client = await pool.connect();
     client.release();
 
-    this.pgPools.set(profileId, {
+    this.pgPools.set(poolKey, {
       pool,
       profileId,
       lastUsed: new Date(),

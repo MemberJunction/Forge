@@ -41,6 +41,7 @@
     "keytar": "^7.9.0",
     "mssql": "^11.0.1",
     "pg": "^8.20.0",
+    "sqlglot-ts": "^0.1.5",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

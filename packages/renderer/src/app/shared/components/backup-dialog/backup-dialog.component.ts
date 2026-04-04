@@ -69,12 +69,20 @@ export interface BackupDialogData {
         <div class="form-grid">
           <!-- Backup Type -->
           <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>Backup Type</mat-label>
-            <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
-              <mat-option value="full">Full Backup</mat-option>
-              <mat-option value="differential">Differential Backup</mat-option>
-              <mat-option value="log">Transaction Log Backup</mat-option>
-            </mat-select>
+            <mat-label>{{ data.engine === 'postgresql' ? 'Dump Format' : 'Backup Type' }}</mat-label>
+            @if (data.engine === 'postgresql') {
+              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                <mat-option value="full">Custom (compressed, pg_restore)</mat-option>
+                <mat-option value="differential">Plain SQL (readable text)</mat-option>
+                <mat-option value="log">Directory (parallel dump)</mat-option>
+              </mat-select>
+            } @else {
+              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                <mat-option value="full">Full Backup</mat-option>
+                <mat-option value="differential">Differential Backup</mat-option>
+                <mat-option value="log">Transaction Log Backup</mat-option>
+              </mat-select>
+            }
           </mat-form-field>
 
           <!-- Backup Path -->
@@ -88,14 +96,16 @@ export interface BackupDialogData {
                 [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
               />
             </mat-form-field>
-            <button
-              mat-icon-button
-              [disabled]="backing()"
-              (click)="browseBackupPath()"
-              matTooltip="Browse server"
-            >
-              <mat-icon>folder_open</mat-icon>
-            </button>
+            @if (data.engine !== 'postgresql') {
+              <button
+                mat-icon-button
+                [disabled]="backing()"
+                (click)="browseBackupPath()"
+                matTooltip="Browse server"
+              >
+                <mat-icon>folder_open</mat-icon>
+              </button>
+            }
           </div>
 
           <!-- Options -->

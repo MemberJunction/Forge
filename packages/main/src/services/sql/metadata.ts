@@ -63,7 +63,7 @@ export class MetadataService extends BaseSingleton {
     const engine = this.poolManager.getEngineForProfile(connectionId);
 
     if (engine === 'postgresql') {
-      const pool = await this.poolManager.getPgPool(connectionId);
+      const pool = await this.poolManager.getPgPool(connectionId, database);
       const result = await pool.query(sql);
       return result.rows as T[];
     }
@@ -432,7 +432,14 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<TableProperties> {
-    // Get basic properties
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    // For PostgreSQL, build properties from pg_catalog queries
+    if (engine === 'postgresql') {
+      return this.getTablePropertiesPg(connectionId, database, schema, table);
+    }
+
+    // SQL Server: use TsqlBuilder for detailed system view queries
     const propertiesSql = TsqlBuilder.getTableProperties(database, schema, table);
     const propertiesResult = await this.poolManager.query<{
       schema: string;
@@ -500,6 +507,63 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
+   * Get table properties for PostgreSQL using pg_catalog
+   */
+  private async getTablePropertiesPg(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<TableProperties> {
+    const sql = `
+SELECT
+  n.nspname AS schema,
+  c.relname AS name,
+  c.oid AS "objectId",
+  NULL AS "createdAt",
+  NULL AS "modifiedAt",
+  COALESCE(s.n_live_tup, 0) AS "rowCount",
+  pg_relation_size(c.oid) / 1024 AS "dataSpaceKb",
+  pg_indexes_size(c.oid) / 1024 AS "indexSpaceKb",
+  0 AS "unusedSpaceKb",
+  pg_total_relation_size(c.oid) / 1024 AS "totalSpaceKb",
+  EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attidentity != '') AS "hasIdentity",
+  (SELECT a.attname FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attidentity != '' LIMIT 1) AS "identityColumn",
+  false AS "isReplicated",
+  false AS "hasTextImage",
+  ts.spcname AS filegroup
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+LEFT JOIN pg_tablespace ts ON c.reltablespace = ts.oid
+WHERE n.nspname = '${this.escId(schema)}'
+  AND c.relname = '${this.escId(table)}';`;
+
+    const rows = await this.queryAny<TableProperties>(connectionId, sql, database);
+    const props = rows[0] || {} as TableProperties;
+
+    // Fetch sub-resources using dialect-routed methods
+    const [columns, indexes, foreignKeys, constraints, triggers, extendedProperties] = await Promise.all([
+      this.listColumns(connectionId, database, schema, table),
+      this.listIndexes(connectionId, database, schema, table),
+      this.listForeignKeys(connectionId, database, schema, table),
+      this.listConstraints(connectionId, database, schema, table),
+      this.listTriggers(connectionId, database, schema, table),
+      this.listExtendedProperties(connectionId, database, schema, table),
+    ]);
+
+    return {
+      ...props,
+      columns,
+      indexes,
+      foreignKeys,
+      constraints,
+      triggers,
+      extendedProperties,
+    };
+  }
+
+  /**
    * Generate CREATE TABLE script
    */
   async scriptTableAsCreate(
@@ -508,7 +572,14 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<string> {
-    // Get column data
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    // For PostgreSQL, generate CREATE TABLE from information_schema
+    if (engine === 'postgresql') {
+      return this.scriptTableAsCreatePg(connectionId, database, schema, table);
+    }
+
+    // SQL Server: use TsqlBuilder for detailed scripting
     const columnsSql = TsqlBuilder.getTableScriptData(database, schema, table);
     const columnsResult = await this.poolManager.query<{
       ordinalPosition: number;
@@ -753,6 +824,38 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
+   * Generate CREATE TABLE script for PostgreSQL
+   */
+  private async scriptTableAsCreatePg(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<string> {
+    const columns = await this.listColumns(connectionId, database, schema, table);
+    const dialect = this.getDialect(connectionId);
+    const fullName = dialect.quoteSchemaObject(schema, table);
+
+    const colDefs = columns.map(col => {
+      let def = `  ${dialect.quoteIdentifier(col.name)} ${col.dataType}`;
+      if (col.maxLength && col.dataType === 'character varying') {
+        def += `(${col.maxLength})`;
+      }
+      if (!col.isNullable) def += ' NOT NULL';
+      if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+      return def;
+    });
+
+    // Add primary key constraint
+    const pkCols = columns.filter(c => c.isPrimaryKey).map(c => dialect.quoteIdentifier(c.name));
+    if (pkCols.length > 0) {
+      colDefs.push(`  PRIMARY KEY (${pkCols.join(', ')})`);
+    }
+
+    return `CREATE TABLE ${fullName} (\n${colDefs.join(',\n')}\n);`;
+  }
+
+  /**
    * Generate INSERT statement template for a table
    */
   async scriptTableAsInsert(
@@ -761,14 +864,28 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<string> {
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    const dialect = this.getDialect(connectionId);
     const columns = await this.listColumns(connectionId, database, schema, table);
+
+    if (engine === 'postgresql') {
+      // PG insert template — skip identity/serial columns
+      const nonIdentityCols = columns.filter(c => {
+        const def = c.defaultValue?.toLowerCase() || '';
+        return !def.includes('nextval(') && !def.includes('generated');
+      });
+      const colNames = nonIdentityCols.map(c => dialect.quoteIdentifier(c.name)).join(', ');
+      const values = nonIdentityCols.map(c => `/* ${c.dataType} */`).join(', ');
+      return `INSERT INTO ${dialect.quoteSchemaObject(schema, table)} (${colNames})\nVALUES (${values});`;
+    }
+
+    // SQL Server path
     const columnData = columns.map(c => ({
       name: c.name,
       dataType: c.dataType,
-      isIdentity: false, // We'll check via the column query
+      isIdentity: false,
     }));
 
-    // Get identity info
     const columnsSql = TsqlBuilder.getTableScriptData(database, schema, table);
     const result = await this.poolManager.query<{
       columnName: string;
@@ -819,13 +936,28 @@ export class MetadataService extends BaseSingleton {
       this.listForeignKeys(connectionId, database, schema, table),
     ]);
 
-    // Get identity column info
-    const identitySql = TsqlBuilder.getTableScriptData(database, schema, table);
-    const identityResult = await this.poolManager.query<{
-      columnName: string;
-      isIdentity: boolean;
-      defaultValue: string;
-    }>(connectionId, identitySql);
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    // Get identity column info (MSSQL uses TsqlBuilder, PG uses column defaults)
+    let identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
+    if (engine !== 'postgresql') {
+      const identitySql = TsqlBuilder.getTableScriptData(database, schema, table);
+      const identityResult = await this.poolManager.query<{
+        columnName: string;
+        isIdentity: boolean;
+        defaultValue: string;
+      }>(connectionId, identitySql);
+      for (const r of identityResult.recordset) {
+        identityMap.set(r.columnName, { isIdentity: Boolean(r.isIdentity), defaultValue: r.defaultValue });
+      }
+    } else {
+      // PG: detect identity from column defaults (nextval, GENERATED)
+      for (const col of columns) {
+        const def = col.defaultValue?.toLowerCase() || '';
+        const isId = def.includes('nextval(') || def.includes('generated');
+        identityMap.set(col.name, { isIdentity: isId, defaultValue: col.defaultValue || '' });
+      }
+    }
 
     // Build a map of column -> FK info
     const fkMap = new Map<
@@ -849,15 +981,6 @@ export class MetadataService extends BaseSingleton {
           constraintName: fk.name,
         });
       }
-    }
-
-    // Build a map of column -> identity/default info
-    const identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
-    for (const row of identityResult.recordset) {
-      identityMap.set(row.columnName, {
-        isIdentity: Boolean(row.isIdentity),
-        defaultValue: row.defaultValue,
-      });
     }
 
     return columns.map(col => ({
@@ -888,65 +1011,84 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJDatabaseInfo> {
     try {
+      const engine = this.poolManager.getEngineForProfile(connectionId);
       const db = this.escId(database);
-      const mj = this.escId(mjSchemaName);
       const mjStr = mjSchemaName.replace(/'/g, "''");
 
-      // Check if the MJ schema exists and has the Entity table
-      const detectSql = `
-        USE [${db}];
-        SELECT
-          CASE WHEN SCHEMA_ID('${mjStr}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
-          CASE WHEN OBJECT_ID('${mjStr}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
-          CASE WHEN OBJECT_ID('${mjStr}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
-          CASE WHEN OBJECT_ID('${mjStr}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
-          CASE WHEN OBJECT_ID('${mjStr}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
-          CASE WHEN OBJECT_ID('${mjStr}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
-      `;
+      // Build engine-appropriate detection query
+      let detectSql: string;
+      if (engine === 'postgresql') {
+        detectSql = `
+          SELECT
+            (SELECT COUNT(*) FROM pg_namespace WHERE nspname = '${mjStr}')::int AS "hasSchema",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'Entity')::int AS "hasEntityTable",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'EntityField')::int AS "hasEntityFieldTable",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'User')::int AS "hasUsers",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'AuditLog')::int AS "hasAuditLog",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'Application')::int AS "hasApplications"
+        `;
+      } else {
+        detectSql = `
+          USE [${db}];
+          SELECT
+            CASE WHEN SCHEMA_ID('${mjStr}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
+            CASE WHEN OBJECT_ID('${mjStr}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
+            CASE WHEN OBJECT_ID('${mjStr}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
+            CASE WHEN OBJECT_ID('${mjStr}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
+            CASE WHEN OBJECT_ID('${mjStr}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
+            CASE WHEN OBJECT_ID('${mjStr}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
+        `;
+      }
 
-      const result = await this.poolManager.query<{
+      const rows = await this.queryAny<{
         hasSchema: number;
         hasEntityTable: number;
         hasEntityFieldTable: number;
         hasUsers: number;
         hasAuditLog: number;
         hasApplications: number;
-      }>(connectionId, detectSql);
+      }>(connectionId, detectSql, database);
 
-      const detection = result.recordset[0];
+      const detection = rows[0];
       if (!detection || !detection.hasSchema || !detection.hasEntityTable) {
         return { isMJEnabled: false };
       }
 
       // MJ is detected - get additional info
-      const countsSql = `
-        USE [${db}];
-        SELECT
-          (SELECT COUNT(*) FROM [${mj}].[Entity]) AS entityCount,
-          (SELECT COUNT(*) FROM [${mj}].[Application]) AS applicationCount
-      `;
+      const dialect = this.getDialect(connectionId);
+      const mjQuoted = dialect.quoteIdentifier(mjSchemaName);
+      const countsSql = engine === 'postgresql'
+        ? `SELECT
+            (SELECT COUNT(*) FROM ${mjQuoted}."Entity") AS "entityCount",
+            (SELECT COUNT(*) FROM ${mjQuoted}."Application") AS "applicationCount"`
+        : `USE [${db}];
+          SELECT
+            (SELECT COUNT(*) FROM [${this.escId(mjSchemaName)}].[Entity]) AS entityCount,
+            (SELECT COUNT(*) FROM [${this.escId(mjSchemaName)}].[Application]) AS applicationCount`;
 
-      const countsResult = await this.poolManager.query<{
+      const countsRows = await this.queryAny<{
         entityCount: number;
         applicationCount: number;
-      }>(connectionId, countsSql);
+      }>(connectionId, countsSql, database);
 
-      const counts = countsResult.recordset[0] || { entityCount: 0, applicationCount: 0 };
+      const counts = countsRows[0] || { entityCount: 0, applicationCount: 0 };
 
       // Try to get version from VersionInstallation if it exists
       let version: string | undefined;
       try {
-        const versionSql = `
-          USE [${db}];
-          IF OBJECT_ID('${mjStr}.VersionInstallation') IS NOT NULL
-            SELECT TOP 1 MJVersion as version FROM [${mj}].[VersionInstallation]
-            ORDER BY InstalledAt DESC
-        `;
-        const versionResult = await this.poolManager.query<{ version: string }>(
+        const versionSql = engine === 'postgresql'
+          ? `SELECT "MJVersion" AS version FROM ${mjQuoted}."VersionInstallation"
+             ORDER BY "InstalledAt" DESC LIMIT 1`
+          : `USE [${db}];
+            IF OBJECT_ID('${mjStr}.VersionInstallation') IS NOT NULL
+              SELECT TOP 1 MJVersion as version FROM [${this.escId(mjSchemaName)}].[VersionInstallation]
+              ORDER BY InstalledAt DESC`;
+        const versionRows = await this.queryAny<{ version: string }>(
           connectionId,
-          versionSql
+          versionSql,
+          database
         );
-        version = versionResult.recordset[0]?.version;
+        version = versionRows[0]?.version;
       } catch {
         // Version table may not exist in older MJ versions
       }
@@ -969,37 +1111,59 @@ export class MetadataService extends BaseSingleton {
   /**
    * Get MJ entities from a database
    */
+  /**
+   * Execute an MJ schema query using the correct engine.
+   * PG uses queryAny with double-quoted identifiers; MSSQL uses USE + bracket quoting.
+   */
+  private async queryMJ<T>(connectionId: string, database: string, _mjSchemaName: string, selectSql: string): Promise<T[]> {
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    if (engine === 'postgresql') {
+      return this.queryAny<T>(connectionId, selectSql, database);
+    }
+    // MSSQL: prepend USE [database]
+    const db = this.escId(database);
+    const fullSql = `USE [${db}];\n${selectSql}`;
+    const result = await this.poolManager.query<T>(connectionId, fullSql);
+    return result.recordset;
+  }
+
   async getMJEntities(
     connectionId: string,
     database: string,
     mjSchemaName = '__mj'
   ): Promise<MJEntityInfo[]> {
-    const db = this.escId(database);
-    const mj = this.escId(mjSchemaName);
-    const sql = `
-      USE [${db}];
-      SELECT
-        CAST(ID AS NVARCHAR(36)) AS id,
-        Name AS name,
-        Description AS description,
-        BaseTable AS baseTable,
-        BaseView AS baseView,
-        SchemaName AS schemaName,
-        CAST(VirtualEntity AS BIT) AS isVirtual,
-        CAST(TrackRecordChanges AS BIT) AS trackRecordChanges,
-        CAST(AuditRecordAccess AS BIT) AS auditRecordAccess,
-        CAST(IncludeInAPI AS BIT) AS includeInAPI,
-        CAST(AllowCreateAPI AS BIT) AS allowCreateAPI,
-        CAST(AllowUpdateAPI AS BIT) AS allowUpdateAPI,
-        CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
-        CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
-        CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
-      FROM [${mj}].[Entity]
-      ORDER BY Name
-    `;
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    const dialect = this.getDialect(connectionId);
+    const mj = dialect.quoteIdentifier(mjSchemaName);
 
-    const result = await this.poolManager.query<MJEntityInfo>(connectionId, sql);
-    return result.recordset.map(row => ({
+    const sql = engine === 'postgresql'
+      ? `SELECT
+          "ID"::text AS id, "Name" AS name, "Description" AS description,
+          "BaseTable" AS "baseTable", "BaseView" AS "baseView", "SchemaName" AS "schemaName",
+          "VirtualEntity" AS "isVirtual", "TrackRecordChanges" AS "trackRecordChanges",
+          "AuditRecordAccess" AS "auditRecordAccess", "IncludeInAPI" AS "includeInAPI",
+          "AllowCreateAPI" AS "allowCreateAPI", "AllowUpdateAPI" AS "allowUpdateAPI",
+          "AllowDeleteAPI" AS "allowDeleteAPI",
+          "__mj_CreatedAt"::text AS "createdAt", "__mj_UpdatedAt"::text AS "updatedAt"
+        FROM ${mj}."Entity" ORDER BY "Name"`
+      : `SELECT
+          CAST(ID AS NVARCHAR(36)) AS id,
+          Name AS name, Description AS description,
+          BaseTable AS baseTable, BaseView AS baseView, SchemaName AS schemaName,
+          CAST(VirtualEntity AS BIT) AS isVirtual,
+          CAST(TrackRecordChanges AS BIT) AS trackRecordChanges,
+          CAST(AuditRecordAccess AS BIT) AS auditRecordAccess,
+          CAST(IncludeInAPI AS BIT) AS includeInAPI,
+          CAST(AllowCreateAPI AS BIT) AS allowCreateAPI,
+          CAST(AllowUpdateAPI AS BIT) AS allowUpdateAPI,
+          CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
+          CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
+          CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
+        FROM [${this.escId(mjSchemaName)}].[Entity]
+        ORDER BY Name`;
+
+    const rows = await this.queryMJ<MJEntityInfo>(connectionId, database, mjSchemaName, sql);
+    return rows.map(row => ({
       ...row,
       isVirtual: Boolean(row.isVirtual),
       trackRecordChanges: Boolean(row.trackRecordChanges),
