@@ -8,30 +8,27 @@
 import { IPC_CHANNELS } from '@mj-forge/shared';
 import type { BackupRequest, BackupFileInfo, RestoreRequest } from '@mj-forge/shared';
 import { BackupRestoreService } from '../services/sql/backup-restore';
+import { PgBackupService } from '../services/sql/pg-backup';
 import { ServerFilesystemService } from '../services/sql/server-filesystem';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { safeHandle } from './safe-handle';
 
-function assertEngineSupports(connectionId: string, feature: string): void {
-  const pool = ConnectionPoolManager.getInstance();
-  const dialect = pool.getDialectForProfile(connectionId);
-  if (!dialect.supportsBackupRestore) {
-    throw new Error(
-      `${feature} via SQL is not supported for ${dialect.label}. ` +
-      `PostgreSQL uses pg_dump/pg_restore CLI tools instead.`
-    );
-  }
+function getEngine(connectionId: string): string {
+  return ConnectionPoolManager.getInstance().getEngineForProfile(connectionId);
 }
 
 export function registerBackupHandlers(): void {
   const backupService = BackupRestoreService.getInstance();
+  const pgBackupService = PgBackupService.getInstance();
   const serverFs = new ServerFilesystemService();
 
-  // Start backup
+  // Start backup — routes to correct provider
   safeHandle(
     IPC_CHANNELS.BACKUP.START,
     async (_event, request: BackupRequest): Promise<string> => {
-      assertEngineSupports(request.connectionId, 'Backup');
+      if (getEngine(request.connectionId) === 'postgresql') {
+        return pgBackupService.startBackup(request);
+      }
       return backupService.startBackup(request);
     }
   );
@@ -41,16 +38,19 @@ export function registerBackupHandlers(): void {
     await backupService.cancel(operationId);
   });
 
-  // Read backup info
+  // Read backup info (MSSQL only — PG uses file headers)
   safeHandle(
     IPC_CHANNELS.RESTORE.READ_INFO,
     async (_event, connectionId: string, path: string): Promise<BackupFileInfo> => {
-      assertEngineSupports(connectionId, 'Restore');
+      if (getEngine(connectionId) === 'postgresql') {
+        // PG dump files don't have SQL-queryable metadata
+        return { databaseName: path.split('/').pop()?.replace(/\.dump$/, '') || 'unknown' } as BackupFileInfo;
+      }
       return backupService.readBackupInfo(connectionId, path);
     }
   );
 
-  // Get file list from backup
+  // Get file list from backup (MSSQL only)
   safeHandle(
     IPC_CHANNELS.RESTORE.GET_FILE_LIST,
     async (
@@ -58,16 +58,20 @@ export function registerBackupHandlers(): void {
       connectionId: string,
       backupPath: string
     ): Promise<{ logicalName: string; physicalName: string; type: string }[]> => {
-      assertEngineSupports(connectionId, 'Restore');
+      if (getEngine(connectionId) === 'postgresql') {
+        return []; // PG dump format doesn't have logical file mapping
+      }
       return backupService.getFileList(connectionId, backupPath);
     }
   );
 
-  // Start restore
+  // Start restore — routes to correct provider
   safeHandle(
     IPC_CHANNELS.RESTORE.START,
     async (_event, request: RestoreRequest): Promise<string> => {
-      assertEngineSupports(request.connectionId, 'Restore');
+      if (getEngine(request.connectionId) === 'postgresql') {
+        return pgBackupService.startRestore(request);
+      }
       return backupService.startRestore(request);
     }
   );
@@ -80,11 +84,13 @@ export function registerBackupHandlers(): void {
     }
   );
 
-  // Get backup history
+  // Get backup history (MSSQL only — PG has no backup metadata tables)
   safeHandle(
     IPC_CHANNELS.BACKUP.GET_HISTORY,
     async (_event, connectionId: string, databaseName?: string) => {
-      assertEngineSupports(connectionId, 'Backup history');
+      if (getEngine(connectionId) === 'postgresql') {
+        return []; // PG doesn't store backup history in system tables
+      }
       return serverFs.getBackupHistory(connectionId, databaseName);
     }
   );
@@ -93,7 +99,9 @@ export function registerBackupHandlers(): void {
   safeHandle(
     IPC_CHANNELS.RESTORE.GET_BACKUP_INFO,
     async (_event, connectionId: string, backupPath: string): Promise<BackupFileInfo> => {
-      assertEngineSupports(connectionId, 'Restore');
+      if (getEngine(connectionId) === 'postgresql') {
+        return { databaseName: backupPath.split('/').pop()?.replace(/\.dump$/, '') || 'unknown' } as BackupFileInfo;
+      }
       return backupService.readBackupInfo(connectionId, backupPath);
     }
   );

@@ -39,6 +39,7 @@ import type {
 export interface RestoreDialogData {
   connectionId: string;
   databaseName?: string;
+  engine?: 'mssql' | 'postgresql' | 'mysql';
 }
 
 @Component({
@@ -72,7 +73,7 @@ export interface RestoreDialogData {
             <div class="tab-content">
               <div class="path-row">
                 <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-                  <mat-label>Backup File (on SQL Server)</mat-label>
+                  <mat-label>{{ data.engine === 'postgresql' ? 'Backup File Path (local)' : 'Backup File (on SQL Server)' }}</mat-label>
                   <input
                     matInput
                     [(ngModel)]="formData.backupPath"

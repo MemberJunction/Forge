@@ -178,6 +178,16 @@ describe('MSSQLDialect', () => {
       const sql = dialect.getObjectDefinitionSQL('mydb', 'dbo', 'myView');
       expect(sql).toContain('OBJECT_DEFINITION');
     });
+
+    it('generates listObjectComments SQL (extended properties)', () => {
+      const sql = dialect.listObjectCommentsSQL('mydb', 'dbo', 'Users');
+      expect(sql).toBeDefined();
+      expect(sql.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('feature flags', () => {
+    it('supports object comments', () => expect(dialect.supportsObjectComments).toBe(true));
   });
 });
 
@@ -332,6 +342,19 @@ describe('PgDialect', () => {
       expect(sql).toContain('pg_views');
       expect(sql).toContain('pg_get_functiondef');
     });
+
+    it('generates listObjectComments SQL using pg_description', () => {
+      const sql = dialect.listObjectCommentsSQL('mydb', 'public', 'users');
+      expect(sql).toContain('obj_description');
+      expect(sql).toContain('col_description');
+      expect(sql).toContain("'public'");
+      expect(sql).toContain("'users'");
+    });
+  });
+
+  describe('feature flags', () => {
+    it('supports object comments', () => expect(dialect.supportsObjectComments).toBe(true));
+    it('does not support extended properties', () => expect(dialect.supportsExtendedProperties).toBe(false));
   });
 
   describe('SQL injection prevention', () => {

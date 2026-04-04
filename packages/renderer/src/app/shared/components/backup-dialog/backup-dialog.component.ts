@@ -38,6 +38,7 @@ import type {
 export interface BackupDialogData {
   connectionId: string;
   databaseName: string;
+  engine?: 'mssql' | 'postgresql' | 'mysql';
 }
 
 @Component({
@@ -79,12 +80,12 @@ export interface BackupDialogData {
           <!-- Backup Path -->
           <div class="path-row">
             <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-              <mat-label>Backup Path (on SQL Server)</mat-label>
+              <mat-label>{{ data.engine === 'postgresql' ? 'Backup File Path (local)' : 'Backup Path (on SQL Server)' }}</mat-label>
               <input
                 matInput
                 [(ngModel)]="formData.backupPath"
                 [disabled]="backing()"
-                placeholder="e.g., /var/opt/mssql/backup/db.bak"
+                [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
               />
             </mat-form-field>
             <button

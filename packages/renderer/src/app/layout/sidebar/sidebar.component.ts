@@ -674,10 +674,7 @@ export class SidebarComponent {
       return;
     }
 
-    if (!this.engineSupports('backupRestore')) {
-      this.notification.warning('SQL backup is not available for this database engine. Use pg_dump/pg_restore CLI tools instead.');
-      return;
-    }
+    // Backup works for all engines — MSSQL uses BACKUP DATABASE, PG uses pg_dump
 
     if (!dbName) {
       this.notification.error('Please select a database first');
@@ -687,6 +684,7 @@ export class SidebarComponent {
     const dialogData: BackupDialogData = {
       connectionId,
       databaseName: dbName,
+      engine: this.connectionState.activeProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(BackupDialogComponent, {
@@ -710,14 +708,12 @@ export class SidebarComponent {
       return;
     }
 
-    if (!this.engineSupports('backupRestore')) {
-      this.notification.warning('SQL restore is not available for this database engine. Use pg_restore CLI tool instead.');
-      return;
-    }
+    // Restore works for all engines — MSSQL uses RESTORE DATABASE, PG uses pg_restore
 
     const dialogData: RestoreDialogData = {
       connectionId,
       databaseName,
+      engine: this.connectionState.activeProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(RestoreDialogComponent, {
