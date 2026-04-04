@@ -1046,9 +1046,14 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
     // Ctrl+E / Cmd+E - Execute query (SSMS-style shortcut)
+    // When the Monaco editor is focused, its addCommand handles this;
+    // only handle here when the editor is NOT focused to avoid double-fire.
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'e') {
-      event.preventDefault();
-      this.handleCtrlEExecute();
+      const editorEl = this.editorContainer?.nativeElement;
+      if (!editorEl || !editorEl.contains(event.target as Node)) {
+        event.preventDefault();
+        this.handleCtrlEExecute();
+      }
       return;
     }
     // Cmd+G / Ctrl+G - Go to Line

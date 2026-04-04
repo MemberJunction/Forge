@@ -118,7 +118,11 @@ export function createMenu(): void {
         { role: 'paste' },
         { role: 'delete' },
         { type: 'separator' },
-        { role: 'selectAll' },
+        {
+          role: 'selectAll',
+          accelerator: 'CmdOrCtrl+A',
+          registerAccelerator: false,
+        },
         { type: 'separator' },
         {
           label: 'Find',
@@ -172,6 +176,7 @@ export function createMenu(): void {
         {
           label: 'Execute',
           accelerator: 'CmdOrCtrl+E',
+          registerAccelerator: false,
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:execute-query');
