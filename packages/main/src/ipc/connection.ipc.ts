@@ -67,15 +67,23 @@ export function registerConnectionHandlers(): void {
         throw new Error('Connection profile not found');
       }
 
-      await poolManager.getPool(id);
-      log.info(`Connected to ${profile.name}`);
+      const engine = profile.engine || 'mssql';
+      if (engine === 'postgresql') {
+        await poolManager.getPgPool(id);
+      } else {
+        await poolManager.getPool(id);
+      }
+      log.info(`Connected to ${profile.name} (${engine})`);
+
+      const defaultDb =
+        engine === 'postgresql' ? profile.database || 'postgres' : profile.database || 'master';
 
       return {
         id,
         profile,
         status: 'connected',
         connectedAt: new Date().toISOString(),
-        currentDatabase: profile.database || 'master',
+        currentDatabase: defaultDb,
       };
     }
   );

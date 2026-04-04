@@ -87,7 +87,9 @@ export class ConnectionPoolManager extends BaseSingleton {
       requestTimeout: 10000,
     };
 
-    log.debug(`Config: encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}`);
+    log.debug(
+      `Config: encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}`
+    );
 
     let pool: ConnectionPool | null = null;
 
@@ -275,7 +277,9 @@ export class ConnectionPoolManager extends BaseSingleton {
       },
     };
 
-    log.debug(`Pool config: server=${config.server}:${config.port}, db=${config.database}, encrypt=${config.options?.encrypt}`);
+    log.debug(
+      `Pool config: server=${config.server}:${config.port}, db=${config.database}, encrypt=${config.options?.encrypt}`
+    );
 
     const pool = new ConnectionPool(config);
     log.info(`Connecting to ${profile.server}:${profile.port}...`);
@@ -314,7 +318,7 @@ export class ConnectionPoolManager extends BaseSingleton {
         finalSql = `USE [${safeDb}];\n${finalSql}`;
       }
 
-      return await request.batch(finalSql) as IResult<T>;
+      return (await request.batch(finalSql)) as IResult<T>;
     } finally {
       if (entry) {
         entry.activeQueries--;
@@ -372,14 +376,24 @@ export class ConnectionPoolManager extends BaseSingleton {
   async closePool(profileId: string): Promise<void> {
     const entry = this.pools.get(profileId);
     if (entry) {
-      try { await entry.pool.close(); } catch { /* ignore */ }
+      try {
+        await entry.pool.close();
+      } catch {
+        /* ignore */
+      }
       this.pools.delete(profileId);
     }
 
-    const pgEntry = this.pgPools.get(profileId);
-    if (pgEntry) {
-      try { await pgEntry.pool.end(); } catch { /* ignore */ }
-      this.pgPools.delete(profileId);
+    // PG pools are keyed as "profileId:dbName", so close all pools for this profile
+    for (const [key, pgEntry] of this.pgPools) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) {
+        try {
+          await pgEntry.pool.end();
+        } catch {
+          /* ignore */
+        }
+        this.pgPools.delete(key);
+      }
     }
   }
 
@@ -391,7 +405,11 @@ export class ConnectionPoolManager extends BaseSingleton {
     const pgCloses = Array.from(this.pgPools.keys()).map(async id => {
       const entry = this.pgPools.get(id);
       if (entry) {
-        try { await entry.pool.end(); } catch { /* ignore */ }
+        try {
+          await entry.pool.end();
+        } catch {
+          /* ignore */
+        }
         this.pgPools.delete(id);
       }
     });
@@ -495,10 +513,7 @@ export class ConnectionPoolManager extends BaseSingleton {
           'Ensure the user has CONNECT privilege on the database',
         ];
       case '3D000': // invalid_catalog_name
-        return [
-          'The specified database does not exist',
-          'Check the database name',
-        ];
+        return ['The specified database does not exist', 'Check the database name'];
       case 'ETIMEOUT':
         return [
           'The server took too long to respond',
