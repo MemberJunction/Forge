@@ -406,7 +406,8 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
-   * List extended properties for a table and its columns
+   * List extended properties for a table and its columns.
+   * This is a SQL Server-only feature; returns empty array for other engines.
    */
   async listExtendedProperties(
     connectionId: string,
@@ -414,6 +415,9 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ExtendedProperty[]> {
+    const dialect = this.getDialect(connectionId);
+    if (!dialect.supportsExtendedProperties) return [];
+
     const sql = TsqlBuilder.listExtendedProperties(database, schema, table);
     const result = await this.poolManager.query<ExtendedProperty>(connectionId, sql);
     return result.recordset;

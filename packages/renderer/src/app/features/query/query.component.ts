@@ -1153,10 +1153,18 @@ export class QueryComponent implements OnInit, OnDestroy {
     win._monacoLoading.then(() => this.createEditor());
   }
 
+  /** Get the Monaco language ID based on the active connection's database engine */
+  private getEditorLanguage(): string {
+    const engine = this.connectionState.activeProfile()?.engine;
+    if (engine === 'postgresql') return 'pgsql';
+    if (engine === 'mysql') return 'mysql';
+    return 'sql'; // T-SQL / default
+  }
+
   private createEditor(): void {
     this.editor = monaco.editor.create(this.editorContainer.nativeElement, {
       value: '',
-      language: 'sql',
+      language: this.getEditorLanguage(),
       theme: this.settings.effectiveTheme() === 'dark' ? 'vs-dark' : 'vs',
       automaticLayout: true,
       minimap: { enabled: false },
@@ -1192,6 +1200,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       window.dispatchEvent(new CustomEvent('forge:cursor-position', {
         detail: { line: e.position.lineNumber, column: e.position.column },
       }));
+    });
+
+    // Update editor language when connection engine changes
+    effect(() => {
+      const lang = this.getEditorLanguage();
+      const model = this.editor?.getModel();
+      if (model) {
+        (monaco.editor as unknown as { setModelLanguage(m: unknown, l: string): void })
+          .setModelLanguage(model, lang);
+      }
     });
 
     // Listen for content changes - use this.tabId for isolation

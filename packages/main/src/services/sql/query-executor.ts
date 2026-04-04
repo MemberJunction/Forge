@@ -1,6 +1,7 @@
 /**
  * Query Executor Service
- * Executes SQL queries and returns structured results
+ * Executes SQL queries and returns structured results.
+ * Supports SQL Server (mssql) and PostgreSQL (pg) engines.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -54,6 +55,12 @@ export class QueryExecutor extends BaseSingleton {
     this.activeQueries.set(queryId, activeQuery);
 
     try {
+      // Route to engine-specific executor
+      const engine = this.poolManager.getEngineForProfile(request.connectionId);
+      if (engine === 'postgresql') {
+        return await this.executePg(request, activeQuery, queryId, startTime);
+      }
+
       const pool = await this.poolManager.getPool(request.connectionId);
 
       // Check if cancelled before executing
@@ -271,6 +278,79 @@ export class QueryExecutor extends BaseSingleton {
   /**
    * Extract column metadata from a recordset
    */
+  /**
+   * Execute a query against PostgreSQL
+   */
+  private async executePg(
+    request: QueryRequest,
+    activeQuery: ActiveQuery,
+    queryId: string,
+    startTime: number
+  ): Promise<QueryResult> {
+    const pool = await this.poolManager.getPgPool(request.connectionId);
+
+    if (activeQuery.cancelled) {
+      return this.createCancelledResult(queryId, startTime);
+    }
+
+    // PostgreSQL doesn't use GO separators or USE statements.
+    // Database context is set at the connection/pool level.
+    const client = await pool.connect();
+    try {
+      const result = await client.query(request.sql);
+      const results = Array.isArray(result) ? result : [result];
+
+      const allResultSets: ResultSet[] = [];
+      const allMessages: string[] = [];
+      let totalRowsAffected = 0;
+
+      for (const r of results) {
+        if (r.fields && r.fields.length > 0) {
+          const columns: ColumnMetadata[] = r.fields.map((f: { name: string; dataTypeID: number; dataTypeSize: number }) => ({
+            name: f.name,
+            type: this.pgTypeIdToName(f.dataTypeID),
+            dataType: this.pgTypeIdToName(f.dataTypeID),
+            nullable: true,
+          }));
+
+          allResultSets.push({
+            columns,
+            rows: r.rows as Record<string, unknown>[],
+            rowCount: r.rows.length,
+          });
+        }
+        totalRowsAffected += r.rowCount ?? 0;
+      }
+
+      allMessages.push(`(${totalRowsAffected} row(s) affected)`);
+
+      return {
+        queryId,
+        success: true,
+        resultSets: allResultSets,
+        messages: allMessages,
+        rowsAffected: totalRowsAffected,
+        executionTime: Date.now() - startTime,
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Map common PostgreSQL type OIDs to human-readable names */
+  private pgTypeIdToName(oid: number): string {
+    const typeMap: Record<number, string> = {
+      16: 'boolean', 17: 'bytea', 18: 'char', 19: 'name', 20: 'int8',
+      21: 'int2', 23: 'int4', 25: 'text', 26: 'oid', 114: 'json',
+      142: 'xml', 600: 'point', 700: 'float4', 701: 'float8',
+      790: 'money', 1042: 'bpchar', 1043: 'varchar', 1082: 'date',
+      1083: 'time', 1114: 'timestamp', 1184: 'timestamptz',
+      1186: 'interval', 1266: 'timetz', 1560: 'bit', 1700: 'numeric',
+      2950: 'uuid', 3802: 'jsonb',
+    };
+    return typeMap[oid] || `oid:${oid}`;
+  }
+
   private extractColumns(columns: Record<string, unknown>): ColumnMetadata[] {
     if (!columns) {
       return [];
