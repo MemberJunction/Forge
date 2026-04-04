@@ -1,6 +1,6 @@
 {
   "name": "mj-forge",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "AI-native SQL Server IDE for macOS and Windows",
   "license": "MIT",
   "private": true,
