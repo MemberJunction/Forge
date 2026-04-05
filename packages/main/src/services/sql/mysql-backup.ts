@@ -47,6 +47,9 @@ export class MySQLBackupService extends BaseSingleton {
 
     const backupPath = request.backupPath || `/tmp/${request.database}_${Date.now()}.sql`;
 
+    // Build args with safe defaults that work across MySQL 5.7/8.0/9.0 and
+    // MariaDB. Avoid flags that query server-specific information_schema tables
+    // (e.g., LIBRARIES, column_statistics) that may not exist on all versions.
     const args = [
       '-h',
       profile.server,
@@ -57,8 +60,9 @@ export class MySQLBackupService extends BaseSingleton {
       '--single-transaction',
       '--routines',
       '--triggers',
-      '--events',
-      '--set-gtid-purged=OFF',
+      '--no-tablespaces',
+      '--skip-lock-tables',
+      '--column-statistics=0',
       '--result-file',
       backupPath,
       request.database,

@@ -126,24 +126,26 @@ export interface BackupDialogData {
             }
           </div>
 
-          <!-- Options -->
-          <div class="options-row">
-            <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
-              >Compression</mat-checkbox
-            >
-            <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
-              >Copy-Only</mat-checkbox
-            >
-            <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
-              >Checksum</mat-checkbox
-            >
-          </div>
+          <!-- Options (MSSQL only — mysqldump/pg_dump handle these differently) -->
+          @if (data.engine === 'mssql' || !data.engine) {
+            <div class="options-row">
+              <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
+                >Compression</mat-checkbox
+              >
+              <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
+                >Copy-Only</mat-checkbox
+              >
+              <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
+                >Checksum</mat-checkbox
+              >
+            </div>
 
-          <!-- Description -->
-          <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>Description (optional)</mat-label>
-            <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
-          </mat-form-field>
+            <!-- Description -->
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Description (optional)</mat-label>
+              <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
+            </mat-form-field>
+          }
         </div>
 
         <!-- Progress -->
@@ -159,38 +161,42 @@ export interface BackupDialogData {
 
         <!-- Expandable panels -->
         <mat-accordion class="panels">
-          <mat-expansion-panel>
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
-            </mat-expansion-panel-header>
-            <pre class="tsql-code">{{ generatedTsql() }}</pre>
-          </mat-expansion-panel>
+          @if (data.engine === 'mssql' || !data.engine) {
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
+              </mat-expansion-panel-header>
+              <pre class="tsql-code">{{ generatedTsql() }}</pre>
+            </mat-expansion-panel>
 
-          <mat-expansion-panel>
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
-            </mat-expansion-panel-header>
-            <div class="history-list">
-              @if (loadingHistory()) {
-                <div class="empty-text">Loading...</div>
-              } @else if (backupHistory().length === 0) {
-                <div class="empty-text">No backup history</div>
-              } @else {
-                @for (entry of backupHistory(); track entry.backupStartDate) {
-                  <div class="history-item">
-                    <div class="history-main">
-                      <span class="history-type">{{ entry.backupType }}</span>
-                      <span class="history-date">{{ entry.backupFinishDate | date: 'short' }}</span>
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
+              </mat-expansion-panel-header>
+              <div class="history-list">
+                @if (loadingHistory()) {
+                  <div class="empty-text">Loading...</div>
+                } @else if (backupHistory().length === 0) {
+                  <div class="empty-text">No backup history</div>
+                } @else {
+                  @for (entry of backupHistory(); track entry.backupStartDate) {
+                    <div class="history-item">
+                      <div class="history-main">
+                        <span class="history-type">{{ entry.backupType }}</span>
+                        <span class="history-date">{{
+                          entry.backupFinishDate | date: 'short'
+                        }}</span>
+                      </div>
+                      <div class="history-details">
+                        <span class="history-path">{{ entry.physicalDeviceName }}</span>
+                        <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
+                      </div>
                     </div>
-                    <div class="history-details">
-                      <span class="history-path">{{ entry.physicalDeviceName }}</span>
-                      <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
-                    </div>
-                  </div>
+                  }
                 }
-              }
-            </div>
-          </mat-expansion-panel>
+              </div>
+            </mat-expansion-panel>
+          }
         </mat-accordion>
       </mat-dialog-content>
 
