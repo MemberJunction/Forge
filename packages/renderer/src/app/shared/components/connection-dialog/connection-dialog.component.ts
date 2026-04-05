@@ -67,7 +67,7 @@ export interface ConnectionDialogResult {
           <mat-select [(ngModel)]="formData.engine" (ngModelChange)="onEngineChange($event)">
             <mat-option value="mssql">SQL Server</mat-option>
             <mat-option value="postgresql">PostgreSQL</mat-option>
-            <mat-option value="mysql" disabled>MySQL (coming soon)</mat-option>
+            <mat-option value="mysql">MySQL</mat-option>
           </mat-select>
         </mat-form-field>
 
@@ -86,7 +86,18 @@ export interface ConnectionDialogResult {
           </mat-form-field>
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>Port</mat-label>
-            <input matInput type="number" [(ngModel)]="formData.port" [placeholder]="formData.engine === 'postgresql' ? '5432' : formData.engine === 'mysql' ? '3306' : '1433'" />
+            <input
+              matInput
+              type="number"
+              [(ngModel)]="formData.port"
+              [placeholder]="
+                formData.engine === 'postgresql'
+                  ? '5432'
+                  : formData.engine === 'mysql'
+                    ? '3306'
+                    : '1433'
+              "
+            />
           </mat-form-field>
         </div>
 
@@ -162,7 +173,17 @@ export interface ConnectionDialogResult {
           </mat-form-field>
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>Default Database</mat-label>
-            <input matInput [(ngModel)]="formData.database" [placeholder]="formData.engine === 'postgresql' ? 'postgres' : formData.engine === 'mysql' ? 'mysql' : 'master'" />
+            <input
+              matInput
+              [(ngModel)]="formData.database"
+              [placeholder]="
+                formData.engine === 'postgresql'
+                  ? 'postgres'
+                  : formData.engine === 'mysql'
+                    ? 'mysql'
+                    : 'master'
+              "
+            />
           </mat-form-field>
         </div>
       </mat-dialog-content>
@@ -288,7 +309,9 @@ export interface ConnectionDialogResult {
         border-radius: 50%;
         border: 2px solid transparent;
         cursor: pointer;
-        transition: transform 0.12s ease, border-color 0.12s ease;
+        transition:
+          transform 0.12s ease,
+          border-color 0.12s ease;
         padding: 0;
         display: flex;
         align-items: center;
@@ -461,9 +484,26 @@ export class ConnectionDialogComponent {
     const ports: Record<string, number> = { mssql: 1433, postgresql: 5432, mysql: 3306 };
     this.formData.port = ports[engine] || 1433;
     // Adjust default username for engine
-    if (engine === 'postgresql' && (!this.formData.username || this.formData.username === 'sa')) {
+    if (
+      engine === 'postgresql' &&
+      (!this.formData.username ||
+        this.formData.username === 'sa' ||
+        this.formData.username === 'root')
+    ) {
       this.formData.username = 'postgres';
-    } else if (engine === 'mssql' && (!this.formData.username || this.formData.username === 'postgres')) {
+    } else if (
+      engine === 'mysql' &&
+      (!this.formData.username ||
+        this.formData.username === 'sa' ||
+        this.formData.username === 'postgres')
+    ) {
+      this.formData.username = 'root';
+    } else if (
+      engine === 'mssql' &&
+      (!this.formData.username ||
+        this.formData.username === 'postgres' ||
+        this.formData.username === 'root')
+    ) {
       this.formData.username = 'sa';
     }
     // PG/MySQL don't support Windows auth

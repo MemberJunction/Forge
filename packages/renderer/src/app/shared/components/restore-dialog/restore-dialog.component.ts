@@ -73,16 +73,26 @@ export interface RestoreDialogData {
             <div class="tab-content">
               <div class="path-row">
                 <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-                  <mat-label>{{ data.engine === 'postgresql' ? 'Backup File Path (local)' : 'Backup File (on SQL Server)' }}</mat-label>
+                  <mat-label>{{
+                    data.engine === 'mssql' || !data.engine
+                      ? 'Backup File (on SQL Server)'
+                      : 'Backup File Path (local)'
+                  }}</mat-label>
                   <input
                     matInput
                     [(ngModel)]="formData.backupPath"
                     [disabled]="restoring()"
-                    [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
+                    [placeholder]="
+                      data.engine === 'postgresql'
+                        ? 'e.g., /tmp/mydb.dump'
+                        : data.engine === 'mysql'
+                          ? 'e.g., /tmp/mydb.sql'
+                          : 'e.g., /var/opt/mssql/backup/db.bak'
+                    "
                     (ngModelChange)="onBackupPathChange()"
                   />
                 </mat-form-field>
-                @if (data.engine !== 'postgresql') {
+                @if (data.engine === 'mssql' || !data.engine) {
                   <button
                     mat-icon-button
                     [disabled]="restoring()"
@@ -645,7 +655,9 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     try {
       // Filter by database if one is provided and not showing all
       const dbFilter = this.showAllDatabases ? undefined : this.data.databaseName;
-      const history = await firstValueFrom(this.ipc.getBackupHistory(this.data.connectionId, dbFilter));
+      const history = await firstValueFrom(
+        this.ipc.getBackupHistory(this.data.connectionId, dbFilter)
+      );
       this.backupHistory.set(history || []);
     } catch {
       // Ignore errors

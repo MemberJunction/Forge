@@ -62,7 +62,12 @@ import {
           <img class="app-icon" src="assets/icons/mj-logo.png" alt="MJ Forge" />
           <span class="logo">Forge</span>
         </div>
-        <button mat-icon-button matTooltip="New Connection" aria-label="New Connection" (click)="openConnectionDialog()">
+        <button
+          mat-icon-button
+          matTooltip="New Connection"
+          aria-label="New Connection"
+          (click)="openConnectionDialog()"
+        >
           <mat-icon>add</mat-icon>
         </button>
       </div>
@@ -85,13 +90,18 @@ import {
                 [class.active]="profile.id === connectionState.activeConnectionId()"
               >
                 <mat-icon>{{
-                  profile.id === connectionState.activeConnectionId() ? 'check'
-                  : profile.engine === 'postgresql' ? 'view_cozy'
-                  : profile.engine === 'mysql' ? 'grid_on'
-                  : 'dns'
+                  profile.id === connectionState.activeConnectionId()
+                    ? 'check'
+                    : profile.engine === 'postgresql'
+                      ? 'view_cozy'
+                      : profile.engine === 'mysql'
+                        ? 'grid_on'
+                        : 'dns'
                 }}</mat-icon>
                 <span>{{ profile.name }}</span>
-                <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{ profile.engine === 'postgresql' ? 'PG' : 'MY' }}</span>
+                <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
+                  profile.engine === 'postgresql' ? 'PG' : 'MY'
+                }}</span>
               </button>
             }
             <mat-divider />
@@ -123,7 +133,11 @@ import {
               <mat-icon svgIcon="database-cylinder"></mat-icon>
             }
             <span class="database-name">
-              {{ connectionState.loadingDatabases() ? 'Loading...' : (connectionState.selectedDatabase() || 'Select Database') }}
+              {{
+                connectionState.loadingDatabases()
+                  ? 'Loading...'
+                  : connectionState.selectedDatabase() || 'Select Database'
+              }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
@@ -532,7 +546,9 @@ import {
 
       .ai-sidebar-btn {
         color: var(--text-secondary);
-        transition: color var(--transition-fast), background-color var(--transition-fast);
+        transition:
+          color var(--transition-fast),
+          background-color var(--transition-fast);
 
         &:hover {
           color: var(--accent-primary);
@@ -666,7 +682,9 @@ export class SidebarComponent {
   engineSupports(feature: 'backupRestore' | 'serverFileBrowsing' | 'extendedProperties'): boolean {
     const engine = this.connectionState.activeProfile()?.engine;
     if (!engine || engine === 'mssql') return true; // MSSQL supports all
-    return false; // PG/MySQL don't support these MSSQL-specific features
+    // MySQL supports backup/restore via mysqldump CLI
+    if (feature === 'backupRestore' && engine === 'mysql') return true;
+    return false; // PG/MySQL don't support server file browsing or extended properties
   }
 
   openBackup(databaseName?: string): void {

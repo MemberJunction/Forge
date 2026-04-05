@@ -69,12 +69,22 @@ export interface BackupDialogData {
         <div class="form-grid">
           <!-- Backup Type -->
           <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>{{ data.engine === 'postgresql' ? 'Dump Format' : 'Backup Type' }}</mat-label>
+            <mat-label>{{
+              data.engine === 'postgresql'
+                ? 'Dump Format'
+                : data.engine === 'mysql'
+                  ? 'Dump Format'
+                  : 'Backup Type'
+            }}</mat-label>
             @if (data.engine === 'postgresql') {
               <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
                 <mat-option value="full">Custom (compressed, pg_restore)</mat-option>
                 <mat-option value="differential">Plain SQL (readable text)</mat-option>
                 <mat-option value="log">Directory (parallel dump)</mat-option>
+              </mat-select>
+            } @else if (data.engine === 'mysql') {
+              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                <mat-option value="full">SQL dump (mysqldump)</mat-option>
               </mat-select>
             } @else {
               <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
@@ -88,15 +98,23 @@ export interface BackupDialogData {
           <!-- Backup Path -->
           <div class="path-row">
             <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-              <mat-label>{{ data.engine === 'postgresql' ? 'Backup File Path (local)' : 'Backup Path (on SQL Server)' }}</mat-label>
+              <mat-label>{{
+                data.engine === 'mssql' ? 'Backup Path (on SQL Server)' : 'Backup File Path (local)'
+              }}</mat-label>
               <input
                 matInput
                 [(ngModel)]="formData.backupPath"
                 [disabled]="backing()"
-                [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
+                [placeholder]="
+                  data.engine === 'postgresql'
+                    ? 'e.g., /tmp/mydb.dump'
+                    : data.engine === 'mysql'
+                      ? 'e.g., /tmp/mydb.sql'
+                      : 'e.g., /var/opt/mssql/backup/db.bak'
+                "
               />
             </mat-form-field>
-            @if (data.engine !== 'postgresql') {
+            @if (data.engine === 'mssql' || !data.engine) {
               <button
                 mat-icon-button
                 [disabled]="backing()"
