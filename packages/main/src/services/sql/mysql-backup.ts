@@ -47,9 +47,11 @@ export class MySQLBackupService extends BaseSingleton {
 
     const backupPath = request.backupPath || `/tmp/${request.database}_${Date.now()}.sql`;
 
-    // Build args with safe defaults that work across MySQL 5.7/8.0/9.0 and
-    // MariaDB. Avoid flags that query server-specific information_schema tables
-    // (e.g., LIBRARIES, column_statistics) that may not exist on all versions.
+    // Build args with minimal privilege requirements. The key challenge is that
+    // --single-transaction does a FLUSH TABLES WITH READ LOCK on some versions,
+    // which requires RELOAD privilege that many managed DB users don't have.
+    // Instead we use --skip-lock-tables + --skip-opt + --create-options to get
+    // a clean dump without requiring RELOAD, PROCESS, or SUPER privileges.
     const args = [
       '-h',
       profile.server,
@@ -57,11 +59,14 @@ export class MySQLBackupService extends BaseSingleton {
       String(profile.port),
       '-u',
       profile.username || 'root',
-      '--single-transaction',
-      '--routines',
+      '--skip-opt',
+      '--create-options',
+      '--add-drop-table',
+      '--set-charset',
+      '--extended-insert',
+      '--quick',
       '--triggers',
       '--no-tablespaces',
-      '--skip-lock-tables',
       '--column-statistics=0',
       '--result-file',
       backupPath,
