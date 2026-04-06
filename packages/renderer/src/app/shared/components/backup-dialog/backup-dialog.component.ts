@@ -153,15 +153,22 @@ export interface BackupDialogData {
           <div class="progress-section">
             <div class="progress-header">
               <span>{{ progress()?.currentPhase || 'Starting backup...' }}</span>
-              <span>{{ progress()?.percentComplete || 0 }}%</span>
+              @if ((progress()?.percentComplete ?? 0) >= 0) {
+                <span>{{ progress()?.percentComplete || 0 }}%</span>
+              }
             </div>
-            <mat-progress-bar mode="determinate" [value]="progress()?.percentComplete || 0" />
+            <mat-progress-bar
+              [mode]="(progress()?.percentComplete ?? 0) < 0 ? 'indeterminate' : 'determinate'"
+              [value]="
+                (progress()?.percentComplete ?? 0) < 0 ? 0 : progress()?.percentComplete || 0
+              "
+            />
           </div>
         }
 
-        <!-- Expandable panels -->
-        <mat-accordion class="panels">
-          @if (data.engine === 'mssql' || !data.engine) {
+        <!-- Expandable panels (MSSQL only) -->
+        @if (data.engine === 'mssql' || !data.engine) {
+          <mat-accordion class="panels">
             <mat-expansion-panel>
               <mat-expansion-panel-header>
                 <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
@@ -196,8 +203,8 @@ export interface BackupDialogData {
                 }
               </div>
             </mat-expansion-panel>
-          }
-        </mat-accordion>
+          </mat-accordion>
+        }
       </mat-dialog-content>
 
       <mat-dialog-actions align="start">
@@ -217,7 +224,7 @@ export interface BackupDialogData {
   styles: [
     `
       .backup-dialog {
-        width: 520px;
+        overflow: hidden;
       }
 
       h2[mat-dialog-title] {
@@ -233,6 +240,7 @@ export interface BackupDialogData {
 
       mat-dialog-content {
         padding-top: 16px;
+        overflow-x: hidden !important;
       }
 
       .form-grid {

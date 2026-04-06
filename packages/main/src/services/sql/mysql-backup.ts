@@ -7,9 +7,16 @@
 
 import { spawn } from 'child_process';
 import { createReadStream } from 'fs';
+import { Transform } from 'stream';
 import { BrowserWindow } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
-import type { BackupRequest, RestoreRequest } from '@mj-forge/shared';
+import type {
+  BackupProgress,
+  BackupRequest,
+  RestoreProgress,
+  RestoreRequest,
+} from '@mj-forge/shared';
+import { IPC_CHANNELS } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
 import { ConnectionProfilesStore } from '../config/connection-profiles';
@@ -33,7 +40,9 @@ export class MySQLBackupService extends BaseSingleton {
   }
 
   /**
-   * Start a MySQL backup using mysqldump
+   * Start a MySQL backup using mysqldump.
+   * Returns the operationId immediately — the dump runs in the background
+   * and reports progress/completion via IPC events.
    */
   async startBackup(request: BackupRequest): Promise<string> {
     const operationId = uuidv4();
@@ -67,6 +76,7 @@ export class MySQLBackupService extends BaseSingleton {
       '--quick',
       '--triggers',
       '--no-tablespaces',
+      '--set-gtid-purged=OFF',
       '--column-statistics=0',
       '--result-file',
       backupPath,
@@ -78,49 +88,57 @@ export class MySQLBackupService extends BaseSingleton {
     const env = { ...process.env };
     if (password) env.MYSQL_PWD = password;
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn('mysqldump', args, { env });
-      operation.pid = proc.pid;
+    // Fire and forget — run in background, report via IPC events
+    this.runBackupProcess(operationId, request.database, args, env, operation);
 
-      let stderr = '';
+    return operationId;
+  }
 
-      proc.stderr.on('data', (data: Buffer) => {
-        const msg = data.toString();
-        stderr += msg;
-        this.sendProgress(operationId, 'backup', msg.trim());
-      });
+  private runBackupProcess(
+    operationId: string,
+    database: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    operation: MySQLBackupOperation
+  ): void {
+    const proc = spawn('mysqldump', args, { env });
+    operation.pid = proc.pid;
 
-      proc.on('close', code => {
-        this.activeOperations.delete(operationId);
-        if (operation.cancelled) {
-          this.sendComplete(operationId, 'backup', false, 'Backup cancelled');
-          resolve(operationId);
-        } else if (code === 0) {
-          log.info(`mysqldump completed successfully for ${request.database}`);
-          this.sendComplete(operationId, 'backup', true);
-          resolve(operationId);
-        } else {
-          const errMsg = `mysqldump failed with exit code ${code}: ${stderr.slice(-500)}`;
-          log.error(errMsg);
-          this.sendComplete(operationId, 'backup', false, errMsg);
-          reject(new Error(errMsg));
-        }
-      });
+    let stderr = '';
 
-      proc.on('error', err => {
-        this.activeOperations.delete(operationId);
-        const errMsg = err.message.includes('ENOENT')
-          ? 'mysqldump not found. Please install MySQL client tools.'
-          : err.message;
-        log.error(`mysqldump error: ${errMsg}`);
+    proc.stderr.on('data', (data: Buffer) => {
+      const msg = data.toString();
+      stderr += msg;
+      this.sendProgress(operationId, 'backup', msg.trim());
+    });
+
+    proc.on('close', code => {
+      this.activeOperations.delete(operationId);
+      if (operation.cancelled) {
+        this.sendComplete(operationId, 'backup', false, 'Backup cancelled');
+      } else if (code === 0) {
+        log.info(`mysqldump completed successfully for ${database}`);
+        this.sendComplete(operationId, 'backup', true);
+      } else {
+        const errMsg = `mysqldump failed with exit code ${code}: ${stderr.slice(-500)}`;
+        log.error(errMsg);
         this.sendComplete(operationId, 'backup', false, errMsg);
-        reject(new Error(errMsg));
-      });
+      }
+    });
+
+    proc.on('error', err => {
+      this.activeOperations.delete(operationId);
+      const errMsg = err.message.includes('ENOENT')
+        ? 'mysqldump not found. Please install MySQL client tools.'
+        : err.message;
+      log.error(`mysqldump error: ${errMsg}`);
+      this.sendComplete(operationId, 'backup', false, errMsg);
     });
   }
 
   /**
-   * Start a MySQL restore by piping a SQL file to the mysql CLI
+   * Start a MySQL restore by piping a SQL file to the mysql CLI.
+   * Returns the operationId immediately — the restore runs in the background.
    */
   async startRestore(request: RestoreRequest): Promise<string> {
     const operationId = uuidv4();
@@ -149,56 +167,98 @@ export class MySQLBackupService extends BaseSingleton {
     const env = { ...process.env };
     if (password) env.MYSQL_PWD = password;
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn('mysql', args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-      operation.pid = proc.pid;
+    // Fire and forget — run in background, report via IPC events
+    this.runRestoreProcess(operationId, targetDb, request.backupPath, args, env, operation);
 
-      let stderr = '';
+    return operationId;
+  }
 
-      // Pipe the SQL file to mysql stdin
-      const fileStream = createReadStream(request.backupPath);
-      fileStream.pipe(proc.stdin);
+  /**
+   * Create a transform stream that strips SQL statements requiring SUPER privilege.
+   * Dump files from managed MySQL instances (RDS, Cloud SQL, etc.) often contain
+   * SET @@SESSION.SQL_LOG_BIN, SET @@GLOBAL.GTID_PURGED, and similar statements
+   * that fail without SUPER or SYSTEM_VARIABLES_ADMIN privileges.
+   */
+  private createPrivilegeFilter(): Transform {
+    let buffer = '';
+    return new Transform({
+      transform(chunk, _encoding, callback) {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        // Keep the last partial line in the buffer
+        buffer = lines.pop() || '';
+        const filtered =
+          lines
+            .filter(line => {
+              const trimmed = line.trimStart();
+              return (
+                !trimmed.startsWith('SET @@SESSION.SQL_LOG_BIN') &&
+                !trimmed.startsWith('SET @@GLOBAL.GTID_PURGED') &&
+                !trimmed.startsWith('SET @@GLOBAL.gtid_purged')
+              );
+            })
+            .join('\n') + '\n';
+        callback(null, filtered);
+      },
+      flush(callback) {
+        if (buffer) callback(null, buffer);
+        else callback();
+      },
+    });
+  }
 
-      fileStream.on('error', err => {
-        this.activeOperations.delete(operationId);
-        const errMsg = `Failed to read backup file: ${err.message}`;
+  private runRestoreProcess(
+    operationId: string,
+    targetDb: string,
+    backupPath: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    operation: MySQLBackupOperation
+  ): void {
+    const proc = spawn('mysql', args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    operation.pid = proc.pid;
+
+    let stderr = '';
+
+    // Pipe the SQL file through a filter that strips SUPER-privilege statements
+    const fileStream = createReadStream(backupPath);
+    const filter = this.createPrivilegeFilter();
+    fileStream.pipe(filter).pipe(proc.stdin);
+
+    fileStream.on('error', err => {
+      this.activeOperations.delete(operationId);
+      const errMsg = `Failed to read backup file: ${err.message}`;
+      log.error(errMsg);
+      this.sendComplete(operationId, 'restore', false, errMsg);
+    });
+
+    proc.stderr.on('data', (data: Buffer) => {
+      const msg = data.toString();
+      stderr += msg;
+      this.sendProgress(operationId, 'restore', msg.trim());
+    });
+
+    proc.on('close', code => {
+      this.activeOperations.delete(operationId);
+      if (operation.cancelled) {
+        this.sendComplete(operationId, 'restore', false, 'Restore cancelled');
+      } else if (code === 0) {
+        log.info(`mysql restore completed successfully → ${targetDb}`);
+        this.sendComplete(operationId, 'restore', true);
+      } else {
+        const errMsg = `mysql restore failed with exit code ${code}: ${stderr.slice(-500)}`;
         log.error(errMsg);
         this.sendComplete(operationId, 'restore', false, errMsg);
-        reject(new Error(errMsg));
-      });
+      }
+    });
 
-      proc.stderr.on('data', (data: Buffer) => {
-        const msg = data.toString();
-        stderr += msg;
-        this.sendProgress(operationId, 'restore', msg.trim());
-      });
-
-      proc.on('close', code => {
-        this.activeOperations.delete(operationId);
-        if (operation.cancelled) {
-          this.sendComplete(operationId, 'restore', false, 'Restore cancelled');
-          resolve(operationId);
-        } else if (code === 0) {
-          log.info(`mysql restore completed successfully → ${targetDb}`);
-          this.sendComplete(operationId, 'restore', true);
-          resolve(operationId);
-        } else {
-          const errMsg = `mysql restore failed with exit code ${code}: ${stderr.slice(-500)}`;
-          log.error(errMsg);
-          this.sendComplete(operationId, 'restore', false, errMsg);
-          reject(new Error(errMsg));
-        }
-      });
-
-      proc.on('error', err => {
-        this.activeOperations.delete(operationId);
-        const errMsg = err.message.includes('ENOENT')
-          ? 'mysql client not found. Please install MySQL client tools.'
-          : err.message;
-        log.error(`mysql restore error: ${errMsg}`);
-        this.sendComplete(operationId, 'restore', false, errMsg);
-        reject(new Error(errMsg));
-      });
+    proc.on('error', err => {
+      this.activeOperations.delete(operationId);
+      const errMsg = err.message.includes('ENOENT')
+        ? 'mysql client not found. Please install MySQL client tools.'
+        : err.message;
+      log.error(`mysql restore error: ${errMsg}`);
+      this.sendComplete(operationId, 'restore', false, errMsg);
     });
   }
 
@@ -237,18 +297,41 @@ export class MySQLBackupService extends BaseSingleton {
     this.activeOperations.clear();
   }
 
-  private sendProgress(operationId: string, type: string, message: string): void {
+  private sendProgress(operationId: string, type: 'backup' | 'restore', message: string): void {
+    const channel =
+      type === 'backup' ? IPC_CHANNELS.BACKUP.PROGRESS : IPC_CHANNELS.RESTORE.PROGRESS;
+    const progress: BackupProgress | RestoreProgress = {
+      backupId: operationId,
+      operationId,
+      status: 'running',
+      percentComplete: -1, // indeterminate — CLI tools don't report %
+      currentPhase: message,
+    };
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
-      win.webContents.send(`${type}:progress`, { operationId, message });
+      win.webContents.send(channel, progress);
     }
   }
 
-  private sendComplete(operationId: string, type: string, success: boolean, error?: string): void {
-    const channel = success ? `${type}:complete` : `${type}:error`;
+  private sendComplete(
+    operationId: string,
+    type: 'backup' | 'restore',
+    success: boolean,
+    error?: string
+  ): void {
+    const channel =
+      type === 'backup' ? IPC_CHANNELS.BACKUP.PROGRESS : IPC_CHANNELS.RESTORE.PROGRESS;
+    const progress: BackupProgress | RestoreProgress = {
+      backupId: operationId,
+      operationId,
+      status: success ? 'completed' : 'failed',
+      percentComplete: success ? 100 : 0,
+      currentPhase: success ? 'Completed' : 'Failed',
+      error,
+    };
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
-      win.webContents.send(channel, { operationId, success, error });
+      win.webContents.send(channel, progress);
     }
   }
 }

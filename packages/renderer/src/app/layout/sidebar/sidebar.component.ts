@@ -761,7 +761,7 @@ export class SidebarComponent {
 
     const dialogRef = this.dialog.open(BackupDialogComponent, {
       data: dialogData,
-      width: '650px',
+      width: '520px',
       disableClose: true,
     });
 
@@ -790,7 +790,7 @@ export class SidebarComponent {
 
     const dialogRef = this.dialog.open(RestoreDialogComponent, {
       data: dialogData,
-      width: '750px',
+      width: '560px',
       disableClose: true,
     });
 

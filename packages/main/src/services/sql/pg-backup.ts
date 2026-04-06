@@ -8,7 +8,13 @@
 import { spawn } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
-import type { BackupRequest, RestoreRequest } from '@mj-forge/shared';
+import type {
+  BackupProgress,
+  BackupRequest,
+  RestoreProgress,
+  RestoreRequest,
+} from '@mj-forge/shared';
+import { IPC_CHANNELS } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
 import { ConnectionProfilesStore } from '../config/connection-profiles';
@@ -32,7 +38,8 @@ export class PgBackupService extends BaseSingleton {
   }
 
   /**
-   * Start a PostgreSQL backup using pg_dump
+   * Start a PostgreSQL backup using pg_dump.
+   * Returns the operationId immediately — the dump runs in the background.
    */
   async startBackup(request: BackupRequest): Promise<string> {
     const operationId = uuidv4();
@@ -45,13 +52,19 @@ export class PgBackupService extends BaseSingleton {
     this.activeOperations.set(operationId, operation);
 
     const args = [
-      '-h', profile.server,
-      '-p', String(profile.port),
-      '-U', profile.username || 'postgres',
-      '-d', request.database,
-      '-F', 'c', // custom format (compressed, supports pg_restore)
+      '-h',
+      profile.server,
+      '-p',
+      String(profile.port),
+      '-U',
+      profile.username || 'postgres',
+      '-d',
+      request.database,
+      '-F',
+      'c', // custom format (compressed, supports pg_restore)
       '-v', // verbose for progress
-      '-f', request.backupPath || `/tmp/${request.database}_${Date.now()}.dump`,
+      '-f',
+      request.backupPath || `/tmp/${request.database}_${Date.now()}.dump`,
     ];
 
     log.info(`Starting pg_dump for ${request.database} → ${request.backupPath}`);
@@ -59,50 +72,15 @@ export class PgBackupService extends BaseSingleton {
     const env = { ...process.env };
     if (password) env.PGPASSWORD = password;
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn('pg_dump', args, { env });
-      operation.pid = proc.pid;
+    // Fire and forget — run in background, report via IPC events
+    this.runProcess(operationId, 'pg_dump', args, env, operation, 'backup');
 
-      let stderr = '';
-
-      proc.stderr.on('data', (data: Buffer) => {
-        const msg = data.toString();
-        stderr += msg;
-        // Send progress to renderer
-        this.sendProgress(operationId, 'backup', msg.trim());
-      });
-
-      proc.on('close', (code) => {
-        this.activeOperations.delete(operationId);
-        if (operation.cancelled) {
-          this.sendComplete(operationId, 'backup', false, 'Backup cancelled');
-          resolve(operationId);
-        } else if (code === 0) {
-          log.info(`pg_dump completed successfully for ${request.database}`);
-          this.sendComplete(operationId, 'backup', true);
-          resolve(operationId);
-        } else {
-          const errMsg = `pg_dump failed with exit code ${code}: ${stderr.slice(-500)}`;
-          log.error(errMsg);
-          this.sendComplete(operationId, 'backup', false, errMsg);
-          reject(new Error(errMsg));
-        }
-      });
-
-      proc.on('error', (err) => {
-        this.activeOperations.delete(operationId);
-        const errMsg = err.message.includes('ENOENT')
-          ? 'pg_dump not found. Please install PostgreSQL client tools.'
-          : err.message;
-        log.error(`pg_dump error: ${errMsg}`);
-        this.sendComplete(operationId, 'backup', false, errMsg);
-        reject(new Error(errMsg));
-      });
-    });
+    return operationId;
   }
 
   /**
-   * Start a PostgreSQL restore using pg_restore
+   * Start a PostgreSQL restore using pg_restore.
+   * Returns the operationId immediately — the restore runs in the background.
    */
   async startRestore(request: RestoreRequest): Promise<string> {
     const operationId = uuidv4();
@@ -117,10 +95,14 @@ export class PgBackupService extends BaseSingleton {
     const targetDb = request.targetDatabase || 'restored_db';
 
     const args = [
-      '-h', profile.server,
-      '-p', String(profile.port),
-      '-U', profile.username || 'postgres',
-      '-d', targetDb,
+      '-h',
+      profile.server,
+      '-p',
+      String(profile.port),
+      '-U',
+      profile.username || 'postgres',
+      '-d',
+      targetDb,
       '-v', // verbose
       request.backupPath,
     ];
@@ -134,53 +116,61 @@ export class PgBackupService extends BaseSingleton {
     const env = { ...process.env };
     if (password) env.PGPASSWORD = password;
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn('pg_restore', args, { env });
-      operation.pid = proc.pid;
+    // Fire and forget — run in background, report via IPC events
+    this.runProcess(operationId, 'pg_restore', args, env, operation, 'restore');
 
-      let stderr = '';
+    return operationId;
+  }
 
-      proc.stderr.on('data', (data: Buffer) => {
-        const msg = data.toString();
-        stderr += msg;
-        this.sendProgress(operationId, 'restore', msg.trim());
-      });
+  /**
+   * Spawn a CLI tool in the background and report progress/completion via IPC.
+   */
+  private runProcess(
+    operationId: string,
+    command: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    operation: PgBackupOperation,
+    type: 'backup' | 'restore'
+  ): void {
+    const proc = spawn(command, args, { env });
+    operation.pid = proc.pid;
 
-      proc.on('close', (code) => {
-        this.activeOperations.delete(operationId);
-        if (operation.cancelled) {
-          this.sendComplete(operationId, 'restore', false, 'Restore cancelled');
-          resolve(operationId);
-        } else if (code === 0) {
-          log.info(`pg_restore completed successfully → ${targetDb}`);
-          this.sendComplete(operationId, 'restore', true);
-          resolve(operationId);
+    let stderr = '';
+
+    proc.stderr.on('data', (data: Buffer) => {
+      const msg = data.toString();
+      stderr += msg;
+      this.sendProgress(operationId, type, msg.trim());
+    });
+
+    proc.on('close', code => {
+      this.activeOperations.delete(operationId);
+      if (operation.cancelled) {
+        this.sendComplete(operationId, type, false, `${command} cancelled`);
+      } else if (code === 0) {
+        log.info(`${command} completed successfully (${operationId})`);
+        this.sendComplete(operationId, type, true);
+      } else {
+        // pg_restore returns non-zero for warnings too; check stderr
+        if (command === 'pg_restore' && !stderr.includes('ERROR:')) {
+          log.info(`${command} completed with warnings (${operationId})`);
+          this.sendComplete(operationId, type, true);
         } else {
-          // pg_restore returns non-zero for warnings too; check stderr
-          const hasErrors = stderr.includes('ERROR:');
-          if (hasErrors) {
-            const errMsg = `pg_restore completed with errors (exit ${code}): ${stderr.slice(-500)}`;
-            log.error(errMsg);
-            this.sendComplete(operationId, 'restore', false, errMsg);
-            reject(new Error(errMsg));
-          } else {
-            // Warnings only — treat as success
-            log.info(`pg_restore completed with warnings for ${targetDb}`);
-            this.sendComplete(operationId, 'restore', true);
-            resolve(operationId);
-          }
+          const errMsg = `${command} failed with exit code ${code}: ${stderr.slice(-500)}`;
+          log.error(errMsg);
+          this.sendComplete(operationId, type, false, errMsg);
         }
-      });
+      }
+    });
 
-      proc.on('error', (err) => {
-        this.activeOperations.delete(operationId);
-        const errMsg = err.message.includes('ENOENT')
-          ? 'pg_restore not found. Please install PostgreSQL client tools.'
-          : err.message;
-        log.error(`pg_restore error: ${errMsg}`);
-        this.sendComplete(operationId, 'restore', false, errMsg);
-        reject(new Error(errMsg));
-      });
+    proc.on('error', err => {
+      this.activeOperations.delete(operationId);
+      const errMsg = err.message.includes('ENOENT')
+        ? `${command} not found. Please install PostgreSQL client tools.`
+        : err.message;
+      log.error(`${command} error: ${errMsg}`);
+      this.sendComplete(operationId, type, false, errMsg);
     });
   }
 
@@ -192,7 +182,11 @@ export class PgBackupService extends BaseSingleton {
     if (op) {
       op.cancelled = true;
       if (op.pid) {
-        try { process.kill(op.pid); } catch { /* process may have already exited */ }
+        try {
+          process.kill(op.pid);
+        } catch {
+          /* process may have already exited */
+        }
       }
     }
   }
@@ -204,25 +198,52 @@ export class PgBackupService extends BaseSingleton {
     for (const [id, op] of this.activeOperations) {
       op.cancelled = true;
       if (op.pid) {
-        try { process.kill(op.pid); } catch { /* ignore */ }
+        try {
+          process.kill(op.pid);
+        } catch {
+          /* ignore */
+        }
       }
       log.info(`Shutdown: stopped PG ${op.type} operation ${id}`);
     }
     this.activeOperations.clear();
   }
 
-  private sendProgress(operationId: string, type: string, message: string): void {
+  private sendProgress(operationId: string, type: 'backup' | 'restore', message: string): void {
+    const channel =
+      type === 'backup' ? IPC_CHANNELS.BACKUP.PROGRESS : IPC_CHANNELS.RESTORE.PROGRESS;
+    const progress: BackupProgress | RestoreProgress = {
+      backupId: operationId,
+      operationId,
+      status: 'running',
+      percentComplete: -1, // indeterminate — CLI tools don't report %
+      currentPhase: message,
+    };
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
-      win.webContents.send(`${type}:progress`, { operationId, message });
+      win.webContents.send(channel, progress);
     }
   }
 
-  private sendComplete(operationId: string, type: string, success: boolean, error?: string): void {
-    const channel = success ? `${type}:complete` : `${type}:error`;
+  private sendComplete(
+    operationId: string,
+    type: 'backup' | 'restore',
+    success: boolean,
+    error?: string
+  ): void {
+    const channel =
+      type === 'backup' ? IPC_CHANNELS.BACKUP.PROGRESS : IPC_CHANNELS.RESTORE.PROGRESS;
+    const progress: BackupProgress | RestoreProgress = {
+      backupId: operationId,
+      operationId,
+      status: success ? 'completed' : 'failed',
+      percentComplete: success ? 100 : 0,
+      currentPhase: success ? 'Completed' : 'Failed',
+      error,
+    };
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
-      win.webContents.send(channel, { operationId, success, error });
+      win.webContents.send(channel, progress);
     }
   }
 }

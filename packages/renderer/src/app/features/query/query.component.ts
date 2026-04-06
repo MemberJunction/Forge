@@ -1319,7 +1319,11 @@ export class QueryComponent implements OnInit, OnDestroy {
         // Handle auto-execute for initial load
         if (tab.autoExecute && tab.content) {
           this.tabState.clearAutoExecute(tab.id);
-          // Execute immediately since editor is ready and content is set
+          // Sync database from tab before executing — the effect may not have fired yet
+          if (tab.databaseName) {
+            this.selectedDatabase = tab.databaseName;
+            this.connectionState.selectDatabase(tab.databaseName);
+          }
           this.executeQuery();
         }
       }
@@ -1335,6 +1339,10 @@ export class QueryComponent implements OnInit, OnDestroy {
         this.tabState.setCleanBaseline(activeTab.id, activeTab.content ?? '');
         if (activeTab.autoExecute && activeTab.content) {
           this.tabState.clearAutoExecute(activeTab.id);
+          if (activeTab.databaseName) {
+            this.selectedDatabase = activeTab.databaseName;
+            this.connectionState.selectDatabase(activeTab.databaseName);
+          }
           this.executeQuery();
         }
       }
@@ -1580,7 +1588,9 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     const connectionId = this.connectionState.activeConnectionId();
-    const database = this.selectedDatabase;
+    // Use tab's own database if selectedDatabase hasn't been synced yet (e.g. autoExecute race)
+    const currentTab = this.tabState.tabs().find(t => t.id === this.tabId);
+    const database = this.selectedDatabase || currentTab?.databaseName;
 
     if (!connectionId) {
       this.notification.error('No active connection');
