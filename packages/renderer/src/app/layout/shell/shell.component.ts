@@ -1,7 +1,9 @@
-import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, HostListener, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription, firstValueFrom } from 'rxjs';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatIconModule } from '@angular/material/icon';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { GoldenLayoutContainerComponent } from '../golden-layout-container/golden-layout-container.component';
 import { StatusBarComponent } from '../status-bar/status-bar.component';
@@ -15,14 +17,34 @@ import { QueryHistoryService } from '../../core/services/query-history.service';
 import { IpcService } from '../../core/services/ipc.service';
 import { NotificationService } from '../../core/services/notification.service';
 
+const SIDEBAR_MIN_WIDTH = 180;
+const SIDEBAR_MAX_WIDTH = 500;
+const SIDEBAR_DEFAULT_WIDTH = 280;
+
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, SidebarComponent, GoldenLayoutContainerComponent, StatusBarComponent, ChatPanelComponent, TourOverlayComponent],
+  imports: [CommonModule, MatDialogModule, MatIconModule, MatTooltipModule, SidebarComponent, GoldenLayoutContainerComponent, StatusBarComponent, ChatPanelComponent, TourOverlayComponent],
   template: `
-    <div class="shell">
+    <div class="shell" [class.resizing]="resizing">
       @if (!sidebarHidden()) {
-        <app-sidebar class="sidebar" />
+        <app-sidebar class="sidebar" [style.width.px]="sidebarWidth()" />
+        <div
+          class="resize-handle"
+          (mousedown)="onResizeStart($event)"
+          (dblclick)="onResizeReset()"
+          matTooltip="Drag to resize, double-click to reset"
+          matTooltipShowDelay="600"
+        ></div>
+      }
+      @if (sidebarHidden()) {
+        <button
+          class="sidebar-show-btn"
+          (click)="toggleSidebar()"
+          matTooltip="Show sidebar (⌘B)"
+        >
+          <mat-icon>chevron_right</mat-icon>
+        </button>
       }
       <div class="main-area">
         <app-golden-layout-container class="content-area" />
@@ -42,13 +64,69 @@ import { NotificationService } from '../../core/services/notification.service';
         background-color: var(--bg-primary);
       }
 
+      .shell.resizing {
+        cursor: col-resize;
+        user-select: none;
+      }
+
       .sidebar {
-        width: var(--sidebar-width);
-        min-width: var(--sidebar-width);
-        max-width: var(--sidebar-width);
+        flex-shrink: 0;
         height: 100%;
         border-right: 1px solid var(--border-primary);
         background-color: var(--bg-secondary);
+        transition: width 0.15s ease;
+      }
+
+      .shell.resizing .sidebar {
+        transition: none;
+      }
+
+      .resize-handle {
+        flex-shrink: 0;
+        width: 4px;
+        height: 100%;
+        cursor: col-resize;
+        background: transparent;
+        position: relative;
+        z-index: 10;
+        margin-left: -2px;
+        margin-right: -2px;
+      }
+
+      .resize-handle:hover,
+      .resize-handle:active {
+        background-color: var(--accent-primary, #007acc);
+      }
+
+      .sidebar-show-btn {
+        position: absolute;
+        top: 8px;
+        left: 4px;
+        z-index: 20;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.6;
+        transition: opacity 0.15s ease;
+      }
+
+      .sidebar-show-btn:hover {
+        opacity: 1;
+        background: var(--bg-tertiary);
+      }
+
+      .sidebar-show-btn mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
       }
 
       .main-area {
@@ -85,16 +163,23 @@ export class ShellComponent implements OnInit, OnDestroy {
   private readonly dialog = inject(MatDialog);
 
   readonly sidebarHidden = signal(false);
+  readonly sidebarWidth = signal(SIDEBAR_DEFAULT_WIDTH);
+  resizing = false;
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
   private subscriptions: Subscription[] = [];
 
   ngOnInit(): void {
+    // Load saved sidebar preferences
+    this.loadSidebarPreferences();
+
     // Load saved connection profiles on startup
     this.connectionState.loadProfiles();
 
     // Listen for sidebar toggle from menu
     this.subscriptions.push(
       this.menuService.toggleSidebar$.subscribe(() => {
-        this.sidebarHidden.update(hidden => !hidden);
+        this.toggleSidebar();
       })
     );
 
@@ -237,6 +322,64 @@ export class ShellComponent implements OnInit, OnDestroy {
         data: { connectionId: this.connectionState.activeConnectionId() },
       });
     });
+  }
+
+  // -- Sidebar resize & toggle --
+
+  toggleSidebar(): void {
+    const hidden = !this.sidebarHidden();
+    this.sidebarHidden.set(hidden);
+    this.saveSidebarPreferences();
+  }
+
+  onResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    this.resizing = true;
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = this.sidebarWidth();
+  }
+
+  @HostListener('document:mousemove', ['$event'])
+  onResizeMove(event: MouseEvent): void {
+    if (!this.resizing) return;
+    const delta = event.clientX - this.resizeStartX;
+    const newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, this.resizeStartWidth + delta));
+    this.sidebarWidth.set(newWidth);
+  }
+
+  @HostListener('document:mouseup')
+  onResizeEnd(): void {
+    if (!this.resizing) return;
+    this.resizing = false;
+    this.saveSidebarPreferences();
+  }
+
+  onResizeReset(): void {
+    this.sidebarWidth.set(SIDEBAR_DEFAULT_WIDTH);
+    this.saveSidebarPreferences();
+  }
+
+  private async loadSidebarPreferences(): Promise<void> {
+    if (!this.ipc.isAvailable) return;
+    try {
+      const state = await firstValueFrom(this.ipc.getAppState());
+      if (state?.sidebarWidth && state.sidebarWidth >= SIDEBAR_MIN_WIDTH) {
+        this.sidebarWidth.set(Math.min(state.sidebarWidth, SIDEBAR_MAX_WIDTH));
+      }
+      if (state?.sidebarCollapsed) {
+        this.sidebarHidden.set(true);
+      }
+    } catch { /* use defaults */ }
+  }
+
+  private saveSidebarPreferences(): void {
+    if (!this.ipc.isAvailable) return;
+    firstValueFrom(
+      this.ipc.setAppState({
+        sidebarWidth: this.sidebarWidth(),
+        sidebarCollapsed: this.sidebarHidden(),
+      })
+    ).catch(() => {});
   }
 
   ngOnDestroy(): void {
