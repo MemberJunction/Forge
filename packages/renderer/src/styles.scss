@@ -636,6 +636,23 @@ pre {
     --mdc-outlined-button-label-text-color: var(--text-primary);
     --mdc-outlined-button-outline-color: var(--border-secondary);
   }
+
+  // Disabled button states — ensure visible contrast in light mode
+  .mat-mdc-unelevated-button,
+  .mat-mdc-raised-button {
+    --mdc-filled-button-disabled-container-color: var(--bg-hover);
+    --mdc-filled-button-disabled-label-text-color: var(--text-muted);
+  }
+
+  .mat-mdc-outlined-button,
+  .mat-mdc-stroked-button {
+    --mdc-outlined-button-disabled-label-text-color: var(--text-muted);
+    --mdc-outlined-button-disabled-outline-color: var(--border-primary);
+  }
+
+  .mat-mdc-button {
+    --mdc-text-button-disabled-label-text-color: var(--text-muted);
+  }
 }
 
 @media (prefers-color-scheme: light) {

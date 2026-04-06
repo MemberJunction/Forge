@@ -254,7 +254,7 @@ export class ConnectionPoolManager extends BaseSingleton {
         port: profile.port,
         user: profile.username,
         password,
-        database: profile.database || 'mysql',
+        database: profile.database || undefined,
         ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : undefined,
         connectTimeout: profile.connectionTimeout * 1000,
         connectionLimit: 1,
@@ -292,8 +292,8 @@ export class ConnectionPoolManager extends BaseSingleton {
     const profile = this.profileStore.getById(profileId);
     if (!profile) throw new Error('Connection profile not found');
 
-    const dbName = database || profile.database || 'mysql';
-    const poolKey = `${profileId}:${dbName}`;
+    const dbName = database || profile.database || undefined;
+    const poolKey = `${profileId}:${dbName ?? '__default__'}`;
 
     const existing = this.mysqlPools.get(poolKey);
     if (existing) {
@@ -459,11 +459,11 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Execute DDL statements on any engine (MSSQL or PostgreSQL).
    * Routes to the correct pool based on the connection's engine.
    */
-  async executeDDL(profileId: string, sql: string): Promise<void> {
+  async executeDDL(profileId: string, sql: string, database?: string): Promise<void> {
     const engine = this.getEngineForProfile(profileId);
 
     if (engine === 'postgresql') {
-      const pool = await this.getPgPool(profileId);
+      const pool = await this.getPgPool(profileId, database);
       const client = await pool.connect();
       try {
         await client.query(sql);
@@ -474,7 +474,7 @@ export class ConnectionPoolManager extends BaseSingleton {
     }
 
     if (engine === 'mysql') {
-      const pool = await this.getMySQLPool(profileId);
+      const pool = await this.getMySQLPool(profileId, database);
       const conn = await pool.getConnection();
       try {
         await conn.query(sql);

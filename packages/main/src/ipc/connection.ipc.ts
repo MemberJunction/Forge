@@ -81,7 +81,7 @@ export function registerConnectionHandlers(): void {
         engine === 'postgresql'
           ? profile.database || 'postgres'
           : engine === 'mysql'
-            ? profile.database || 'mysql'
+            ? profile.database || 'information_schema'
             : profile.database || 'master';
 
       return {

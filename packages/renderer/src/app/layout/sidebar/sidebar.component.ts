@@ -39,6 +39,8 @@ import {
   ConnectionDialogComponent,
   ConnectionDialogData,
 } from '../../shared/components/connection-dialog/connection-dialog.component';
+import { ConnectionManagerDialogComponent } from '../../shared/components/connection-manager-dialog/connection-manager-dialog.component';
+import type { DatabaseEngine } from '@mj-forge/shared';
 
 @Component({
   selector: 'app-sidebar',
@@ -581,6 +583,55 @@ export class SidebarComponent {
   private pendingDeleteDatabase: string | null = null;
   private pendingRenameDatabase: string | null = null;
 
+  /** Get the database engine for a connection, defaulting to mssql */
+  private getEngine(connectionId?: string): DatabaseEngine {
+    if (connectionId) {
+      const profile = this.connectionState.getProfile(connectionId);
+      if (profile) return profile.engine;
+    }
+    return this.connectionState.activeProfile()?.engine || 'mssql';
+  }
+
+  /** Quote an identifier appropriately for the database engine */
+  private quoteId(name: string, engine: DatabaseEngine): string {
+    switch (engine) {
+      case 'mysql':
+        return '`' + name.replace(/`/g, '``') + '`';
+      case 'postgresql':
+        return '"' + name.replace(/"/g, '""') + '"';
+      default:
+        return '[' + name.replace(/]/g, ']]') + ']';
+    }
+  }
+
+  /** Build a qualified table reference (schema.table) for the given engine */
+  private qualifiedTable(schema: string, table: string, engine: DatabaseEngine): string {
+    if (engine === 'mysql') {
+      return this.quoteId(table, engine);
+    }
+    return `${this.quoteId(schema, engine)}.${this.quoteId(table, engine)}`;
+  }
+
+  /** Get the default schema name for the given engine */
+  private defaultSchema(engine: DatabaseEngine): string {
+    switch (engine) {
+      case 'postgresql':
+        return 'public';
+      case 'mysql':
+        return '';
+      default:
+        return 'dbo';
+    }
+  }
+
+  /** Generate a SELECT with row limit appropriate for the engine */
+  private selectWithLimit(tableRef: string, limit: number, engine: DatabaseEngine): string {
+    if (engine === 'mssql') {
+      return `SELECT TOP ${limit} * FROM ${tableRef}`;
+    }
+    return `SELECT * FROM ${tableRef} LIMIT ${limit}`;
+  }
+
   openConnectionDialog(): void {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
@@ -590,9 +641,8 @@ export class SidebarComponent {
   }
 
   manageConnections(): void {
-    this.dialog.open(ConnectionDialogComponent, {
-      data: {} as ConnectionDialogData,
-      width: '540px',
+    this.dialog.open(ConnectionManagerDialogComponent, {
+      width: '560px',
       maxHeight: '90vh',
     });
   }
@@ -651,7 +701,7 @@ export class SidebarComponent {
       node.databaseName,
       node.metadata.name,
       node.metadata.type,
-      node.metadata.schema || node.schema || 'dbo'
+      node.metadata.schema || node.schema || this.defaultSchema(this.getEngine(node.connectionId))
     );
     this.router.navigate(['/explorer']);
   }
@@ -942,8 +992,10 @@ export class SidebarComponent {
         icon: 'table_rows',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 1000, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
@@ -956,8 +1008,10 @@ export class SidebarComponent {
         icon: 'edit_note',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 200, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
@@ -972,7 +1026,8 @@ export class SidebarComponent {
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const sql = await window.forge.explorer.scriptTableAsCreate(
                 node.connectionId,
                 node.databaseName,
@@ -994,8 +1049,10 @@ export class SidebarComponent {
         icon: 'code',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = `SELECT * FROM ${tableRef}`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
@@ -1009,7 +1066,8 @@ export class SidebarComponent {
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const sql = await window.forge.explorer.scriptTableAsInsert(
                 node.connectionId,
                 node.databaseName,
@@ -1032,7 +1090,8 @@ export class SidebarComponent {
         icon: 'account_tree',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
+            const schema =
+              node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openErdTab(
               node.connectionId,
@@ -1054,7 +1113,7 @@ export class SidebarComponent {
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
             });
           }
@@ -1136,8 +1195,10 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'table_rows',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 1000, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
@@ -1150,8 +1211,10 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'edit_note',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 200, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
@@ -1166,7 +1229,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1190,7 +1254,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1214,8 +1279,10 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'code',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = `SELECT * FROM ${tableRef}`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1232,7 +1299,7 @@ ORDER BY al.CreatedAt DESC`;
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
               objectType: 'view',
             });
@@ -1258,7 +1325,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1282,7 +1350,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1311,7 +1380,7 @@ ORDER BY al.CreatedAt DESC`;
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
               objectType: 'function',
             });
@@ -1336,8 +1405,15 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'play_arrow',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `EXEC [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const procRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql =
+              engine === 'mysql'
+                ? `CALL ${procRef}()`
+                : engine === 'postgresql'
+                  ? `CALL ${procRef}()`
+                  : `EXEC ${procRef}`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1351,7 +1427,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1375,7 +1452,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1404,7 +1482,7 @@ ORDER BY al.CreatedAt DESC`;
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
               objectType: 'procedure',
             });
@@ -1430,7 +1508,9 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'table_chart',
         action: () => {
           if (node.connectionId && node.databaseName && node.schema && node.tableName) {
-            const sql = `SELECT TOP 1000 * FROM [${node.schema}].[${node.tableName}]`;
+            const engine = this.getEngine(node.connectionId);
+            const tableRef = this.qualifiedTable(node.schema, node.tableName, engine);
+            const sql = this.selectWithLimit(tableRef, 1000, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }

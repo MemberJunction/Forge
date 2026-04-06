@@ -11,7 +11,6 @@ import type {
   Conversation,
   ToolCallResult,
   ToolDefinition,
-  SchemaContext,
 } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { ConnectionStateService } from './connection.state';
@@ -243,10 +242,18 @@ export class ChatStateService implements OnDestroy {
     this._conversations.update(convs =>
       convs.map(c =>
         c.id === conversationId
-          ? { ...c, title: content.substring(0, 50) + (content.length > 50 ? '...' : ''), updatedAt: new Date().toISOString() }
+          ? {
+              ...c,
+              title: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+              updatedAt: new Date().toISOString(),
+            }
           : c
       )
     );
+
+    // Include active query editor content so the AI can see what the user is working on
+    const activeTab = this.tabState.activeTab();
+    const activeEditorContent = activeTab?.type === 'query' ? activeTab.content : undefined;
 
     try {
       await firstValueFrom(
@@ -255,6 +262,8 @@ export class ChatStateService implements OnDestroy {
           message: content.trim(),
           connectionId: this.connectionState.activeConnectionId() || undefined,
           databaseName: this.connectionState.selectedDatabase() || undefined,
+          databaseEngine: this.connectionState.activeProfile()?.engine || undefined,
+          activeEditorContent: activeEditorContent || undefined,
           vendorId: vendorId || undefined,
           modelApiName: modelApiName || undefined,
         })
@@ -308,12 +317,14 @@ export class ChatStateService implements OnDestroy {
     switch (action.type) {
       case 'open-query-tab': {
         const connId = this.connectionState.activeConnectionId();
-        const db = this.connectionState.selectedDatabase();
+        const db =
+          (params['database'] as string | undefined) || this.connectionState.selectedDatabase();
         if (connId && db) {
           this.tabState.openQueryTab(
-            connId, db,
+            connId,
+            db,
             params['sql'] as string | undefined,
-            params['autoExecute'] as boolean | undefined ?? false
+            (params['autoExecute'] as boolean | undefined) ?? false
           );
         }
         break;
@@ -344,9 +355,7 @@ export class ChatStateService implements OnDestroy {
 
   async renameConversation(id: string, title: string): Promise<void> {
     if (!this.ipc.isAvailable) return;
-    this._conversations.update(convs =>
-      convs.map(c => c.id === id ? { ...c, title } : c)
-    );
+    this._conversations.update(convs => convs.map(c => (c.id === id ? { ...c, title } : c)));
     try {
       await firstValueFrom(this.ipc.renameConversation(id, title));
     } catch (error) {

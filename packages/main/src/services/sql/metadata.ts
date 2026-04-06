@@ -471,7 +471,7 @@ export class MetadataService extends BaseSingleton {
       hasTextImage: boolean;
       textImageOnFilegroup: string;
       filegroup: string;
-    }>(connectionId, propertiesSql);
+    }>(connectionId, propertiesSql, database);
 
     const baseProps = propertiesResult.recordset[0];
     if (!baseProps) {
@@ -665,7 +665,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
       defaultConstraintName: string;
       computedDefinition: string;
       computedIsPersisted: boolean;
-    }>(connectionId, columnsSql);
+    }>(connectionId, columnsSql, database);
 
     // Get primary key
     const pkSql = TsqlBuilder.getPrimaryKeyScript(database, schema, table);
@@ -673,7 +673,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
       constraintName: string;
       indexType: string;
       columns: string;
-    }>(connectionId, pkSql);
+    }>(connectionId, pkSql, database);
 
     // Get foreign keys
     const fkSql = TsqlBuilder.getForeignKeyScript(database, schema, table);
@@ -685,7 +685,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
       referencedColumns: string;
       onDelete: string;
       onUpdate: string;
-    }>(connectionId, fkSql);
+    }>(connectionId, fkSql, database);
 
     // Get other constraints
     const constraintsSql = TsqlBuilder.getConstraintsScript(database, schema, table);
@@ -695,7 +695,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
       indexType: string;
       columns: string;
       definition: string;
-    }>(connectionId, constraintsSql);
+    }>(connectionId, constraintsSql, database);
 
     // Get indexes
     const indexesSql = TsqlBuilder.getIndexesScript(database, schema, table);
@@ -706,7 +706,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
       keyColumns: string;
       includedColumns: string;
       filterDefinition: string;
-    }>(connectionId, indexesSql);
+    }>(connectionId, indexesSql, database);
 
     // Build the CREATE TABLE script
     return this.buildCreateTableScript(
@@ -1035,7 +1035,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
     const result = await this.poolManager.query<{
       columnName: string;
       isIdentity: boolean;
-    }>(connectionId, columnsSql);
+    }>(connectionId, columnsSql, database);
 
     for (const r of result.recordset) {
       const col = columnData.find(c => c.name === r.columnName);
@@ -1115,7 +1115,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         columnName: string;
         isIdentity: boolean;
         defaultValue: string;
-      }>(connectionId, identitySql);
+      }>(connectionId, identitySql, database);
       for (const r of identityResult.recordset) {
         identityMap.set(r.columnName, {
           isIdentity: Boolean(r.isIdentity),
@@ -1320,7 +1320,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
     // MSSQL: prepend USE [database]
     const db = this.escId(database);
     const fullSql = `USE [${db}];\n${selectSql}`;
-    const result = await this.poolManager.query<T>(connectionId, fullSql);
+    const result = await this.poolManager.query<T>(connectionId, fullSql, database);
     return result.recordset;
   }
 
@@ -1522,7 +1522,11 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         ORDER BY er.Sequence
       `;
 
-      const result = await this.poolManager.query<MJEntityRelationship>(connectionId, sql);
+      const result = await this.poolManager.query<MJEntityRelationship>(
+        connectionId,
+        sql,
+        database
+      );
       return result.recordset.map(row => ({
         ...row,
         bundleInAPI: Boolean(row.bundleInAPI),
@@ -1582,7 +1586,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         ORDER BY rc.CreatedAt DESC
       `;
 
-      const result = await this.poolManager.query<MJRecordChange>(connectionId, sql);
+      const result = await this.poolManager.query<MJRecordChange>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJRecordChanges:', error);
@@ -1636,7 +1640,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         ORDER BY al.CreatedAt DESC
       `;
 
-      const result = await this.poolManager.query<MJAuditLog>(connectionId, sql);
+      const result = await this.poolManager.query<MJAuditLog>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJAuditLogs:', error);
@@ -1678,7 +1682,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         ORDER BY q.Name
       `;
 
-      const result = await this.poolManager.query<MJQuery>(connectionId, sql);
+      const result = await this.poolManager.query<MJQuery>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJSavedQueries:', error);
@@ -1719,7 +1723,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         ORDER BY __mj_CreatedAt DESC
       `;
 
-      const result = await this.poolManager.query<MJErrorLog>(connectionId, sql);
+      const result = await this.poolManager.query<MJErrorLog>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJErrorLogs:', error);
@@ -1770,7 +1774,7 @@ WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
         ORDER BY url.LatestAt DESC
       `;
 
-      const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql);
+      const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJUserRecordLogs:', error);

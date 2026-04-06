@@ -1,15 +1,15 @@
-# MJ Forge - SQL Dev Manager for Mac
+# MJ Forge - SQL Database Manager for Mac
 
 ## Project Overview
 
-MJ Forge is a native macOS desktop application providing SSMS-style database management workflows for SQL Server. Built with Electron + Angular + Node.js.
+MJ Forge is a native macOS desktop application providing database management workflows for **SQL Server**, **PostgreSQL**, and **MySQL**. Built with Electron + Angular + Node.js.
 
 ## Tech Stack
 
 - **Desktop Shell**: Electron
 - **UI Framework**: Angular 18+ (standalone components)
 - **Main Process**: Node.js with TypeScript
-- **SQL Connectivity**: node-mssql / tedious (TDS protocol)
+- **SQL Connectivity**: node-mssql (SQL Server), pg (PostgreSQL), mysql2 (MySQL)
 - **State Management**: Angular signals + RxJS
 - **UI Components**: Angular Material or PrimeNG
 - **Build Tools**: electron-builder, Angular CLI
@@ -25,7 +25,7 @@ mj-forge/
 │   │       ├── ipc/          # IPC handlers
 │   │       ├── services/
 │   │       │   ├── ai/       # AI service, chat, tool registry, LLM providers
-│   │       │   ├── sql/      # SQL Server operations
+│   │       │   ├── sql/      # Database operations (providers, dialects, metadata)
 │   │       │   ├── docker/   # Docker detection
 │   │       │   ├── keychain/ # Credential storage
 │   │       │   └── config/   # App state persistence
@@ -69,6 +69,7 @@ mj-forge/
 2. **Node Integration**: Disabled in renderer. All Node operations happen in main process.
 
 3. **IPC Pattern**:
+
    ```typescript
    // Define channels in shared/constants/ipc-channels.ts
    // Use invoke/handle for request-response
@@ -93,7 +94,7 @@ mj-forge/
 
 ### SQL Operations Rules
 
-1. **Connection Pooling**: Reuse connections via connection pool. Don't create new connections per query.
+1. **Connection Pooling**: Reuse connections via connection pool. Don't create new connections per query. MSSQL uses a single pool per profile; PostgreSQL and MySQL use separate pools per database.
 
 2. **Timeout Handling**: All SQL operations must have configurable timeouts.
 
@@ -101,7 +102,13 @@ mj-forge/
 
 4. **Streaming**: For backup/restore, stream progress via IPC events.
 
-5. **T-SQL Transparency**: Store and display the actual T-SQL being executed for user reference.
+5. **SQL Transparency**: Store and display the actual SQL being executed for user reference.
+
+6. **Multi-Engine Architecture**: All database operations go through an abstraction layer:
+   - **Dialects** (`sql/dialect/`): Engine-specific SQL generation (MSSQL, PostgreSQL, MySQL). Use `getDialect(engine)` — never write raw engine-specific SQL in services.
+   - **Providers** (`sql/provider/`): Engine-specific connection/execution (`DatabaseProvider` base class, with `PgProvider`, `MySQLProvider` implementations; MSSQL uses the legacy `mssql` pool directly).
+   - **Pool routing**: `ConnectionPoolManager` routes to the correct pool type via `getEngineForProfile()`.
+   - **Metadata/AI tools**: Use dialect-generated SQL — they work identically across all engines.
 
 ### Code Style
 
@@ -194,13 +201,15 @@ npm run typecheck        # TypeScript check without emit
 1. **Node.js**: v20 LTS or later
 2. **npm**: v10+
 3. **Xcode CLI Tools**: Required for native modules
-4. **Docker** (optional): For local SQL Server testing
+4. **Docker** (optional): For local database testing (SQL Server, PostgreSQL, MySQL containers auto-detected)
 
 ## Key Dependencies
 
 - `electron`: Desktop shell
 - `@angular/*`: UI framework
 - `mssql`: SQL Server connectivity
+- `pg`: PostgreSQL connectivity
+- `mysql2`: MySQL connectivity
 - `keytar`: macOS Keychain access
 - `dockerode`: Docker API client (for container detection)
 - `monaco-editor`: Query editor (or CodeMirror)
@@ -210,4 +219,8 @@ npm run typecheck        # TypeScript check without emit
 - [Electron Docs](https://www.electronjs.org/docs)
 - [Angular Docs](https://angular.dev)
 - [node-mssql Docs](https://github.com/tediousjs/node-mssql)
+- [node-postgres Docs](https://node-postgres.com)
+- [mysql2 Docs](https://sidorares.github.io/node-mysql2/docs)
 - [SQL Server T-SQL Reference](https://docs.microsoft.com/en-us/sql/t-sql/language-reference)
+- [PostgreSQL Docs](https://www.postgresql.org/docs/current/)
+- [MySQL Reference Manual](https://dev.mysql.com/doc/refman/en/)

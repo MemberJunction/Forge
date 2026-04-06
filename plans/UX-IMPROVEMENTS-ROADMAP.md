@@ -2,20 +2,22 @@
 
 ## Executive Summary
 
-This document outlines prioritized improvements to transform MJ Forge from a solid v1.0 MVP into an indispensable tool that Mac developers using SQL Server will love.
+This document outlines prioritized improvements to transform MJ Forge from a solid v1.0 MVP into an indispensable tool that Mac developers will love.
+
+> **Note (April 2025):** This roadmap was written when Forge was SQL Server-only. Forge now supports **PostgreSQL** and **MySQL** as well. SQL Server-specific references below reflect the original v1.0 scope.
 
 ### Current State (v1.0 MVP - Complete)
 
-| Feature | Status | Quality |
-|---------|--------|---------|
-| Connection Management | ✅ Complete | Excellent - Keychain integration, pooling |
-| Query Editor | ✅ Complete | Great - Monaco, F5, history, export |
-| Object Explorer | ✅ Complete | Solid - Lazy load, context menus |
-| Results Grid | ✅ Complete | Good - ag-grid, multiple result sets |
-| Backup/Restore | ✅ Complete | Excellent - Progress streaming, wizards |
-| Docker Integration | ✅ Complete | Great - Auto-detection, volume mapping |
-| Table Properties | ✅ Complete | Comprehensive - All metadata types |
-| Theming | ✅ CSS Ready | Dark applied, light defined but no toggle |
+| Feature               | Status       | Quality                                   |
+| --------------------- | ------------ | ----------------------------------------- |
+| Connection Management | ✅ Complete  | Excellent - Keychain integration, pooling |
+| Query Editor          | ✅ Complete  | Great - Monaco, F5, history, export       |
+| Object Explorer       | ✅ Complete  | Solid - Lazy load, context menus          |
+| Results Grid          | ✅ Complete  | Good - ag-grid, multiple result sets      |
+| Backup/Restore        | ✅ Complete  | Excellent - Progress streaming, wizards   |
+| Docker Integration    | ✅ Complete  | Great - Auto-detection, volume mapping    |
+| Table Properties      | ✅ Complete  | Comprehensive - All metadata types        |
+| Theming               | ✅ CSS Ready | Dark applied, light defined but no toggle |
 
 ---
 
@@ -28,6 +30,7 @@ These leverage existing infrastructure for maximum impact with minimal effort.
 **Status:** CSS is already perfect. Just need the UI toggle.
 
 **Implementation:**
+
 ```typescript
 // Add to settings-panel.component.ts or status-bar.component.ts
 toggleTheme() {
@@ -47,11 +50,13 @@ toggleTheme() {
 **Status:** Button exists at line 119 in query.component.ts. Just wire it up.
 
 **Dependencies:**
+
 ```bash
 npm install sql-formatter
 ```
 
 **Implementation:**
+
 ```typescript
 import { format } from 'sql-formatter';
 
@@ -71,6 +76,7 @@ formatSql(): void {
 **Status:** QueryExecutor has structure but doesn't actually cancel running queries.
 
 **Implementation:**
+
 ```typescript
 // In packages/main/src/services/sql/query-executor.ts
 private activeRequests = new Map<string, mssql.Request>();
@@ -105,6 +111,7 @@ cancel(queryId: string): boolean {
 **Status:** App state not saved across restarts. Critical for UX.
 
 **Implementation:**
+
 ```typescript
 // Add to main process - packages/main/src/services/config/app-state.ts
 interface AppState {
@@ -123,6 +130,7 @@ interface AppState {
 ```
 
 **What to persist:**
+
 - Window size and position
 - Last active connection
 - Last selected database
@@ -137,6 +145,7 @@ interface AppState {
 **Status:** Basic Docker detection exists. Need better UX for container lifecycle.
 
 **Current State:**
+
 - ✅ Docker container detection works
 - ✅ Volume mapping extraction works
 - ✅ Basic start/stop IPC handlers exist
@@ -147,6 +156,7 @@ interface AppState {
 **Enhanced UX:**
 
 **1. Connection List - Show Container Status**
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ Connections                                              │
@@ -159,6 +169,7 @@ interface AppState {
 ```
 
 **2. Connection Failure - Offer to Start Container**
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ ⚠️ Connection Failed                                    │
@@ -172,6 +183,7 @@ interface AppState {
 ```
 
 **3. Welcome Screen - Docker Section Enhanced**
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ 🐳 SQL Server Containers                                │
@@ -185,6 +197,7 @@ interface AppState {
 ```
 
 **4. Status Bar - Docker Indicator**
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ ● local-docker │ OrdersDB │ 🐳 mssql-dev (running)      │
@@ -192,6 +205,7 @@ interface AppState {
 ```
 
 **5. Auto-Detection & Notifications**
+
 - Poll container status every 30 seconds when connected to Docker
 - Show notification if container stops unexpectedly
 - Offer to restart with one click
@@ -236,6 +250,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 ```
 
 **UI Components to Modify:**
+
 - `sidebar.component.ts` - Add container status indicator and start/stop buttons
 - `welcome.component.ts` - Enhance Docker containers section
 - `status-bar.component.ts` - Add Docker indicator
@@ -250,6 +265,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 **Impact:** 🔥🔥🔥🔥🔥 - The single most impactful UX feature for power users.
 
 **Design:**
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ ⌘K                                                      │
@@ -266,6 +282,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 ```
 
 **Implementation Approach:**
+
 1. Create `CommandPaletteComponent` as modal overlay
 2. Register commands from all features via `CommandRegistry` service
 3. Fuzzy search with fuse.js library
@@ -273,6 +290,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 5. Keyboard navigation (↑↓ Enter Esc)
 
 **Commands to Register:**
+
 - All menu actions (New Query, Backup, Restore, etc.)
 - Recent connections (Connect to X)
 - Recent queries (with preview)
@@ -283,6 +301,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 - Keyboard shortcuts help
 
 **Files to Create:**
+
 - `packages/renderer/src/app/shared/components/command-palette/command-palette.component.ts`
 - `packages/renderer/src/app/core/services/command-registry.service.ts`
 
@@ -293,6 +312,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 **Impact:** 🔥🔥🔥🔥 - Finding objects in large databases is painful. Make it instant.
 
 **Design:**
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │ 🔍 Find object...                         ⌘⇧O        │
@@ -307,6 +327,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 ```
 
 **Implementation:**
+
 1. Index all objects from MetadataService cache after connection
 2. Background indexing triggered on database change
 3. Fuse.js for fuzzy matching with configurable threshold
@@ -322,6 +343,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 **Impact:** 🔥🔥🔥🔥 - SQL errors are cryptic. Help developers fix them.
 
 **Design:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ ❌ Conversion Error                                         │
@@ -344,6 +366,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 ```
 
 **Implementation:**
+
 1. Create error code → explanation mapping for top 50 SQL Server errors
 2. Parse error message to extract context (line number, column name, object name)
 3. Generate suggested fixes with one-click apply to editor
@@ -351,6 +374,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 5. "Learn More" links to Microsoft docs
 
 **Error Codes to Map First:**
+
 - 208: Invalid object name
 - 207: Invalid column name
 - 245: Conversion failed
@@ -368,6 +392,7 @@ async startContainerAndConnect(profile: ConnectionProfile): Promise<void> {
 **Impact:** 🔥🔥🔥🔥🔥 - Table/column autocomplete is expected in modern tools.
 
 **Implementation:**
+
 ```typescript
 // In query.component.ts after Monaco initialization
 monaco.languages.registerCompletionItemProvider('sql', {
@@ -389,7 +414,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
           insertText: `[${c.name}]`,
           detail: `${c.dataType}${c.isNullable ? '' : ' NOT NULL'}`,
           documentation: c.description || undefined,
-        }))
+        })),
       };
     }
 
@@ -406,13 +431,14 @@ monaco.languages.registerCompletionItemProvider('sql', {
           kind: monaco.languages.CompletionItemKind.Keyword,
           insertText: kw,
         })),
-      ]
+      ],
     };
-  }
+  },
 });
 ```
 
 **Features:**
+
 - Table name completion after FROM, JOIN, UPDATE, INSERT INTO
 - Column name completion after table alias or table name with dot
 - SQL keyword completion
@@ -429,6 +455,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
 **Concept:** Like VS Code's "Open Folder", allow users to open a directory and work with multiple .sql files as a project.
 
 **Design:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ MJ Forge - ~/Projects/ecommerce-db                    ─ □ x │
@@ -484,6 +511,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
    - Close tab prompts to save if dirty
 
 5. **Workspace Settings (.mjforge/settings.json)**
+
    ```json
    {
      "defaultConnection": "production-server",
@@ -504,6 +532,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
 **Implementation:**
 
 **IPC Channels to Add:**
+
 ```typescript
 // packages/shared/src/constants/ipc-channels.ts
 WORKSPACE: {
@@ -521,6 +550,7 @@ WORKSPACE: {
 ```
 
 **Main Process Service:**
+
 ```typescript
 // packages/main/src/services/workspace/workspace-manager.ts
 class WorkspaceManager {
@@ -551,9 +581,9 @@ class WorkspaceManager {
   private startWatching(path: string): void {
     this.watcher = chokidar.watch(path, {
       ignored: /(^|[\/\\])\../, // Ignore dotfiles
-      persistent: true
+      persistent: true,
     });
-    this.watcher.on('change', (filePath) => {
+    this.watcher.on('change', filePath => {
       mainWindow?.webContents.send(IPC.WORKSPACE.FILE_CHANGED, { filePath, event: 'change' });
     });
   }
@@ -561,6 +591,7 @@ class WorkspaceManager {
 ```
 
 **Renderer State:**
+
 ```typescript
 // packages/renderer/src/app/core/state/workspace.state.ts
 @Injectable({ providedIn: 'root' })
@@ -575,7 +606,7 @@ export class WorkspaceStateService {
 
   async openFolder(): Promise<void> {
     const result = await this.ipc.showOpenDialog({
-      properties: ['openDirectory']
+      properties: ['openDirectory'],
     });
     if (result.filePaths[0]) {
       const workspace = await this.ipc.openWorkspace(result.filePaths[0]);
@@ -592,10 +623,12 @@ export class WorkspaceStateService {
 ```
 
 **UI Components to Create:**
+
 - `packages/renderer/src/app/shared/components/file-explorer/file-explorer.component.ts`
 - `packages/renderer/src/app/shared/components/file-explorer/file-tree-node.component.ts`
 
 **Sidebar Modification:**
+
 ```typescript
 // Sidebar gets a toggle between "DB Explorer" and "File Explorer"
 // Or split panel showing both
@@ -609,6 +642,7 @@ export class WorkspaceStateService {
 ```
 
 **Menu Additions:**
+
 ```
 File
 ├── New File                 ⌘N
@@ -631,6 +665,7 @@ File
 **Use Cases This Enables:**
 
 1. **Migration Scripts Project**
+
    ```
    migrations/
    ├── 001-initial-schema.sql
@@ -642,6 +677,7 @@ File
    ```
 
 2. **Stored Procedures Development**
+
    ```
    procedures/
    ├── customers/
@@ -653,6 +689,7 @@ File
    ```
 
 3. **Report Queries**
+
    ```
    reports/
    ├── daily-sales.sql
@@ -674,6 +711,7 @@ File
    ```
 
 **Git Integration (Future Enhancement):**
+
 - Show git status indicators on files (modified, added, etc.)
 - Commit changes from within app
 - Diff view for changed files
@@ -685,12 +723,14 @@ File
 **Impact:** 🔥🔥🔥🔥🔥 - Essential for automation, CI/CD, and terminal-first developers.
 
 **Philosophy:** This is NOT another sqlcmd. It's a **higher-order CLI** that leverages MJ Forge's unique capabilities:
+
 - Named connections (no connection strings to remember)
 - Keychain integration (no passwords in scripts or env vars)
 - Docker path intelligence (automatic volume mapping)
 - Workspace awareness (run queries from project folders)
 
 **Installation:**
+
 ```bash
 # Installed alongside MJ Forge.app, symlinked to /usr/local/bin
 $ forge --version
@@ -705,6 +745,7 @@ $ npm install -g @mj-forge/cli
 **Core Commands:**
 
 **1. Connection Management**
+
 ```bash
 # List all saved connections
 $ forge connections
@@ -733,6 +774,7 @@ $ forge connect production
 ```
 
 **2. Database Operations**
+
 ```bash
 # List databases
 $ forge databases --connection production
@@ -747,6 +789,7 @@ $ forge use OrdersDB --connection production
 ```
 
 **3. Backup (The Killer Feature)**
+
 ```bash
 # Simple backup - uses intelligent defaults
 $ forge backup OrdersDB --connection production
@@ -777,6 +820,7 @@ $ forge backup OrdersDB --connection production --log
 ```
 
 **4. Restore**
+
 ```bash
 # Restore with same name
 $ forge restore ~/backups/orders.bak --connection local-docker
@@ -807,6 +851,7 @@ $ forge restore ~/backups/orders.bak --connection staging --dry-run
 ```
 
 **5. Query Execution**
+
 ```bash
 # Run inline query
 $ forge query "SELECT COUNT(*) FROM Users" --connection production --database OrdersDB
@@ -834,6 +879,7 @@ $ forge query "SELECT * FROM Users" -c production -d OrdersDB -o users.csv --for
 ```
 
 **6. Status & Monitoring**
+
 ```bash
 # Connection pool status
 $ forge status
@@ -859,6 +905,7 @@ $ forge status OrdersDB --connection production
 ```
 
 **7. Docker Integration**
+
 ```bash
 # List SQL Server containers
 $ forge docker list
@@ -882,6 +929,7 @@ $ forge docker create \
 ```
 
 **8. Scripting & Export**
+
 ```bash
 # Script table as CREATE
 $ forge script Users --connection production --database OrdersDB
@@ -938,6 +986,7 @@ $ forge export Users --connection production --database OrdersDB --format sql > 
    - No duplication of SQL logic
 
 2. **No Passwords in Commands**
+
    ```bash
    # ❌ Bad (like sqlcmd)
    $ sqlcmd -S server -U user -P password -Q "..."
@@ -948,6 +997,7 @@ $ forge export Users --connection production --database OrdersDB --format sql > 
    ```
 
 3. **Workspace Awareness**
+
    ```bash
    $ cd ~/projects/mydb
    $ cat .mjforge/settings.json
@@ -962,6 +1012,7 @@ $ forge export Users --connection production --database OrdersDB --format sql > 
    - No manual volume mapping needed
 
 5. **Human-Friendly Output by Default**
+
    ```bash
    $ forge databases -c production
    # Pretty table output for humans
@@ -975,6 +1026,7 @@ $ forge export Users --connection production --database OrdersDB --format sql > 
 **Implementation:**
 
 **Package Structure:**
+
 ```
 packages/
 ├── cli/                          # NEW PACKAGE
@@ -1002,6 +1054,7 @@ packages/
 ```
 
 **Dependencies:**
+
 ```json
 {
   "dependencies": {
@@ -1020,6 +1073,7 @@ packages/
 ```
 
 **Example Command Implementation:**
+
 ```typescript
 // packages/cli/src/commands/backup.ts
 import { Command } from 'commander';
@@ -1072,9 +1126,9 @@ export const backupCommand = new Command('backup')
         compression: options.compression,
         copyOnly: options.copyOnly,
         type: options.log ? 'log' : options.differential ? 'differential' : 'full',
-        onProgress: (percent) => {
+        onProgress: percent => {
           spinner.text = `Backing up... ${percent}%`;
-        }
+        },
       });
 
       spinner.succeed(`Backup completed: ${outputPath}`);
@@ -1096,11 +1150,12 @@ export const backupCommand = new Command('backup')
 **CI/CD Integration Examples:**
 
 **GitHub Actions:**
+
 ```yaml
 name: Database Backup
 on:
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM
+    - cron: '0 2 * * *' # Daily at 2 AM
 
 jobs:
   backup:
@@ -1133,6 +1188,7 @@ jobs:
 ```
 
 **Local Automation Script:**
+
 ```bash
 #!/bin/bash
 # backup-all.sh - Backup all production databases
@@ -1156,6 +1212,7 @@ echo "All backups complete!"
 ```
 
 **Restore to Dev Environment:**
+
 ```bash
 #!/bin/bash
 # refresh-dev.sh - Restore latest production backup to dev
@@ -1175,15 +1232,15 @@ echo "Dev database refreshed!"
 
 **Why This Is Different from sqlcmd:**
 
-| Feature | sqlcmd | forge CLI |
-|---------|--------|-----------|
-| Connection | Inline credentials | Named profiles + Keychain |
-| Passwords | Visible in command/scripts | Secure in Keychain |
-| Docker support | Manual path mapping | Automatic volume detection |
-| Backup/Restore | Raw T-SQL | One command with progress |
-| Output formatting | Basic | Tables, JSON, CSV |
-| Workspace context | None | .mjforge/settings.json |
-| Learning curve | High | Low |
+| Feature           | sqlcmd                     | forge CLI                  |
+| ----------------- | -------------------------- | -------------------------- |
+| Connection        | Inline credentials         | Named profiles + Keychain  |
+| Passwords         | Visible in command/scripts | Secure in Keychain         |
+| Docker support    | Manual path mapping        | Automatic volume detection |
+| Backup/Restore    | Raw T-SQL                  | One command with progress  |
+| Output formatting | Basic                      | Tables, JSON, CSV          |
+| Workspace context | None                       | .mjforge/settings.json     |
+| Learning curve    | High                       | Low                        |
 
 **The key insight:** `forge` is for **operations**, not raw SQL. It's what you use when you want to backup a database, not when you want to run arbitrary queries (though it can do that too).
 
@@ -1196,6 +1253,7 @@ echo "Dev database refreshed!"
 **Impact:** 🔥🔥🔥 - Essential for query optimization.
 
 **Design:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Execution Plan                                              │
@@ -1221,6 +1279,7 @@ echo "Dev database refreshed!"
 ```
 
 **Implementation:**
+
 1. Execute query with `SET SHOWPLAN_XML ON` prefix
 2. Parse XML execution plan response
 3. Render as interactive tree/graph using D3.js or custom SVG
@@ -1230,6 +1289,7 @@ echo "Dev database refreshed!"
 7. Generate index recommendations for table scans
 
 **Files to Create:**
+
 - `packages/renderer/src/app/shared/components/execution-plan/execution-plan.component.ts`
 - `packages/renderer/src/app/shared/components/execution-plan/plan-node.component.ts`
 - `packages/main/src/services/sql/execution-plan-parser.ts`
@@ -1241,6 +1301,7 @@ echo "Dev database refreshed!"
 **Impact:** 🔥🔥🔥🔥 - Own the Mac + Docker experience completely.
 
 **Design:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🐳 New SQL Server Container                                 │
@@ -1267,6 +1328,7 @@ echo "Dev database refreshed!"
 ```
 
 **Implementation:**
+
 1. Add IPC channel `docker:create-container` in docker.ipc.ts
 2. Use dockerode to:
    - Pull image if not present (with progress)
@@ -1277,14 +1339,12 @@ echo "Dev database refreshed!"
 4. Optional: restore AdventureWorks from embedded .bak file
 
 **Docker Configuration:**
+
 ```typescript
 const containerConfig = {
   Image: 'mcr.microsoft.com/mssql/server:2022-latest',
   name: containerName,
-  Env: [
-    'ACCEPT_EULA=Y',
-    `MSSQL_SA_PASSWORD=${password}`,
-  ],
+  Env: ['ACCEPT_EULA=Y', `MSSQL_SA_PASSWORD=${password}`],
   HostConfig: {
     PortBindings: { '1433/tcp': [{ HostPort: port.toString() }] },
     Binds: persistData ? [`${dataPath}:/var/opt/mssql`] : [],
@@ -1299,6 +1359,7 @@ const containerConfig = {
 **Impact:** 🔥🔥🔥 - AI assistance that's genuinely useful.
 
 **Design:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 💬 Ask about your data...                         ⌘⇧A      │
@@ -1321,6 +1382,7 @@ const containerConfig = {
 ```
 
 **Implementation:**
+
 1. Integrate Claude API via Anthropic SDK
 2. Store API key in macOS Keychain (like connection passwords)
 3. Build schema context from metadata cache
@@ -1330,6 +1392,7 @@ const containerConfig = {
 7. Optional: Local LLM support via Ollama for sensitive data
 
 **Prompt Template:**
+
 ```
 You are a SQL Server expert. Given the following schema:
 {schema_json}
@@ -1374,6 +1437,7 @@ Rules:
 | Settings | ⌘, | Low |
 
 **Shortcut Cheatsheet Feature:**
+
 - Hold ⌘ for 1.5 seconds → Show overlay with all shortcuts
 - Or access via Help menu / ⌘?
 
@@ -1384,6 +1448,7 @@ Rules:
 **Current:** Basic ag-grid with toolbar.
 
 **Enhancements:**
+
 - **Column resize** with double-click header edge to auto-fit
 - **Column hide/show** via right-click on header
 - **Quick filter** per column (input in header row)
@@ -1405,6 +1470,7 @@ Rules:
 **Current:** Simple connected/disconnected icon.
 
 **Enhanced Status Bar:**
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ ● Production SQL │ OrdersDB │ Pool: 3/10 │ 12ms │ 🐳        │
@@ -1412,6 +1478,7 @@ Rules:
 ```
 
 **Components:**
+
 - Connection status indicator (●/○)
 - Server name (click to switch)
 - Database name (click to switch)
@@ -1426,6 +1493,7 @@ Rules:
 **Current:** Basic tabs with generic names.
 
 **Enhancements:**
+
 - Tab title shows first 20 chars of query or filename
 - Dirty indicator (● before name) for unsaved changes
 - Right-click context menu:
@@ -1443,6 +1511,7 @@ Rules:
 ### 4.5 Microinteractions & Feedback
 
 **Add subtle animations for delight:**
+
 - **Connection success:** Green pulse on status indicator
 - **Query running:** Pulsing blue spinner + elapsed timer in status bar
 - **Query complete:** Brief green flash on results tab
@@ -1456,54 +1525,61 @@ Rules:
 ## Priority Roadmap Summary
 
 ### Phase 1: Quick Wins (Week 1)
-| Feature | Effort | Impact |
-|---------|--------|--------|
-| Theme toggle | 2 hours | High |
-| SQL formatting | 2 hours | High |
-| Query cancellation fix | 4 hours | Medium |
-| State persistence | 1 day | High |
-| Docker container management UX | 4 hours | High |
+
+| Feature                        | Effort  | Impact |
+| ------------------------------ | ------- | ------ |
+| Theme toggle                   | 2 hours | High   |
+| SQL formatting                 | 2 hours | High   |
+| Query cancellation fix         | 4 hours | Medium |
+| State persistence              | 1 day   | High   |
+| Docker container management UX | 4 hours | High   |
 
 ### Phase 2: Core UX (Weeks 2-6)
-| Feature | Effort | Impact |
-|---------|--------|--------|
-| ⌘K Command palette | 1 week | Very High |
-| Workspace/Folder support | 1.5 weeks | Very High |
-| `forge` CLI tool | 1.5 weeks | Very High |
-| Instant object search | 3 days | High |
-| Keyboard shortcuts | 2 days | High |
-| Results grid enhancements | 3 days | Medium |
+
+| Feature                   | Effort    | Impact    |
+| ------------------------- | --------- | --------- |
+| ⌘K Command palette        | 1 week    | Very High |
+| Workspace/Folder support  | 1.5 weeks | Very High |
+| `forge` CLI tool          | 1.5 weeks | Very High |
+| Instant object search     | 3 days    | High      |
+| Keyboard shortcuts        | 2 days    | High      |
+| Results grid enhancements | 3 days    | Medium    |
 
 ### Phase 3: Intelligence (Weeks 5-8)
-| Feature | Effort | Impact |
-|---------|--------|--------|
-| Intelligent error messages | 1 week | High |
-| Monaco IntelliSense | 1.5 weeks | Very High |
-| Visual execution plan | 2 weeks | Medium |
+
+| Feature                    | Effort    | Impact    |
+| -------------------------- | --------- | --------- |
+| Intelligent error messages | 1 week    | High      |
+| Monaco IntelliSense        | 1.5 weeks | Very High |
+| Visual execution plan      | 2 weeks   | Medium    |
 
 ### Phase 4: Differentiation (Weeks 9-12)
-| Feature | Effort | Impact |
-|---------|--------|--------|
-| One-click Docker SQL Server | 1 week | High |
-| Natural language to SQL | 1.5 weeks | Medium |
-| Table data editing | 2 weeks | Medium |
+
+| Feature                     | Effort    | Impact |
+| --------------------------- | --------- | ------ |
+| One-click Docker SQL Server | 1 week    | High   |
+| Natural language to SQL     | 1.5 weeks | Medium |
+| Table data editing          | 2 weeks   | Medium |
 
 ---
 
 ## Success Metrics
 
 ### User Experience
+
 - Time to first query: < 60 seconds (new user)
 - Object search latency: < 50ms
 - Command palette response: < 100ms
 - Query execution feedback: Immediate (< 16ms to show spinner)
 
 ### Adoption
+
 - Daily active usage: 5+ sessions/week for retained users
 - Feature discovery: 80% use command palette within first week
 - Error recovery: 70% of errors resolved without external search
 
 ### Quality
+
 - Crash rate: < 0.1%
 - Query success rate: > 99% (when SQL is valid)
 - Connection reliability: > 99.5%
@@ -1513,40 +1589,43 @@ Rules:
 ## Appendix: Competitive Analysis
 
 ### vs. SSMS (Windows only)
-| Feature | SSMS | MJ Forge |
-|---------|------|----------|
-| Mac support | ❌ | ✅ |
-| Startup time | Slow (~10s) | Fast (<3s) |
-| IntelliSense | ✅ Excellent | 🔄 Planned |
+
+| Feature         | SSMS         | MJ Forge   |
+| --------------- | ------------ | ---------- |
+| Mac support     | ❌           | ✅         |
+| Startup time    | Slow (~10s)  | Fast (<3s) |
+| IntelliSense    | ✅ Excellent | 🔄 Planned |
 | Execution plans | ✅ Excellent | 🔄 Planned |
-| Modern UI | ❌ Dated | ✅ Modern |
+| Modern UI       | ❌ Dated     | ✅ Modern  |
 
 ### vs. Azure Data Studio
-| Feature | ADS | MJ Forge |
-|---------|-----|----------|
-| Mac support | ✅ | ✅ |
-| Startup time | Slow (~8s) | Fast (<3s) |
-| Resource usage | Heavy | Light |
-| Backup/Restore | Basic | ✅ Full wizards |
-| Docker integration | ❌ | ✅ Native |
-| Focus | Multi-DB | SQL Server focused |
+
+| Feature            | ADS        | MJ Forge           |
+| ------------------ | ---------- | ------------------ |
+| Mac support        | ✅         | ✅                 |
+| Startup time       | Slow (~8s) | Fast (<3s)         |
+| Resource usage     | Heavy      | Light              |
+| Backup/Restore     | Basic      | ✅ Full wizards    |
+| Docker integration | ❌         | ✅ Native          |
+| Focus              | Multi-DB   | SQL Server focused |
 
 ### vs. TablePlus
-| Feature | TablePlus | MJ Forge |
-|---------|-----------|----------|
-| SQL Server depth | Generic | ✅ Deep |
-| Backup/Restore | ❌ | ✅ Full |
-| Docker awareness | ❌ | ✅ Native |
-| T-SQL transparency | ❌ | ✅ Always shown |
-| Price | $99/year | Free |
+
+| Feature            | TablePlus | MJ Forge        |
+| ------------------ | --------- | --------------- |
+| SQL Server depth   | Generic   | ✅ Deep         |
+| Backup/Restore     | ❌        | ✅ Full         |
+| Docker awareness   | ❌        | ✅ Native       |
+| T-SQL transparency | ❌        | ✅ Always shown |
+| Price              | $99/year  | Free            |
 
 ---
 
 ## Document History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2025-01-24 | Claude | Initial roadmap based on v1.0 analysis |
-| 1.1 | 2025-01-24 | Claude | Added Workspace/Folder support feature (VS Code-style) |
-| 1.2 | 2025-01-24 | Claude | Added `forge` CLI tool with full command reference |
-| 1.3 | 2025-01-24 | Claude | Added Enhanced Docker Container Management UX |
+| Version | Date       | Author | Changes                                                |
+| ------- | ---------- | ------ | ------------------------------------------------------ |
+| 1.0     | 2025-01-24 | Claude | Initial roadmap based on v1.0 analysis                 |
+| 1.1     | 2025-01-24 | Claude | Added Workspace/Folder support feature (VS Code-style) |
+| 1.2     | 2025-01-24 | Claude | Added `forge` CLI tool with full command reference     |
+| 1.3     | 2025-01-24 | Claude | Added Enhanced Docker Container Management UX          |

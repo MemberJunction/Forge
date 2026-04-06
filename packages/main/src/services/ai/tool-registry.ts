@@ -14,16 +14,28 @@ const log = createLogger('ToolRegistry');
 type ToolHandler = (
   args: Record<string, unknown>,
   connectionId?: string,
-  database?: string
+  database?: string,
+  conversationId?: string
 ) => Promise<unknown>;
 
 export class ToolRegistry extends BaseSingleton {
   private tools: Map<string, ToolDefinition> = new Map();
   private handlers: Map<string, ToolHandler> = new Map();
+  /** Active editor content per conversation, set by ChatService before each request */
+  private editorContent: Map<string, string> = new Map();
 
   constructor() {
     super();
     this.registerBuiltinTools();
+  }
+
+  /** Set the active editor content for a conversation (called by ChatService before each request) */
+  setEditorContent(conversationId: string, content: string | undefined): void {
+    if (content) {
+      this.editorContent.set(conversationId, content);
+    } else {
+      this.editorContent.delete(conversationId);
+    }
   }
 
   getTools(): ToolDefinition[] {
@@ -54,13 +66,14 @@ export class ToolRegistry extends BaseSingleton {
     name: string,
     args: Record<string, unknown>,
     connectionId?: string,
-    database?: string
+    database?: string,
+    conversationId?: string
   ): Promise<unknown> {
     const handler = this.handlers.get(name);
     if (!handler) throw new Error(`Unknown tool: ${name}`);
 
     log.info(`Executing tool: ${name}`, args);
-    const result = await handler(args, connectionId, database);
+    const result = await handler(args, connectionId, database, conversationId);
     return result;
   }
 
@@ -147,10 +160,10 @@ export class ToolRegistry extends BaseSingleton {
         requiresConfirmation: true,
         category: 'schema',
       },
-      async (args, connectionId) => {
+      async (args, connectionId, database) => {
         if (!connectionId) throw new Error('No active connection');
         const pool = ConnectionPoolManager.getInstance();
-        await pool.executeDDL(connectionId, args.sql as string);
+        await pool.executeDDL(connectionId, args.sql as string, database);
         return { success: true, message: 'Statement executed successfully' };
       }
     );
@@ -199,7 +212,7 @@ export class ToolRegistry extends BaseSingleton {
         const dialect = getDialect(engine);
         const schema =
           (args.schema as string) ||
-          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || 'mysql' : 'dbo');
+          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || '' : 'dbo');
         const table = args.table as string;
         const sql = dialect.listColumnsSQL(database || '', schema, table);
         return this.queryAny(connectionId, sql, database);
@@ -320,7 +333,7 @@ export class ToolRegistry extends BaseSingleton {
         const engine = this.getEngine(connectionId);
         const schema =
           (args.schema as string) ||
-          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || 'mysql' : 'dbo');
+          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || '' : 'dbo');
         const table = args.table as string;
         const safeTable = table.replace(/'/g, "''");
         const safeSchema = schema.replace(/'/g, "''");
@@ -363,7 +376,7 @@ export class ToolRegistry extends BaseSingleton {
         const dialect = getDialect(engine);
         const schema =
           (args.schema as string) ||
-          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || 'mysql' : 'dbo');
+          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || '' : 'dbo');
         const table = args.table as string;
         const sql = dialect.listIndexesSQL(database || '', schema, table);
         return this.queryAny(connectionId, sql, database);
@@ -390,7 +403,7 @@ export class ToolRegistry extends BaseSingleton {
         const dialect = getDialect(engine);
         const schema =
           (args.schema as string) ||
-          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || 'mysql' : 'dbo');
+          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || '' : 'dbo');
         const table = args.table as string;
         const sql = dialect.listForeignKeysSQL(database || '', schema, table);
         return this.queryAny(connectionId, sql, database);
@@ -418,7 +431,7 @@ export class ToolRegistry extends BaseSingleton {
         const dialect = getDialect(engine);
         const schema =
           (args.schema as string) ||
-          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || 'mysql' : 'dbo');
+          (engine === 'postgresql' ? 'public' : engine === 'mysql' ? database || '' : 'dbo');
         const objectName = args.object_name as string;
         const sql = dialect.getObjectDefinitionSQL(database || '', schema, objectName);
         const rows = await this.queryAny(connectionId, sql, database);
@@ -531,13 +544,13 @@ export class ToolRegistry extends BaseSingleton {
         },
         category: 'utility',
       },
-      async args => {
+      async (args, _connectionId, database) => {
         return {
           success: true,
           message: args.autoExecute ? 'Opening query tab and running query' : 'Opening query tab',
           _uiAction: {
             type: 'open-query-tab',
-            params: { sql: args.sql, title: args.title, autoExecute: args.autoExecute },
+            params: { sql: args.sql, title: args.title, autoExecute: args.autoExecute, database },
           },
         };
       }
@@ -579,6 +592,94 @@ export class ToolRegistry extends BaseSingleton {
           success: true,
           message: 'Opening settings',
           _uiAction: { type: 'open-settings' },
+        };
+      }
+    );
+
+    // ---- Editor Content Tools ----
+
+    this.register(
+      {
+        name: 'read_editor_content',
+        description:
+          "Read the contents of the user's active query editor tab. Returns lines within the specified range. Useful when the editor content is too long to fit in the preview, or when you need to inspect a specific section.",
+        parameters: {
+          type: 'object',
+          properties: {
+            start_line: { type: 'number', description: 'Start line number (1-based, default: 1)' },
+            end_line: {
+              type: 'number',
+              description: 'End line number (1-based, inclusive). Omit to read to the end.',
+            },
+          },
+        },
+        category: 'utility',
+      },
+      async (args, _connectionId, _database, conversationId) => {
+        const content = conversationId ? this.editorContent.get(conversationId) : undefined;
+        if (!content) {
+          return {
+            error: 'No active editor content available. The user may not have a query tab open.',
+          };
+        }
+        const lines = content.split('\n');
+        const start = Math.max(1, (args.start_line as number) || 1);
+        const end = Math.min(lines.length, (args.end_line as number) || lines.length);
+        const selected = lines.slice(start - 1, end);
+        return {
+          totalLines: lines.length,
+          startLine: start,
+          endLine: end,
+          lines: selected.map((l, i) => `${start + i}: ${l}`).join('\n'),
+        };
+      }
+    );
+
+    this.register(
+      {
+        name: 'search_editor_content',
+        description:
+          "Search the user's active query editor tab using a regular expression. Returns matching lines with their line numbers.",
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Regular expression pattern to search for' },
+            case_sensitive: {
+              type: 'boolean',
+              description: 'Whether the search is case-sensitive (default: false)',
+            },
+          },
+          required: ['pattern'],
+        },
+        category: 'utility',
+      },
+      async (args, _connectionId, _database, conversationId) => {
+        const content = conversationId ? this.editorContent.get(conversationId) : undefined;
+        if (!content) {
+          return {
+            error: 'No active editor content available. The user may not have a query tab open.',
+          };
+        }
+        const flags = (args.case_sensitive as boolean) ? 'g' : 'gi';
+        let regex: RegExp;
+        try {
+          regex = new RegExp(args.pattern as string, flags);
+        } catch (e) {
+          return { error: `Invalid regex pattern: ${(e as Error).message}` };
+        }
+        const lines = content.split('\n');
+        const matches: string[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (regex.test(lines[i])) {
+            matches.push(`${i + 1}: ${lines[i]}`);
+          }
+          regex.lastIndex = 0; // reset for global regex
+        }
+        return {
+          totalLines: lines.length,
+          matchCount: matches.length,
+          matches: matches.slice(0, 100).join('\n'),
+          truncated: matches.length > 100,
         };
       }
     );

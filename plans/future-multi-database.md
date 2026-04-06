@@ -1,16 +1,21 @@
-# Future: Multi-Database Provider Architecture
+# Multi-Database Provider Architecture
+
+> **Status: Largely Implemented (as of April 2025)**
+> PostgreSQL and MySQL support have been shipped. The actual implementation differs from some of the proposals below (e.g., uses `DatabaseEngine` type + dialect/provider pattern in `sql/dialect/` and `sql/provider/` rather than the `IDatabaseProvider` interface proposed here). SQLite and Oracle remain unimplemented. This document is retained for historical context.
 
 ## Overview
 
 This document outlines a provider-based architecture to support multiple database platforms beyond SQL Server. The goal is to abstract database-specific operations behind a common interface, allowing Forge to connect to PostgreSQL, MySQL, SQLite, Oracle, and other databases with minimal UI changes.
 
-## Current State
+## Current State (Updated)
 
-Forge currently supports only SQL Server via:
+Forge supports **SQL Server**, **PostgreSQL**, and **MySQL** via:
 
-- `mssql` / `tedious` npm packages for connectivity
-- SQL Server-specific T-SQL syntax throughout
-- SSMS-style UI patterns and terminology
+- `mssql` / `tedious` for SQL Server, `pg` for PostgreSQL, `mysql2` for MySQL
+- Engine-specific SQL generation through the **dialect** layer (`sql/dialect/`)
+- Engine-specific connection management through **providers** (`sql/provider/`)
+- Unified `DatabaseEngine = 'mssql' | 'postgresql' | 'mysql'` type
+- Engine-aware Docker detection, backup/restore, metadata, and AI tools
 
 ## Proposed Architecture
 
