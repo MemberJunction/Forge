@@ -217,7 +217,7 @@ export class AIService extends BaseSingleton {
       const response = await provider.generateCompletion(prompt, model, apiKey, {
         maxTokens: 1000,
         temperature: 0.3,
-        systemPrompt: `You are a T-SQL expert. Generate valid SQL Server queries based on user requests.
+        systemPrompt: `You are a ${request.dialect === 'postgresql' ? 'PostgreSQL' : request.dialect === 'mysql' ? 'MySQL' : 'T-SQL'} expert. Generate valid ${request.dialect === 'postgresql' ? 'PostgreSQL' : request.dialect === 'mysql' ? 'MySQL' : 'SQL Server'} queries based on user requests.
 Output format:
 SQL:
 <your sql here>
@@ -376,7 +376,8 @@ ${request.prompt || 'Provide a brief analysis of these results, noting any patte
           .join('\n');
     }
 
-    return `Generate a T-SQL query for the following request:
+    const dialectName = request.dialect === 'postgresql' ? 'PostgreSQL' : request.dialect === 'mysql' ? 'MySQL' : 'T-SQL';
+    return `Generate a ${dialectName} query for the following request:
 
 ${request.prompt}
 ${schemaContext}

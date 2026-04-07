@@ -241,6 +241,7 @@ export interface ForgeAPI {
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
     fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
+    convertSql: (sql: string, fromEngine: string, toEngine: string) => Promise<{ success: boolean; sql: string; error?: string }>;
   };
 
   queryResults: {
@@ -683,6 +684,8 @@ const forgeAPI: ForgeAPI = {
     exportResults: (resultSet, options) =>
       ipcRenderer.invoke(IPC_CHANNELS.QUERY.EXPORT_RESULTS, resultSet, options),
     fetchFkRecord: request => ipcRenderer.invoke(IPC_CHANNELS.QUERY.FETCH_FK_RECORD, request),
+    convertSql: (sql: string, fromEngine: string, toEngine: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.QUERY.CONVERT_SQL, sql, fromEngine, toEngine),
   },
 
   queryResults: {

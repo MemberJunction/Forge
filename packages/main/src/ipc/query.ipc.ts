@@ -5,6 +5,7 @@
 import { dialog } from 'electron';
 import * as fs from 'fs';
 import { IPC_CHANNELS } from '@mj-forge/shared';
+import { SQLConverterService, type ConversionResult } from '../services/sql/sql-converter';
 import type {
   QueryRequest,
   QueryResult,
@@ -177,6 +178,20 @@ export function registerQueryHandlers(): void {
           error: error instanceof Error ? error.message : 'Failed to fetch FK record',
         };
       }
+    }
+  );
+
+  // Convert SQL between dialects
+  safeHandle(
+    IPC_CHANNELS.QUERY.CONVERT_SQL,
+    async (
+      _event,
+      sql: string,
+      fromEngine: string,
+      toEngine: string
+    ): Promise<ConversionResult> => {
+      const converter = SQLConverterService.getInstance();
+      return converter.convert(sql, fromEngine, toEngine);
     }
   );
 }

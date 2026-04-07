@@ -2,11 +2,13 @@ import {
   ChangeDetectorRef,
   Component,
   ElementRef,
+  Injector,
   OnDestroy,
   OnInit,
   ViewChild,
   effect,
   inject,
+  runInInjectionContext,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -67,7 +69,16 @@ interface MonacoEditorInstance {
   setPosition(position: MonacoPosition): void;
   revealLineInCenter(lineNumber: number): void;
   updateOptions(options: Record<string, unknown>): void;
-  onDidChangeCursorPosition(callback: (e: { position: MonacoPosition }) => void): { dispose(): void };
+  onDidChangeCursorPosition(callback: (e: { position: MonacoPosition }) => void): {
+    dispose(): void;
+  };
+  onKeyDown(
+    callback: (e: {
+      browserEvent: KeyboardEvent;
+      preventDefault(): void;
+      stopPropagation(): void;
+    }) => void
+  ): { dispose(): void };
   addCommand(keybinding: number, handler: () => void): void;
 }
 
@@ -98,7 +109,10 @@ declare const monaco: {
     registerCompletionItemProvider(
       languageId: string,
       provider: {
-        provideCompletionItems: (model: unknown, position: unknown) => {
+        provideCompletionItems: (
+          model: unknown,
+          position: unknown
+        ) => {
           suggestions: Array<{
             label: string;
             kind: number;
@@ -181,29 +195,78 @@ declare const monaco: {
 
         <div class="toolbar-spacer"></div>
 
-        <button mat-icon-button matTooltip="Query History" aria-label="Query History" (click)="toggleHistory()">
+        <button
+          mat-icon-button
+          matTooltip="Query History"
+          aria-label="Query History"
+          (click)="toggleHistory()"
+        >
           <mat-icon>history</mat-icon>
         </button>
         <button mat-icon-button matTooltip="Find (⌘F)" aria-label="Find" (click)="openFind()">
           <mat-icon>search</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Find & Replace (⌘⌥F)" aria-label="Find and Replace" (click)="openFindReplace()">
+        <button
+          mat-icon-button
+          matTooltip="Find & Replace (⌘⌥F)"
+          aria-label="Find and Replace"
+          (click)="openFindReplace()"
+        >
           <mat-icon>find_replace</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Go to Line (⌘G)" aria-label="Go to Line" (click)="goToLine()">
+        <button
+          mat-icon-button
+          matTooltip="Go to Line (⌘G)"
+          aria-label="Go to Line"
+          (click)="goToLine()"
+        >
           <mat-icon>format_list_numbered</mat-icon>
         </button>
         <div class="toolbar-divider"></div>
-        <button mat-icon-button matTooltip="Format SQL (⌘⇧F)" aria-label="Format SQL" (click)="formatSql()">
+        <button
+          mat-icon-button
+          matTooltip="Format SQL (⌘⇧F)"
+          aria-label="Format SQL"
+          (click)="formatSql()"
+        >
           <mat-icon>auto_fix_high</mat-icon>
         </button>
-        <button mat-icon-button matTooltip="Show Execution Plan" aria-label="Show Execution Plan" (click)="showExecutionPlan()">
+        <button
+          mat-icon-button
+          matTooltip="Show Execution Plan"
+          aria-label="Show Execution Plan"
+          (click)="showExecutionPlan()"
+        >
           <mat-icon>account_tree</mat-icon>
         </button>
+        <button mat-icon-button [matMenuTriggerFor]="convertMenu" matTooltip="Convert SQL Dialect">
+          <mat-icon>translate</mat-icon>
+        </button>
+        <mat-menu #convertMenu="matMenu">
+          @if (connectionState.activeProfile()?.engine !== 'mssql') {
+            <button mat-menu-item (click)="convertSqlTo('mssql')">
+              <mat-icon>dns</mat-icon> To SQL Server
+            </button>
+          }
+          @if (connectionState.activeProfile()?.engine !== 'postgresql') {
+            <button mat-menu-item (click)="convertSqlTo('postgresql')">
+              <mat-icon>view_cozy</mat-icon> To PostgreSQL
+            </button>
+          }
+          @if (connectionState.activeProfile()?.engine !== 'mysql') {
+            <button mat-menu-item (click)="convertSqlTo('mysql')">
+              <mat-icon>grid_on</mat-icon> To MySQL
+            </button>
+          }
+        </mat-menu>
 
         @if (activeResultSet()) {
           <div class="toolbar-divider"></div>
-          <button mat-icon-button matTooltip="Copy All to Clipboard (Tab-separated)" (click)="copyResultsToClipboard()">
+          <button
+            mat-icon-button
+            matTooltip="Copy All to Clipboard (Tab-separated)"
+            (click)="copyResultsToClipboard()"
+          >
             <mat-icon>content_copy</mat-icon>
           </button>
           <button mat-icon-button [matMenuTriggerFor]="exportMenu" matTooltip="Export Results">
@@ -313,135 +376,137 @@ declare const monaco: {
           </div>
 
           @if (!resultsHidden()) {
-          <!-- Resize handle -->
-          <div class="resize-handle" (mousedown)="startResize($event)"></div>
+            <!-- Resize handle -->
+            <div class="resize-handle" (mousedown)="startResize($event)"></div>
 
-          <!-- Results -->
-          <div class="results-pane">
-            @if (!result()) {
-              <div class="results-placeholder">
-                <mat-icon>terminal</mat-icon>
-                <p>Execute a query to see results</p>
-                <p class="hint">Press F5 or click the play button</p>
-              </div>
-            } @else if (result()?.error) {
-              <div class="results-error">
-                <mat-icon>error</mat-icon>
-                <div class="error-content">
-                  <h4>Error</h4>
-                  <pre>{{ result()?.error }}</pre>
+            <!-- Results -->
+            <div class="results-pane">
+              @if (!result()) {
+                <div class="results-placeholder">
+                  <mat-icon>terminal</mat-icon>
+                  <p>Execute a query to see results</p>
+                  <p class="hint">Press F5 or click the play button</p>
                 </div>
-              </div>
-            } @else {
-              <div class="results-tabs">
-                <div class="tabs-left">
-                  @for (resultSet of result()?.resultSets; track $index; let i = $index) {
+              } @else if (result()?.error) {
+                <div class="results-error">
+                  <mat-icon>error</mat-icon>
+                  <div class="error-content">
+                    <h4>Error</h4>
+                    <pre>{{ result()?.error }}</pre>
+                  </div>
+                </div>
+              } @else {
+                <div class="results-tabs">
+                  <div class="tabs-left">
+                    @for (resultSet of result()?.resultSets; track $index; let i = $index) {
+                      <button
+                        class="result-tab"
+                        [class.active]="activeTab() === 'result-' + i"
+                        (click)="setActiveTab('result-' + i)"
+                      >
+                        Result {{ i + 1 }}
+                        <span class="row-count">({{ resultSet.rows.length }} rows)</span>
+                      </button>
+                    }
                     <button
                       class="result-tab"
-                      [class.active]="activeTab() === 'result-' + i"
-                      (click)="setActiveTab('result-' + i)"
+                      [class.active]="activeTab() === 'messages'"
+                      (click)="setActiveTab('messages')"
                     >
-                      Result {{ i + 1 }}
-                      <span class="row-count">({{ resultSet.rows.length }} rows)</span>
+                      Messages
                     </button>
-                  }
-                  <button
-                    class="result-tab"
-                    [class.active]="activeTab() === 'messages'"
-                    (click)="setActiveTab('messages')"
-                  >
-                    Messages
-                  </button>
-                </div>
-                <div class="tabs-right">
-                  @if (aiState.analysisEnabled()) {
-                    <button
-                      class="result-tab icon-tab"
-                      [class.active]="activeTab() === 'ai'"
-                      (click)="setActiveTab('ai')"
-                      matTooltip="AI Analysis"
-                    >
-                      <mat-icon>auto_awesome</mat-icon>
-                    </button>
-                  }
-                  @if (tabId) {
-                    <button
-                      class="result-tab icon-tab"
-                      [class.active]="activeTab() === 'history'"
-                      (click)="setActiveTab('history')"
-                      matTooltip="Result History"
-                    >
-                      <mat-icon>history</mat-icon>
-                      @if (resultsState.snapshots().length > 0) {
-                        <span class="tab-badge">{{ resultsState.snapshots().length }}</span>
-                      }
-                    </button>
-                  }
-                </div>
-              </div>
-
-              @if (activeTab().startsWith('result-') && activeResultSet()) {
-                <div class="results-grid">
-                  <!-- Historical Result Banner -->
-                  @if (viewingHistoricalResult()) {
-                    <div class="historical-banner">
-                      <mat-icon>history</mat-icon>
-                      <div class="banner-content">
-                        <span class="banner-label">Viewing Historical Result</span>
-                        <span class="banner-date">{{
-                          formatHistoricalDate(viewingHistoricalResult()!)
-                        }}</span>
-                      </div>
+                  </div>
+                  <div class="tabs-right">
+                    @if (aiState.analysisEnabled()) {
                       <button
-                        mat-icon-button
-                        matTooltip="Return to current result"
-                        (click)="clearHistoricalResult()"
+                        class="result-tab icon-tab"
+                        [class.active]="activeTab() === 'ai'"
+                        (click)="setActiveTab('ai')"
+                        matTooltip="AI Analysis"
                       >
-                        <mat-icon>close</mat-icon>
+                        <mat-icon>auto_awesome</mat-icon>
                       </button>
-                    </div>
-                  }
-                  <app-results-grid
-                    [resultSet]="activeResultSet()"
-                    [connectionId]="connectionState.activeConnectionId()"
-                    [database]="selectedDatabase"
-                    [class.historical]="viewingHistoricalResult()"
-                    (cellSelected)="onCellSelected($event)"
-                    (exportRequested)="exportResults($event)"
-                    (openQueryRequested)="openQueryInNewTab($event)"
-                  />
+                    }
+                    @if (tabId) {
+                      <button
+                        class="result-tab icon-tab"
+                        [class.active]="activeTab() === 'history'"
+                        (click)="setActiveTab('history')"
+                        matTooltip="Result History"
+                      >
+                        <mat-icon>history</mat-icon>
+                        @if (resultsState.snapshots().length > 0) {
+                          <span class="tab-badge">{{ resultsState.snapshots().length }}</span>
+                        }
+                      </button>
+                    }
+                  </div>
                 </div>
-              } @else if (activeTab() === 'messages') {
-                <div class="messages-pane">
-                  <pre>{{ result()?.messages?.join('\\n') || 'Query executed successfully.' }}</pre>
-                  @if (result()?.rowsAffected !== undefined) {
-                    <p class="rows-affected">({{ result()?.rowsAffected }} rows affected)</p>
-                  }
-                  <p class="execution-time">Execution time: {{ result()?.executionTime }}ms</p>
-                </div>
-              } @else if (activeTab() === 'ai') {
-                <div class="tab-content-pane">
-                  <app-ai-analysis-panel
-                    [sql]="getLastExecutedSql()"
-                    [resultSet]="getFirstResultSet()"
-                    [databaseName]="selectedDatabase ?? ''"
-                    [embedded]="true"
-                  />
-                </div>
-              } @else if (activeTab() === 'history' && tabId) {
-                <div class="tab-content-pane">
-                  <app-result-history-panel
-                    [tabId]="tabId"
-                    [connectionId]="connectionState.activeConnectionId() ?? undefined"
-                    [database]="selectedDatabase ?? undefined"
-                    [embedded]="true"
-                    (viewResult)="onViewHistoryResult($event)"
-                    (compareResults)="onCompareResults($event)"
-                  />
-                </div>
+
+                @if (activeTab().startsWith('result-') && activeResultSet()) {
+                  <div class="results-grid">
+                    <!-- Historical Result Banner -->
+                    @if (viewingHistoricalResult()) {
+                      <div class="historical-banner">
+                        <mat-icon>history</mat-icon>
+                        <div class="banner-content">
+                          <span class="banner-label">Viewing Historical Result</span>
+                          <span class="banner-date">{{
+                            formatHistoricalDate(viewingHistoricalResult()!)
+                          }}</span>
+                        </div>
+                        <button
+                          mat-icon-button
+                          matTooltip="Return to current result"
+                          (click)="clearHistoricalResult()"
+                        >
+                          <mat-icon>close</mat-icon>
+                        </button>
+                      </div>
+                    }
+                    <app-results-grid
+                      [resultSet]="activeResultSet()"
+                      [connectionId]="connectionState.activeConnectionId()"
+                      [database]="selectedDatabase"
+                      [class.historical]="viewingHistoricalResult()"
+                      (cellSelected)="onCellSelected($event)"
+                      (exportRequested)="exportResults($event)"
+                      (openQueryRequested)="openQueryInNewTab($event)"
+                    />
+                  </div>
+                } @else if (activeTab() === 'messages') {
+                  <div class="messages-pane">
+                    <pre>{{
+                      result()?.messages?.join('\\n') || 'Query executed successfully.'
+                    }}</pre>
+                    @if (result()?.rowsAffected !== undefined) {
+                      <p class="rows-affected">({{ result()?.rowsAffected }} rows affected)</p>
+                    }
+                    <p class="execution-time">Execution time: {{ result()?.executionTime }}ms</p>
+                  </div>
+                } @else if (activeTab() === 'ai') {
+                  <div class="tab-content-pane">
+                    <app-ai-analysis-panel
+                      [sql]="getLastExecutedSql()"
+                      [resultSet]="getFirstResultSet()"
+                      [databaseName]="selectedDatabase ?? ''"
+                      [embedded]="true"
+                    />
+                  </div>
+                } @else if (activeTab() === 'history' && tabId) {
+                  <div class="tab-content-pane">
+                    <app-result-history-panel
+                      [tabId]="tabId"
+                      [connectionId]="connectionState.activeConnectionId() ?? undefined"
+                      [database]="selectedDatabase ?? undefined"
+                      [embedded]="true"
+                      (viewResult)="onViewHistoryResult($event)"
+                      (compareResults)="onCompareResults($event)"
+                    />
+                  </div>
+                }
               }
-            }
-          </div>
+            </div>
           }
         </div>
       </div>
@@ -879,6 +944,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly menuService = inject(MenuService);
   private readonly intellisense = inject(SqlIntellisenseService);
+  private readonly injector = inject(Injector);
 
   private editor?: MonacoEditorInstance;
   private resizing = false;
@@ -900,7 +966,9 @@ export class QueryComponent implements OnInit, OnDestroy {
   showHistory = signal(false);
   historySearchText = '';
 
-  readonly autoCompleteObjects = signal<Array<{name: string; schema: string; type: string; displayType: string}>>([]);
+  readonly autoCompleteObjects = signal<
+    Array<{ name: string; schema: string; type: string; displayType: string }>
+  >([]);
 
   // Row detail panel state
   rowDetailData = signal<RowDetailData | null>(null);
@@ -933,8 +1001,10 @@ export class QueryComponent implements OnInit, OnDestroy {
           // Update editor content when it's ready
           if (this.editor && activeTab.content !== undefined) {
             const currentValue = this.editor.getValue();
-            // Only update if content differs (prevents cursor jump)
-            if (currentValue !== activeTab.content) {
+            // Only update if content differs (prevents cursor jump).
+            // Never overwrite non-empty editor with empty content — the editor
+            // is the source of truth; tab state may lag behind during execution.
+            if (currentValue !== activeTab.content && (activeTab.content || !currentValue)) {
               this.editor.setValue(activeTab.content || '');
             }
           }
@@ -1002,7 +1072,7 @@ export class QueryComponent implements OnInit, OnDestroy {
       this.menuService.saveQueryAs$.subscribe(guard(() => this.saveQueryToFile())),
       this.menuService.exportResults$.subscribe(guard(() => this.exportResults('csv'))),
       this.menuService.openQuery$.subscribe(guard(() => this.openQueryFromFile())),
-      this.menuService.toggleResults$.subscribe(guard(() => this.resultsHidden.update(h => !h))),
+      this.menuService.toggleResults$.subscribe(guard(() => this.resultsHidden.update(h => !h)))
     );
   }
 
@@ -1153,10 +1223,18 @@ export class QueryComponent implements OnInit, OnDestroy {
     win._monacoLoading.then(() => this.createEditor());
   }
 
+  /** Get the Monaco language ID based on the active connection's database engine */
+  private getEditorLanguage(): string {
+    const engine = this.connectionState.activeProfile()?.engine;
+    if (engine === 'postgresql') return 'pgsql';
+    if (engine === 'mysql') return 'mysql';
+    return 'sql'; // T-SQL / default
+  }
+
   private createEditor(): void {
     this.editor = monaco.editor.create(this.editorContainer.nativeElement, {
       value: '',
-      language: 'sql',
+      language: this.getEditorLanguage(),
       theme: this.settings.effectiveTheme() === 'dark' ? 'vs-dark' : 'vs',
       automaticLayout: true,
       minimap: { enabled: false },
@@ -1182,16 +1260,39 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     // Override Monaco's Ctrl+E / Cmd+E (normally "Expand Line Selection")
     // to fire Execute Query instead, matching SSMS behavior
-    this.editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE,
-      () => this.handleCtrlEExecute()
+    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE, () =>
+      this.handleCtrlEExecute()
     );
 
     // Emit cursor position changes for status bar
     this.editor.onDidChangeCursorPosition((e: { position: MonacoPosition }) => {
-      window.dispatchEvent(new CustomEvent('forge:cursor-position', {
-        detail: { line: e.position.lineNumber, column: e.position.column },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('forge:cursor-position', {
+          detail: { line: e.position.lineNumber, column: e.position.column },
+        })
+      );
+    });
+
+    // Cmd+Enter / Ctrl+Enter — execute query (intercept before Monaco inserts newline)
+    this.editor.onKeyDown(e => {
+      if ((e.browserEvent.metaKey || e.browserEvent.ctrlKey) && e.browserEvent.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.executeQuery();
+      }
+    });
+
+    // Update editor language when connection engine changes
+    runInInjectionContext(this.injector, () => {
+      effect(() => {
+        const lang = this.getEditorLanguage();
+        const model = this.editor?.getModel();
+        if (model) {
+          (
+            monaco.editor as unknown as { setModelLanguage(m: unknown, l: string): void }
+          ).setModelLanguage(model, lang);
+        }
+      });
     });
 
     // Listen for content changes - use this.tabId for isolation
@@ -1218,7 +1319,11 @@ export class QueryComponent implements OnInit, OnDestroy {
         // Handle auto-execute for initial load
         if (tab.autoExecute && tab.content) {
           this.tabState.clearAutoExecute(tab.id);
-          // Execute immediately since editor is ready and content is set
+          // Sync database from tab before executing — the effect may not have fired yet
+          if (tab.databaseName) {
+            this.selectedDatabase = tab.databaseName;
+            this.connectionState.selectDatabase(tab.databaseName);
+          }
           this.executeQuery();
         }
       }
@@ -1234,6 +1339,10 @@ export class QueryComponent implements OnInit, OnDestroy {
         this.tabState.setCleanBaseline(activeTab.id, activeTab.content ?? '');
         if (activeTab.autoExecute && activeTab.content) {
           this.tabState.clearAutoExecute(activeTab.id);
+          if (activeTab.databaseName) {
+            this.selectedDatabase = activeTab.databaseName;
+            this.connectionState.selectDatabase(activeTab.databaseName);
+          }
           this.executeQuery();
         }
       }
@@ -1241,7 +1350,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     // Register SQL auto-complete provider
     monaco.languages.registerCompletionItemProvider('sql', {
-      provideCompletionItems: (model: unknown, position: unknown) => {
+      provideCompletionItems: (_model: unknown, _position: unknown) => {
         const suggestions: Array<{
           label: string;
           kind: number;
@@ -1253,22 +1362,77 @@ export class QueryComponent implements OnInit, OnDestroy {
         for (const obj of this.autoCompleteObjects()) {
           suggestions.push({
             label: obj.schema === 'dbo' ? obj.name : `${obj.schema}.${obj.name}`,
-            kind: obj.type === 'table' ? monaco.languages.CompletionItemKind.Struct
-                  : obj.type === 'view' ? monaco.languages.CompletionItemKind.Interface
-                  : obj.type === 'procedure' ? monaco.languages.CompletionItemKind.Function
-                  : monaco.languages.CompletionItemKind.Field,
+            kind:
+              obj.type === 'table'
+                ? monaco.languages.CompletionItemKind.Struct
+                : obj.type === 'view'
+                  ? monaco.languages.CompletionItemKind.Interface
+                  : obj.type === 'procedure'
+                    ? monaco.languages.CompletionItemKind.Function
+                    : monaco.languages.CompletionItemKind.Field,
             insertText: obj.schema === 'dbo' ? `[${obj.name}]` : `[${obj.schema}].[${obj.name}]`,
             detail: `${obj.displayType} - ${obj.schema}`,
           });
         }
 
         // Add SQL keywords
-        const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
-          'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ORDER BY', 'GROUP BY',
-          'HAVING', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'ALTER',
-          'DROP', 'TABLE', 'VIEW', 'INDEX', 'EXEC', 'EXECUTE', 'DECLARE', 'BEGIN', 'END',
-          'IF', 'ELSE', 'WHILE', 'RETURN', 'TOP', 'DISTINCT', 'AS', 'NULL', 'IS', 'NOT NULL',
-          'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'CONVERT', 'COALESCE', 'ISNULL'];
+        const keywords = [
+          'SELECT',
+          'FROM',
+          'WHERE',
+          'JOIN',
+          'LEFT',
+          'RIGHT',
+          'INNER',
+          'OUTER',
+          'ON',
+          'AND',
+          'OR',
+          'NOT',
+          'IN',
+          'EXISTS',
+          'BETWEEN',
+          'LIKE',
+          'ORDER BY',
+          'GROUP BY',
+          'HAVING',
+          'INSERT',
+          'INTO',
+          'VALUES',
+          'UPDATE',
+          'SET',
+          'DELETE',
+          'CREATE',
+          'ALTER',
+          'DROP',
+          'TABLE',
+          'VIEW',
+          'INDEX',
+          'EXEC',
+          'EXECUTE',
+          'DECLARE',
+          'BEGIN',
+          'END',
+          'IF',
+          'ELSE',
+          'WHILE',
+          'RETURN',
+          'TOP',
+          'DISTINCT',
+          'AS',
+          'NULL',
+          'IS',
+          'NOT NULL',
+          'COUNT',
+          'SUM',
+          'AVG',
+          'MIN',
+          'MAX',
+          'CAST',
+          'CONVERT',
+          'COALESCE',
+          'ISNULL',
+        ];
         for (const kw of keywords) {
           suggestions.push({
             label: kw,
@@ -1279,7 +1443,7 @@ export class QueryComponent implements OnInit, OnDestroy {
         }
 
         return { suggestions };
-      }
+      },
     });
 
     this.loadAutoCompleteObjects();
@@ -1301,9 +1465,24 @@ export class QueryComponent implements OnInit, OnDestroy {
       ]);
 
       const objects = [
-        ...tables.map(t => ({ name: t.name, schema: t.schema || 'dbo', type: 'table', displayType: 'Table' })),
-        ...views.map(v => ({ name: v.name, schema: v.schema || 'dbo', type: 'view', displayType: 'View' })),
-        ...procs.map(p => ({ name: p.name, schema: p.schema || 'dbo', type: 'procedure', displayType: 'Procedure' })),
+        ...tables.map(t => ({
+          name: t.name,
+          schema: t.schema || 'dbo',
+          type: 'table',
+          displayType: 'Table',
+        })),
+        ...views.map(v => ({
+          name: v.name,
+          schema: v.schema || 'dbo',
+          type: 'view',
+          displayType: 'View',
+        })),
+        ...procs.map(p => ({
+          name: p.name,
+          schema: p.schema || 'dbo',
+          type: 'procedure',
+          displayType: 'Procedure',
+        })),
       ];
       this.autoCompleteObjects.set(objects);
     } catch {
@@ -1312,6 +1491,7 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   private static readonly CTRL_E_CONFIRMED_KEY = 'mj-forge-ctrl-e-execute-confirmed';
+  private static readonly PLACEHOLDER_VALUES_KEY = 'mj-forge-flyway-placeholder-values';
 
   /**
    * Handle Ctrl+E / Cmd+E — shows a one-time confirmation dialog for new users,
@@ -1330,7 +1510,8 @@ export class QueryComponent implements OnInit, OnDestroy {
   private showCtrlEConfirmDialog(): void {
     // Create a simple inline dialog
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.style.cssText =
+      'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
 
     const isMac = navigator.platform.includes('Mac');
     const shortcutLabel = isMac ? '⌘E' : 'Ctrl+E';
@@ -1370,7 +1551,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     const cleanup = () => overlay.remove();
 
-    overlay.addEventListener('click', (e) => {
+    overlay.addEventListener('click', e => {
       if (e.target === overlay) cleanup();
     });
 
@@ -1387,7 +1568,10 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     // ESC to dismiss
     const escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { cleanup(); document.removeEventListener('keydown', escHandler); }
+      if (e.key === 'Escape') {
+        cleanup();
+        document.removeEventListener('keydown', escHandler);
+      }
     };
     document.addEventListener('keydown', escHandler);
 
@@ -1397,15 +1581,154 @@ export class QueryComponent implements OnInit, OnDestroy {
     setTimeout(() => (dialog.querySelector('#ctrl-e-execute') as HTMLButtonElement)?.focus(), 50);
   }
 
+  // --- Flyway / Skyway placeholder detection ---
+
+  /**
+   * Detect Flyway-style ${placeholder} tokens in SQL.
+   * Returns unique placeholder names (without the ${} wrapper).
+   */
+  private detectPlaceholders(sql: string): string[] {
+    const regex = /\$\{([^}]+)\}/g;
+    const names = new Set<string>();
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(sql)) !== null) {
+      names.add(match[1]);
+    }
+    return Array.from(names);
+  }
+
+  /** Load remembered placeholder values from localStorage. */
+  private loadPlaceholderValues(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem(QueryComponent.PLACEHOLDER_VALUES_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Persist placeholder values to localStorage. */
+  private savePlaceholderValues(values: Record<string, string>): void {
+    localStorage.setItem(QueryComponent.PLACEHOLDER_VALUES_KEY, JSON.stringify(values));
+  }
+
+  /**
+   * Show a dialog asking the user to fill in placeholder values.
+   * Resolves with the substituted SQL, or null if the user cancelled.
+   */
+  private showPlaceholderDialog(placeholders: string[], sql: string): Promise<string | null> {
+    return new Promise(resolve => {
+      const remembered = this.loadPlaceholderValues();
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-primary);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3); width: 480px; max-width: 90vw; overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      `;
+
+      const inputRows = placeholders.map(name => {
+        const val = remembered[name] || '';
+        return `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <label style="min-width:120px;color:var(--text-secondary);font-size:13px;font-family:monospace;text-align:right;flex-shrink:0;">
+              \${${name}}
+            </label>
+            <input type="text" data-placeholder="${name}" value="${val.replace(/"/g, '&quot;')}"
+              style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border-primary);
+                background:var(--bg-primary);color:var(--text-primary);font-size:13px;font-family:monospace;outline:none;"
+              placeholder="Enter value…" />
+          </div>`;
+      }).join('');
+
+      dialog.innerHTML = `
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border-primary);display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">&#123;&#125;</span>
+          <h3 style="margin:0;font-size:15px;font-weight:600;color:var(--text-primary);">Flyway Placeholders Detected</h3>
+        </div>
+        <div style="padding:20px;">
+          <p style="margin:0 0 16px 0;color:var(--text-secondary);line-height:1.5;font-size:13px;">
+            This SQL contains <strong style="color:var(--text-primary);">${placeholders.length}</strong>
+            placeholder${placeholders.length > 1 ? 's' : ''}. Provide values to substitute before executing.
+          </p>
+          ${inputRows}
+        </div>
+        <div style="padding:12px 20px;border-top:1px solid var(--border-primary);background:var(--bg-tertiary);
+          display:flex;justify-content:flex-end;gap:8px;border-radius:0 0 12px 12px;">
+          <button id="ph-execute" style="
+            padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;
+            background:var(--status-info,#007acc);color:white;">Execute</button>
+          <button id="ph-cancel" style="
+            padding:6px 16px;border-radius:6px;border:1px solid var(--border-primary);cursor:pointer;font-size:13px;
+            background:transparent;color:var(--text-primary);">Cancel</button>
+        </div>`;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      const cleanup = () => { overlay.remove(); };
+
+      const doExecute = () => {
+        const inputs = dialog.querySelectorAll<HTMLInputElement>('input[data-placeholder]');
+        const values: Record<string, string> = {};
+        inputs.forEach(inp => { values[inp.dataset['placeholder']!] = inp.value; });
+
+        // Persist for next time
+        const merged = { ...remembered, ...values };
+        this.savePlaceholderValues(merged);
+
+        // Replace all ${name} occurrences in the SQL
+        let resolved = sql;
+        for (const [name, value] of Object.entries(values)) {
+          resolved = resolved.split('${' + name + '}').join(value);
+        }
+        cleanup();
+        resolve(resolved);
+      };
+
+      dialog.querySelector('#ph-execute')!.addEventListener('click', doExecute);
+      dialog.querySelector('#ph-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+      // Enter key in any input triggers execute
+      dialog.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key === 'Enter') { e.preventDefault(); doExecute(); }
+          if (e.key === 'Escape') { e.preventDefault(); cleanup(); resolve(null); }
+        });
+      });
+
+      // Focus the first input
+      setTimeout(() => {
+        const first = dialog.querySelector<HTMLInputElement>('input[data-placeholder]');
+        first?.focus();
+        first?.select();
+      }, 50);
+    });
+  }
+
   async executeQuery(): Promise<void> {
-    const sql = this.getSelectedOrAllText();
+    let sql = this.getSelectedOrAllText();
     if (!sql.trim()) {
       this.notification.warning('No query to execute');
       return;
     }
 
+    // Detect Flyway-style ${placeholder} tokens and prompt for values
+    const placeholders = this.detectPlaceholders(sql);
+    if (placeholders.length > 0) {
+      const resolved = await this.showPlaceholderDialog(placeholders, sql);
+      if (resolved === null) return; // User cancelled
+      sql = resolved;
+    }
+
     const connectionId = this.connectionState.activeConnectionId();
-    const database = this.selectedDatabase;
+    // Use tab's own database if selectedDatabase hasn't been synced yet (e.g. autoExecute race)
+    const currentTab = this.tabState.tabs().find(t => t.id === this.tabId);
+    const database = this.selectedDatabase || currentTab?.databaseName;
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -1598,16 +1921,20 @@ export class QueryComponent implements OnInit, OnDestroy {
     const tableName = this.getTableNameFromSql() || 'TableName';
     const columns = resultSet.columns.map(c => `[${c.name}]`).join(', ');
 
-    const inserts = resultSet.rows.map(row => {
-      const values = resultSet.columns.map(col => {
-        const val = row[col.name];
-        if (val === null || val === undefined) return 'NULL';
-        if (typeof val === 'number') return String(val);
-        if (typeof val === 'boolean') return val ? '1' : '0';
-        return `'${String(val).replace(/'/g, "''")}'`;
-      }).join(', ');
-      return `INSERT INTO [${tableName}] (${columns}) VALUES (${values});`;
-    }).join('\n');
+    const inserts = resultSet.rows
+      .map(row => {
+        const values = resultSet.columns
+          .map(col => {
+            const val = row[col.name];
+            if (val === null || val === undefined) return 'NULL';
+            if (typeof val === 'number') return String(val);
+            if (typeof val === 'boolean') return val ? '1' : '0';
+            return `'${String(val).replace(/'/g, "''")}'`;
+          })
+          .join(', ');
+        return `INSERT INTO [${tableName}] (${columns}) VALUES (${values});`;
+      })
+      .join('\n');
 
     this.downloadFile(inserts, 'inserts.sql', 'text/plain');
     this.notification.success(`Exported ${resultSet.rows.length} INSERT statements`);
@@ -1834,14 +2161,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
     try {
-      const result = await firstValueFrom(this.ipc.showSaveDialog({
-        title: 'Save Query',
-        defaultPath: 'query.sql',
-        filters: [
-          { name: 'SQL Files', extensions: ['sql'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
-      }));
+      const result = await firstValueFrom(
+        this.ipc.showSaveDialog({
+          title: 'Save Query',
+          defaultPath: 'query.sql',
+          filters: [
+            { name: 'SQL Files', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        })
+      );
       if (result?.filePath) {
         await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, sql));
         this.notification.success('Query saved');
@@ -1856,14 +2185,16 @@ export class QueryComponent implements OnInit, OnDestroy {
    */
   async openQueryFromFile(): Promise<void> {
     try {
-      const result = await firstValueFrom(this.ipc.showOpenDialog({
-        title: 'Open Query',
-        filters: [
-          { name: 'SQL Files', extensions: ['sql'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
-        properties: ['openFile'],
-      }));
+      const result = await firstValueFrom(
+        this.ipc.showOpenDialog({
+          title: 'Open Query',
+          filters: [
+            { name: 'SQL Files', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+          properties: ['openFile'],
+        })
+      );
       if (result?.filePaths?.length) {
         const content = await firstValueFrom(this.ipc.readWorkspaceFile(result.filePaths[0]));
         if (this.editor) {
@@ -1903,6 +2234,34 @@ export class QueryComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.notification.error('Failed to format SQL');
       console.error('SQL formatting error:', error);
+    }
+  }
+
+  async convertSqlTo(targetEngine: string): Promise<void> {
+    if (!this.editor) return;
+
+    const sql = this.getSelectedOrAllText();
+    if (!sql.trim()) {
+      this.notification.warning('No SQL to convert');
+      return;
+    }
+
+    const fromEngine = this.connectionState.activeProfile()?.engine || 'mssql';
+    try {
+      const result = await firstValueFrom(this.ipc.convertSql(sql, fromEngine, targetEngine));
+      if (result.success) {
+        this.editor.setValue(result.sql);
+        const labels: Record<string, string> = {
+          mssql: 'SQL Server',
+          postgresql: 'PostgreSQL',
+          mysql: 'MySQL',
+        };
+        this.notification.success(`Converted to ${labels[targetEngine] || targetEngine}`);
+      } else {
+        this.notification.error(result.error || 'Conversion failed');
+      }
+    } catch {
+      this.notification.error('SQL conversion failed');
     }
   }
 
@@ -2005,9 +2364,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     const cleaned = sql.replace(/\s+/g, ' ').trim();
 
     // SELECT ... FROM [schema].[table]
-    const selectMatch = cleaned.match(
-      /^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
-    );
+    const selectMatch = cleaned.match(/^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i);
     if (selectMatch) {
       const table = selectMatch[2];
       const title = table.length > 20 ? `${table.substring(0, 18)}…` : table;
@@ -2016,12 +2373,13 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     // EXEC [schema].[proc]
-    const execMatch = cleaned.match(
-      /^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
-    );
+    const execMatch = cleaned.match(/^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i);
     if (execMatch) {
       const proc = execMatch[2];
-      this.tabState.renameTab(tabId, `Exec ${proc.length > 16 ? proc.substring(0, 14) + '…' : proc}`);
+      this.tabState.renameTab(
+        tabId,
+        `Exec ${proc.length > 16 ? proc.substring(0, 14) + '…' : proc}`
+      );
       return;
     }
 

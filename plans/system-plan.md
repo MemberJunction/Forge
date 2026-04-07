@@ -3,6 +3,8 @@
 > **Version:** 1.0.0
 > **Last Updated:** January 2026
 > **Status:** Implementation Complete - All core features implemented, testing and documentation pending
+>
+> **Note (April 2025):** This plan was written when Forge was SQL Server-only. Forge now supports **PostgreSQL** and **MySQL** as well. References to "SQL Server" throughout this document reflect the original v1.0 scope, not the current multi-engine architecture.
 
 ---
 

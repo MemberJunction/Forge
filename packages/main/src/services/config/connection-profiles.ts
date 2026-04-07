@@ -34,10 +34,18 @@ export class ConnectionProfilesStore extends BaseSingleton {
   }
 
   /**
-   * Get all connection profiles
+   * Get all connection profiles.
+   * Backfills `engine: 'mssql'` for profiles saved before multi-DB support.
    */
   getAll(): ConnectionProfile[] {
-    return this.store.get('profiles', []);
+    const profiles = this.store.get('profiles', []);
+    // Backfill engine for legacy profiles
+    for (const p of profiles) {
+      if (!p.engine) {
+        (p as ConnectionProfile).engine = 'mssql';
+      }
+    }
+    return profiles;
   }
 
   /**

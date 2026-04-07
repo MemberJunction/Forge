@@ -2,8 +2,23 @@
  * Connection-related type definitions
  */
 
+export type DatabaseEngine = 'mssql' | 'postgresql' | 'mysql';
 export type AuthenticationType = 'sql' | 'windows' | 'azure-ad';
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/** Default ports for each database engine */
+export const DEFAULT_PORTS: Record<DatabaseEngine, number> = {
+  mssql: 1433,
+  postgresql: 5432,
+  mysql: 3306,
+};
+
+/** Human-readable labels for each database engine */
+export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
+  mssql: 'SQL Server',
+  postgresql: 'PostgreSQL',
+  mysql: 'MySQL',
+};
 
 export interface VolumeMapping {
   hostPath: string;
@@ -13,6 +28,7 @@ export interface VolumeMapping {
 export interface ConnectionProfile {
   id: string;
   name: string;
+  engine: DatabaseEngine;
   server: string; // hostname or IP
   port: number;
   authenticationType: AuthenticationType;

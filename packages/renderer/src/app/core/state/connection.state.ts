@@ -128,6 +128,9 @@ export class ConnectionStateService {
 
     try {
       this._connecting.set(true);
+      // Clear stale databases from any previous connection before switching
+      this._databases.set([]);
+      this._selectedDatabase.set(null);
       await firstValueFrom(this.ipc.connect(profileId));
       this._activeConnectionId.set(profileId);
       this.notification.success(`Connected to ${profile.name}`);

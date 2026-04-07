@@ -33,6 +33,8 @@ export class ChatService extends BaseSingleton {
   private toolRegistry: ToolRegistry;
   private aiService: AIService;
   private activeStreams: Map<string, AbortController> = new Map();
+  /** Stores the latest editor content per conversation so tools can access it */
+  private editorContent: Map<string, string> = new Map();
   private storageDir: string;
 
   constructor() {
@@ -100,8 +102,9 @@ export class ChatService extends BaseSingleton {
   }
 
   listConversations(): Conversation[] {
-    return Array.from(this.conversations.values())
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return Array.from(this.conversations.values()).sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
   }
 
   getConversation(id: string): Conversation | null {
@@ -166,9 +169,18 @@ export class ChatService extends BaseSingleton {
       this.conversations.set(conversation.id, conversation);
     }
 
-    // Store context
+    // Store context — always update so the conversation tracks the latest state
     if (request.connectionId) conversation.connectionId = request.connectionId;
     if (request.databaseName) conversation.databaseName = request.databaseName;
+    if (request.databaseEngine) conversation.databaseEngine = request.databaseEngine;
+
+    // Store active editor content so AI tools can access it
+    if (request.activeEditorContent) {
+      this.editorContent.set(conversation.id, request.activeEditorContent);
+    } else {
+      this.editorContent.delete(conversation.id);
+    }
+    this.toolRegistry.setEditorContent(conversation.id, request.activeEditorContent);
 
     // Add user message
     const userMessage: ChatMessage = {
@@ -182,7 +194,8 @@ export class ChatService extends BaseSingleton {
 
     // Auto-title on first message
     if (conversation.messages.filter(m => m.role === 'user').length === 1) {
-      conversation.title = request.message.substring(0, 50) + (request.message.length > 50 ? '...' : '');
+      conversation.title =
+        request.message.substring(0, 50) + (request.message.length > 50 ? '...' : '');
     }
     this.saveConversation(conversation);
 
@@ -237,16 +250,19 @@ export class ChatService extends BaseSingleton {
         toolCall.toolName,
         toolCall.args,
         conversation.connectionId,
-        conversation.databaseName
+        conversation.databaseName,
+        conversation.id
       );
       toolCall.result = result;
       toolCall.success = true;
       toolCall.confirmed = true;
+      toolCall.pendingConfirmation = false;
       toolCall.durationMs = Date.now() - start;
     } catch (error) {
       toolCall.error = (error as Error).message;
       toolCall.success = false;
       toolCall.confirmed = true;
+      toolCall.pendingConfirmation = false;
       toolCall.durationMs = Date.now() - start;
     }
 
@@ -301,6 +317,7 @@ export class ChatService extends BaseSingleton {
       message: '',
       connectionId: conversation.connectionId,
       databaseName: conversation.databaseName,
+      databaseEngine: conversation.databaseEngine,
     });
     const tools = this.toolRegistry.getToolsForAPI();
 
@@ -339,7 +356,11 @@ export class ChatService extends BaseSingleton {
             if (signal.aborted) return;
             accumulatedContent += text;
             iterationContent += text;
-            this.sendChunk(mainWindow, { conversationId: conversation.id, delta: text, done: false });
+            this.sendChunk(mainWindow, {
+              conversationId: conversation.id,
+              delta: text,
+              done: false,
+            });
           },
           onToolCall: (call: StreamToolCall) => {
             if (signal.aborted) return;
@@ -365,25 +386,46 @@ export class ChatService extends BaseSingleton {
           const toolDef = this.toolRegistry.getTool(tc.name);
           if (toolDef?.requiresConfirmation) {
             const pending: ToolCallResult = {
-              id: toolCallId, toolName: tc.name, args: tc.args,
-              success: false, pendingConfirmation: true,
+              id: toolCallId,
+              toolName: tc.name,
+              args: tc.args,
+              success: false,
+              pendingConfirmation: true,
             };
             assistantMessage.toolCalls!.push(pending);
             this.sendChunk(mainWindow, {
               conversationId: conversation.id,
-              toolCall: { id: toolCallId, toolName: tc.name, args: tc.args, pendingConfirmation: true },
+              toolCall: {
+                id: toolCallId,
+                toolName: tc.name,
+                args: tc.args,
+                pendingConfirmation: true,
+              },
               done: false,
             });
           } else {
-            const result = await this.executeTool(tc.id || uuidv4(), tc.name, tc.args, conversation);
+            const result = await this.executeTool(
+              tc.id || uuidv4(),
+              tc.name,
+              tc.args,
+              conversation
+            );
             assistantMessage.toolCalls!.push(result);
-            this.sendChunk(mainWindow, { conversationId: conversation.id, toolResult: result, done: false });
+            this.sendChunk(mainWindow, {
+              conversationId: conversation.id,
+              toolResult: result,
+              done: false,
+            });
           }
         }
         break;
       }
 
-      llmMessages.push({ role: 'assistant', content: iterationContent || '', toolCalls: iterationToolCalls });
+      llmMessages.push({
+        role: 'assistant',
+        content: iterationContent || '',
+        toolCalls: iterationToolCalls,
+      });
 
       for (const tc of iterationToolCalls) {
         const toolCallId = tc.id || uuidv4();
@@ -395,15 +437,21 @@ export class ChatService extends BaseSingleton {
         const result = await this.executeTool(toolCallId, tc.name, tc.args, conversation);
         assistantMessage.toolCalls!.push(result);
 
-        const chunk: ChatStreamChunk = { conversationId: conversation.id, toolResult: result, done: false };
+        const chunk: ChatStreamChunk = {
+          conversationId: conversation.id,
+          toolResult: result,
+          done: false,
+        };
         const resultObj = result.result as Record<string, unknown> | undefined;
-        if (resultObj?._uiAction) chunk.uiAction = resultObj._uiAction as ChatStreamChunk['uiAction'];
+        if (resultObj?._uiAction)
+          chunk.uiAction = resultObj._uiAction as ChatStreamChunk['uiAction'];
         this.sendChunk(mainWindow, chunk);
 
         llmMessages.push({
           role: 'tool',
           content: JSON.stringify(result.success ? result.result : { error: result.error }),
-          toolCallId, toolName: tc.name,
+          toolCallId,
+          toolName: tc.name,
         });
       }
     }
@@ -412,7 +460,11 @@ export class ChatService extends BaseSingleton {
     conversation.updatedAt = new Date().toISOString();
     this.saveConversation(conversation);
 
-    this.sendChunk(mainWindow, { conversationId: conversation.id, done: true, messageId: assistantMessage.id });
+    this.sendChunk(mainWindow, {
+      conversationId: conversation.id,
+      done: true,
+      messageId: assistantMessage.id,
+    });
   }
 
   // ---- Core generation with agentic tool-calling loop ----
@@ -426,9 +478,10 @@ export class ChatService extends BaseSingleton {
     signal: AbortSignal
   ): Promise<void> {
     // Use per-message override if provided, otherwise fall back to default selection
-    const selection = request.vendorId && request.modelApiName
-      ? await this.resolveExplicitModel(request.vendorId, request.modelApiName)
-      : await this.selectVendorAndModel();
+    const selection =
+      request.vendorId && request.modelApiName
+        ? await this.resolveExplicitModel(request.vendorId, request.modelApiName)
+        : await this.selectVendorAndModel();
     if (!selection) {
       this.sendChunk(mainWindow, {
         conversationId: conversation.id,
@@ -523,14 +576,28 @@ export class ChatService extends BaseSingleton {
             assistantMessage.toolCalls!.push(pending);
             this.sendChunk(mainWindow, {
               conversationId: conversation.id,
-              toolCall: { id: toolCallId, toolName: tc.name, args: tc.args, pendingConfirmation: true },
+              toolCall: {
+                id: toolCallId,
+                toolName: tc.name,
+                args: tc.args,
+                pendingConfirmation: true,
+              },
               done: false,
             });
           } else {
             // Auto-execute safe tools even in a mixed batch
-            const result = await this.executeTool(tc.id || uuidv4(), tc.name, tc.args, conversation);
+            const result = await this.executeTool(
+              tc.id || uuidv4(),
+              tc.name,
+              tc.args,
+              conversation
+            );
             assistantMessage.toolCalls!.push(result);
-            this.sendChunk(mainWindow, { conversationId: conversation.id, toolResult: result, done: false });
+            this.sendChunk(mainWindow, {
+              conversationId: conversation.id,
+              toolResult: result,
+              done: false,
+            });
           }
         }
         break; // Wait for user confirmation before continuing
@@ -544,7 +611,9 @@ export class ChatService extends BaseSingleton {
         toolCalls: iterationToolCalls,
       });
 
-      log.info(`Agentic loop iteration ${iteration + 1}: executing ${iterationToolCalls.length} tool(s)`);
+      log.info(
+        `Agentic loop iteration ${iteration + 1}: executing ${iterationToolCalls.length} tool(s)`
+      );
 
       for (const tc of iterationToolCalls) {
         const toolCallId = tc.id || uuidv4();
@@ -617,11 +686,18 @@ export class ChatService extends BaseSingleton {
         toolName,
         args,
         conversation.connectionId,
-        conversation.databaseName
+        conversation.databaseName,
+        conversation.id
       );
       toolResult.result = result;
       toolResult.success = true;
       toolResult.durationMs = Date.now() - start;
+
+      // If navigate_to_database was called, update the conversation context
+      // so subsequent tool calls target the new database
+      if (toolName === 'navigate_to_database' && args.database) {
+        conversation.databaseName = args.database as string;
+      }
     } catch (error) {
       toolResult.error = (error as Error).message;
       toolResult.durationMs = Date.now() - start;
@@ -686,7 +762,7 @@ export class ChatService extends BaseSingleton {
    */
   private async resolveExplicitModel(
     vendorId: string,
-    modelApiName: string,
+    modelApiName: string
   ): Promise<{ vendorId: string; modelApiName: string; apiKey: string } | null> {
     const apiKey = await this.aiService.getApiKeyForVendor(vendorId);
     if (!apiKey) return null;
@@ -696,7 +772,21 @@ export class ChatService extends BaseSingleton {
   // ---- Message Building ----
 
   private buildSystemPrompt(request: ChatRequest): string {
-    let prompt = `You are Forge AI, a helpful database assistant built into MJ Forge — a SQL Server management tool.
+    const engineLabel =
+      request.databaseEngine === 'postgresql'
+        ? 'PostgreSQL'
+        : request.databaseEngine === 'mysql'
+          ? 'MySQL'
+          : 'SQL Server';
+    const dialectHint =
+      request.databaseEngine === 'postgresql'
+        ? 'PostgreSQL SQL'
+        : request.databaseEngine === 'mysql'
+          ? 'MySQL SQL'
+          : 'T-SQL';
+
+    let prompt = `You are Forge AI, a helpful database assistant built into MJ Forge — a multi-database management tool.
+The user is currently connected to a ${engineLabel} database. Generate ${dialectHint} syntax for all queries.
 You help users manage their databases through natural conversation. You can execute SQL queries, create databases, inspect schema, and more using the available tools.
 
 Guidelines:
@@ -711,6 +801,9 @@ Guidelines:
 
     if (request.databaseName) {
       prompt += `\n\nCurrent database: ${request.databaseName}`;
+      prompt += `\nAll tool calls (execute_query, execute_ddl, etc.) automatically run against this database — you do not need to add USE statements.`;
+    } else {
+      prompt += `\n\nNo database is currently selected. If the user wants to work with a specific database, use navigate_to_database first to set the context, then subsequent tool calls will target that database.`;
     }
 
     if (request.schemaContext?.tables.length) {
@@ -719,6 +812,21 @@ Guidelines:
         .map(t => `- ${t.schema}.${t.name} (${t.columns.map(c => c.name).join(', ')})`)
         .join('\n');
       prompt += `\n\nAvailable tables:\n${tableList}`;
+    }
+
+    // Include active editor content preview
+    if (request.activeEditorContent) {
+      const lines = request.activeEditorContent.split('\n');
+      const maxPreviewLines = 200;
+      const preview = lines
+        .slice(0, maxPreviewLines)
+        .map((l, i) => `${i + 1}: ${l}`)
+        .join('\n');
+      prompt += `\n\nActive query editor contents (${lines.length} line${lines.length === 1 ? '' : 's'}):`;
+      prompt += `\n\`\`\`sql\n${preview}\n\`\`\``;
+      if (lines.length > maxPreviewLines) {
+        prompt += `\n(Showing first ${maxPreviewLines} of ${lines.length} lines. Use the read_editor_content tool to view specific line ranges, or search_editor_content to search.)`;
+      }
     }
 
     return prompt;

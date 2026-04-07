@@ -1,6 +1,7 @@
 /**
  * Query Executor Service
- * Executes SQL queries and returns structured results
+ * Executes SQL queries and returns structured results.
+ * Supports SQL Server (mssql) and PostgreSQL (pg) engines.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -54,6 +55,15 @@ export class QueryExecutor extends BaseSingleton {
     this.activeQueries.set(queryId, activeQuery);
 
     try {
+      // Route to engine-specific executor
+      const engine = this.poolManager.getEngineForProfile(request.connectionId);
+      if (engine === 'postgresql') {
+        return await this.executePg(request, activeQuery, queryId, startTime);
+      }
+      if (engine === 'mysql') {
+        return await this.executeMySQL(request, activeQuery, queryId, startTime);
+      }
+
       const pool = await this.poolManager.getPool(request.connectionId);
 
       // Check if cancelled before executing
@@ -112,8 +122,8 @@ export class QueryExecutor extends BaseSingleton {
       // If we need USE and there's only one batch, check if it requires being
       // the first statement (CREATE VIEW/TRIGGER/PROC/FUNCTION/SCHEMA).
       // If so, run USE as a separate batch first.
-      const needsSeparateUse = usePrefix && batches.length === 1
-        && this.requiresFirstInBatch(batches[0]);
+      const needsSeparateUse =
+        usePrefix && batches.length === 1 && this.requiresFirstInBatch(batches[0]);
 
       if (needsSeparateUse) {
         // Set database context in its own batch
@@ -271,6 +281,241 @@ export class QueryExecutor extends BaseSingleton {
   /**
    * Extract column metadata from a recordset
    */
+  /**
+   * Execute a query against PostgreSQL
+   */
+  private async executePg(
+    request: QueryRequest,
+    activeQuery: ActiveQuery,
+    queryId: string,
+    startTime: number
+  ): Promise<QueryResult> {
+    // PG sets database at the connection/pool level — pass database to get the right pool
+    const pool = await this.poolManager.getPgPool(request.connectionId, request.database);
+
+    if (activeQuery.cancelled) {
+      return this.createCancelledResult(queryId, startTime);
+    }
+    const client = await pool.connect();
+    try {
+      const result = await client.query(request.sql);
+      const results = Array.isArray(result) ? result : [result];
+
+      const allResultSets: ResultSet[] = [];
+      const allMessages: string[] = [];
+      let totalRowsAffected = 0;
+
+      for (const r of results) {
+        if (r.fields && r.fields.length > 0) {
+          const columns: ColumnMetadata[] = r.fields.map(
+            (f: { name: string; dataTypeID: number; dataTypeSize: number }) => ({
+              name: f.name,
+              type: this.pgTypeIdToName(f.dataTypeID),
+              dataType: this.pgTypeIdToName(f.dataTypeID),
+              nullable: true,
+            })
+          );
+
+          allResultSets.push({
+            columns,
+            rows: r.rows as Record<string, unknown>[],
+            rowCount: r.rows.length,
+          });
+        }
+        totalRowsAffected += r.rowCount ?? 0;
+      }
+
+      allMessages.push(`(${totalRowsAffected} row(s) affected)`);
+
+      return {
+        queryId,
+        success: true,
+        resultSets: allResultSets,
+        messages: allMessages,
+        rowsAffected: totalRowsAffected,
+        executionTime: Date.now() - startTime,
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Execute a query against MySQL
+   */
+  private async executeMySQL(
+    request: QueryRequest,
+    activeQuery: ActiveQuery,
+    queryId: string,
+    startTime: number
+  ): Promise<QueryResult> {
+    // MySQL supports USE for database context switching
+    const pool = await this.poolManager.getMySQLPool(request.connectionId, request.database);
+
+    if (activeQuery.cancelled) {
+      return this.createCancelledResult(queryId, startTime);
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      const [rawRows, rawFields] = await conn.query(request.sql);
+
+      const allResultSets: ResultSet[] = [];
+      const allMessages: string[] = [];
+      let totalRowsAffected = 0;
+
+      // mysql2 with multipleStatements returns arrays of results
+      const isMultiResult =
+        Array.isArray(rawRows) && rawRows.length > 0 && Array.isArray(rawRows[0]);
+
+      if (isMultiResult) {
+        const multiRows = rawRows as unknown as unknown[][];
+        const multiFields = (rawFields || []) as unknown as unknown[][];
+
+        for (let i = 0; i < multiRows.length; i++) {
+          const rows = multiRows[i];
+          const fields = (multiFields[i] || []) as Array<{
+            name: string;
+            columnType?: number;
+            columnLength?: number;
+          }>;
+
+          if (
+            Array.isArray(rows) &&
+            rows.length > 0 &&
+            typeof rows[0] === 'object' &&
+            !('affectedRows' in (rows[0] as object))
+          ) {
+            const columns: ColumnMetadata[] = fields.map(f => ({
+              name: f.name,
+              type: this.mysqlTypeIdToName(f.columnType),
+              dataType: this.mysqlTypeIdToName(f.columnType),
+              nullable: true,
+            }));
+
+            allResultSets.push({
+              columns,
+              rows: rows as Record<string, unknown>[],
+              rowCount: rows.length,
+            });
+          }
+          if (rows && typeof rows === 'object' && 'affectedRows' in (rows as object)) {
+            totalRowsAffected += (rows as unknown as { affectedRows: number }).affectedRows;
+          }
+        }
+      } else {
+        // Single result
+        const rows = rawRows;
+        const fields = (rawFields || []) as unknown as Array<{
+          name: string;
+          columnType?: number;
+          columnLength?: number;
+        }>;
+
+        if (Array.isArray(rows) && rows.length > 0) {
+          const columns: ColumnMetadata[] = fields.map(f => ({
+            name: f.name,
+            type: this.mysqlTypeIdToName(f.columnType),
+            dataType: this.mysqlTypeIdToName(f.columnType),
+            nullable: true,
+          }));
+
+          allResultSets.push({
+            columns,
+            rows: rows as Record<string, unknown>[],
+            rowCount: rows.length,
+          });
+        }
+        if (rows && typeof rows === 'object' && 'affectedRows' in (rows as object)) {
+          totalRowsAffected += (rows as { affectedRows: number }).affectedRows;
+        }
+      }
+
+      allMessages.push(`(${totalRowsAffected} row(s) affected)`);
+
+      return {
+        queryId,
+        success: true,
+        resultSets: allResultSets,
+        messages: allMessages,
+        rowsAffected: totalRowsAffected,
+        executionTime: Date.now() - startTime,
+      };
+    } finally {
+      conn.release();
+    }
+  }
+
+  /** Map common MySQL column type constants to human-readable names */
+  private mysqlTypeIdToName(typeId?: number): string {
+    if (typeId === undefined || typeId === null) return 'unknown';
+    const typeMap: Record<number, string> = {
+      0: 'decimal',
+      1: 'tinyint',
+      2: 'smallint',
+      3: 'int',
+      4: 'float',
+      5: 'double',
+      6: 'null',
+      7: 'timestamp',
+      8: 'bigint',
+      9: 'mediumint',
+      10: 'date',
+      11: 'time',
+      12: 'datetime',
+      13: 'year',
+      14: 'newdate',
+      15: 'varchar',
+      16: 'bit',
+      245: 'json',
+      246: 'newdecimal',
+      247: 'enum',
+      248: 'set',
+      249: 'tiny_blob',
+      250: 'medium_blob',
+      251: 'long_blob',
+      252: 'blob',
+      253: 'var_string',
+      254: 'string',
+      255: 'geometry',
+    };
+    return typeMap[typeId] || `type:${typeId}`;
+  }
+
+  /** Map common PostgreSQL type OIDs to human-readable names */
+  private pgTypeIdToName(oid: number): string {
+    const typeMap: Record<number, string> = {
+      16: 'boolean',
+      17: 'bytea',
+      18: 'char',
+      19: 'name',
+      20: 'int8',
+      21: 'int2',
+      23: 'int4',
+      25: 'text',
+      26: 'oid',
+      114: 'json',
+      142: 'xml',
+      600: 'point',
+      700: 'float4',
+      701: 'float8',
+      790: 'money',
+      1042: 'bpchar',
+      1043: 'varchar',
+      1082: 'date',
+      1083: 'time',
+      1114: 'timestamp',
+      1184: 'timestamptz',
+      1186: 'interval',
+      1266: 'timetz',
+      1560: 'bit',
+      1700: 'numeric',
+      2950: 'uuid',
+      3802: 'jsonb',
+    };
+    return typeMap[oid] || `oid:${oid}`;
+  }
+
   private extractColumns(columns: Record<string, unknown>): ColumnMetadata[] {
     if (!columns) {
       return [];
@@ -448,8 +693,9 @@ export class QueryExecutor extends BaseSingleton {
     const parts = tableRef.split('.');
 
     if (parts.length === 1) {
-      // Just table name, assume dbo schema
-      const table = parts[0].replace(/^\[|\]$/g, '');
+      // Just table name, assume dbo schema (MSSQL default; PG/MySQL FK enrichment
+      // uses the database name as schema, which is handled by the caller)
+      const table = parts[0].replace(/^\[|\]$/g, '').replace(/^`|`$/g, '');
       return { schema: 'dbo', table };
     } else if (parts.length === 2) {
       // schema.table

@@ -70,6 +70,8 @@ export const IPC_CHANNELS = {
     EXPORT_RESULTS: 'query:export-results',
     // Foreign Key Navigation
     FETCH_FK_RECORD: 'query:fetch-fk-record',
+    // SQL Dialect Conversion
+    CONVERT_SQL: 'query:convert-sql',
   },
 
   // Query Results Persistence

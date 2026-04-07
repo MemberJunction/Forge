@@ -65,6 +65,8 @@ export interface Conversation {
   /** Database context when the conversation was started */
   connectionId?: string;
   databaseName?: string;
+  /** Database engine type for dialect-aware prompts */
+  databaseEngine?: 'mssql' | 'postgresql' | 'mysql';
 }
 
 /**
@@ -76,6 +78,10 @@ export interface ChatRequest {
   /** Current database context */
   connectionId?: string;
   databaseName?: string;
+  /** Database engine type for dialect-aware prompts */
+  databaseEngine?: 'mssql' | 'postgresql' | 'mysql';
+  /** Contents of the user's active query editor tab (if any) */
+  activeEditorContent?: string;
   /** Available schema for context */
   schemaContext?: SchemaContext;
   /** Override vendor (e.g. 'google', 'anthropic') — if omitted, uses default selection */
@@ -115,7 +121,12 @@ export interface ChatStreamChunk {
   toolResult?: ToolCallResult;
   /** UI action to trigger in the renderer */
   uiAction?: {
-    type: 'open-query-tab' | 'open-create-db-dialog' | 'navigate-database' | 'open-backup-dialog' | 'open-settings';
+    type:
+      | 'open-query-tab'
+      | 'open-create-db-dialog'
+      | 'navigate-database'
+      | 'open-backup-dialog'
+      | 'open-settings';
     params?: Record<string, unknown>;
   };
   /** Whether the response is complete */

@@ -7,6 +7,9 @@
 /* Golden Layout base styles - required for proper layout */
 @import 'golden-layout/dist/css/goldenlayout-base.css';
 
+/* Devicon — technology brand logos (MySQL, PostgreSQL, Azure, AWS, Docker, etc.) */
+@import 'devicon/devicon.min.css';
+
 // Custom color palette — purple-tinted theme
 $primary-palette: (
   50: #f0edff,
@@ -80,7 +83,6 @@ $forge-theme: mat.m2-define-dark-theme(
 // CSS Variables for theming - Light mode (default for system preference)
 :root {
   // Sizing (constant across themes)
-  --sidebar-width: 280px;
   --tab-height: 36px;
   --status-bar-height: 24px;
   --toolbar-height: 40px;
@@ -493,9 +495,16 @@ pre {
   .mdc-dialog__surface {
     border-radius: var(--radius-lg) !important;
     border: 1px solid var(--border-secondary) !important;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.4),
+      0 4px 12px rgba(0, 0, 0, 0.3) !important;
     overflow: hidden !important;
   }
+}
+
+// Prevent dialog overlay pane from exceeding the dialog surface
+.cdk-overlay-pane.mat-mdc-dialog-panel {
+  max-width: 100vw !important;
 }
 
 // Dialog title
@@ -515,6 +524,20 @@ pre {
   padding: 20px 24px !important;
   color: var(--text-primary) !important;
   overflow-y: auto !important;
+
+  // Use thin scrollbar in dialogs to prevent gutter from creating a visual strip
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--text-muted);
+    border-radius: 3px;
+  }
 }
 
 // Dialog actions (footer buttons) — Windows-style: primary action left, Cancel right
@@ -535,6 +558,11 @@ pre {
   --mdc-outlined-text-field-input-text-color: var(--text-primary);
   --mdc-filled-text-field-label-text-color: var(--text-secondary);
   --mdc-outlined-text-field-label-text-color: var(--text-secondary);
+  --mdc-outlined-text-field-disabled-input-text-color: var(--text-muted);
+  --mdc-outlined-text-field-disabled-label-text-color: var(--text-muted);
+  --mdc-outlined-text-field-disabled-outline-color: var(--border-primary);
+  --mdc-filled-text-field-disabled-input-text-color: var(--text-muted);
+  --mdc-filled-text-field-disabled-label-text-color: var(--text-muted);
   --mdc-outlined-text-field-outline-color: var(--border-primary);
   --mdc-outlined-text-field-hover-outline-color: var(--border-secondary);
   --mdc-outlined-text-field-focus-outline-color: var(--border-focus);
@@ -560,6 +588,11 @@ pre {
 .mat-mdc-select {
   --mat-select-enabled-trigger-text-color: var(--text-primary);
   --mat-select-trigger-text-color: var(--text-primary);
+  --mat-select-disabled-trigger-text-color: var(--text-muted);
+  --mat-select-placeholder-text-color: var(--text-muted);
+  --mat-select-enabled-arrow-color: var(--text-secondary);
+  --mat-select-disabled-arrow-color: var(--text-muted);
+  --mat-select-focused-arrow-color: var(--accent);
 }
 
 .mat-mdc-select-panel {
@@ -607,6 +640,7 @@ pre {
 .mat-mdc-outlined-button,
 .mat-mdc-stroked-button {
   --mdc-outlined-button-outline-color: var(--border-secondary);
+  --mdc-outlined-button-label-text-color: var(--text-primary);
   border-radius: var(--radius-md) !important;
   font-size: 13px !important;
   font-weight: 500 !important;
@@ -614,14 +648,105 @@ pre {
 
 .mat-mdc-unelevated-button,
 .mat-mdc-raised-button {
+  --mdc-filled-button-label-text-color: white;
   border-radius: var(--radius-md) !important;
   font-size: 13px !important;
   font-weight: 500 !important;
   box-shadow: none !important;
 }
 
+// Light theme: dialog and form field contrast improvements
+@mixin light-dialog-overrides {
+  .mat-mdc-dialog-container .mdc-dialog__surface {
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.12),
+      0 2px 8px rgba(0, 0, 0, 0.08) !important;
+  }
+
+  // Stronger outline borders for form fields in light mode
+  .mat-mdc-form-field {
+    --mdc-outlined-text-field-outline-color: #c0c0d0;
+    --mdc-outlined-text-field-hover-outline-color: #a0a0b8;
+    --mdc-outlined-text-field-disabled-outline-color: #d0d0dc;
+  }
+}
+
+// Light theme: ensure primary-colored buttons are legible
+@mixin light-button-overrides {
+  .mat-mdc-unelevated-button.mat-primary {
+    --mdc-filled-button-container-color: var(--accent);
+    --mdc-filled-button-label-text-color: white;
+  }
+
+  .mat-mdc-outlined-button.mat-primary,
+  .mat-mdc-stroked-button.mat-primary {
+    --mdc-outlined-button-label-text-color: var(--text-primary);
+    --mdc-outlined-button-outline-color: var(--border-secondary);
+  }
+
+  // Disabled button states — ensure visible contrast in light mode
+  .mat-mdc-unelevated-button,
+  .mat-mdc-raised-button {
+    --mdc-filled-button-disabled-container-color: var(--bg-hover);
+    --mdc-filled-button-disabled-label-text-color: var(--text-muted);
+  }
+
+  .mat-mdc-outlined-button,
+  .mat-mdc-stroked-button {
+    --mdc-outlined-button-disabled-label-text-color: var(--text-muted);
+    --mdc-outlined-button-disabled-outline-color: var(--border-primary);
+  }
+
+  .mat-mdc-button {
+    --mdc-text-button-disabled-label-text-color: var(--text-muted);
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    @include light-button-overrides;
+    @include light-dialog-overrides;
+  }
+}
+
+:root[data-theme='light'] {
+  @include light-button-overrides;
+  @include light-dialog-overrides;
+}
+
+// Icon buttons
 .mat-mdc-icon-button {
   --mdc-icon-button-icon-color: var(--text-secondary);
+  --mdc-icon-button-disabled-icon-color: var(--text-muted);
+}
+
+// ---- Tab Group Overrides ----
+.mat-mdc-tab-group {
+  --mdc-tab-indicator-active-indicator-color: var(--accent);
+  --mat-tab-header-active-label-text-color: var(--accent);
+  --mat-tab-header-active-focus-label-text-color: var(--accent);
+  --mat-tab-header-active-hover-label-text-color: var(--accent);
+  --mat-tab-header-inactive-label-text-color: var(--text-secondary);
+  --mat-tab-header-inactive-focus-label-text-color: var(--text-secondary);
+  --mat-tab-header-inactive-hover-label-text-color: var(--text-primary);
+  --mat-tab-header-active-ripple-color: transparent;
+  --mat-tab-header-inactive-ripple-color: transparent;
+}
+
+// ---- Expansion Panel Overrides ----
+.mat-expansion-panel {
+  --mat-expansion-container-background-color: var(--bg-secondary);
+  --mat-expansion-container-text-color: var(--text-primary);
+  --mat-expansion-header-text-color: var(--text-primary);
+  --mat-expansion-header-description-color: var(--text-secondary);
+  --mat-expansion-header-indicator-color: var(--text-secondary);
+  box-shadow: none !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: var(--radius-md) !important;
+
+  &:not(:first-child) {
+    margin-top: 8px;
+  }
 }
 
 // Menu panels
@@ -974,7 +1099,9 @@ pre {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-focus) !important;
   border-radius: var(--radius-md) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    0 2px 8px rgba(0, 0, 0, 0.15) !important;
   opacity: 0.92 !important;
   z-index: 9999 !important;
 
@@ -1136,13 +1263,17 @@ pre {
 
 // Subtle fade in
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 // Focus visible ring for all buttons (keyboard-only)
 button:focus-visible,
-[role="button"]:focus-visible {
+[role='button']:focus-visible {
   outline: 2px solid var(--status-info);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
@@ -1152,27 +1283,43 @@ button:focus-visible,
 .notification-success .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-success) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-success) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-success) !important;
+  }
 }
 
 .notification-error .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-error) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-error) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-error) !important;
+  }
 }
 
 .notification-warning .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-warning) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-warning) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-warning) !important;
+  }
 }
 
 .notification-info .mdc-snackbar__surface {
   background-color: var(--bg-tertiary) !important;
   border-left: 3px solid var(--status-info) !important;
-  .mdc-snackbar__label { color: var(--text-primary) !important; }
-  .mat-mdc-button.mat-mdc-snack-bar-action { color: var(--status-info) !important; }
+  .mdc-snackbar__label {
+    color: var(--text-primary) !important;
+  }
+  .mat-mdc-button.mat-mdc-snack-bar-action {
+    color: var(--status-info) !important;
+  }
 }
