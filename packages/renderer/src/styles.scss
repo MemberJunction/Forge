@@ -7,6 +7,9 @@
 /* Golden Layout base styles - required for proper layout */
 @import 'golden-layout/dist/css/goldenlayout-base.css';
 
+/* Devicon — technology brand logos (MySQL, PostgreSQL, Azure, AWS, Docker, etc.) */
+@import 'devicon/devicon.min.css';
+
 // Custom color palette — purple-tinted theme
 $primary-palette: (
   50: #f0edff,

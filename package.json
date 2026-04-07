@@ -39,6 +39,7 @@
   "main": "packages/main/dist/index.js",
   "dependencies": {
     "@memberjunction/sqlglot-ts": "^5.23.0",
+    "devicon": "^2.17.0",
     "dockerode": "^4.0.2",
     "electron-store": "^8.2.0",
     "keytar": "^7.9.0",

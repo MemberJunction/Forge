@@ -78,7 +78,14 @@ import type { DatabaseEngine } from '@mj-forge/shared';
       @if (connectionState.hasProfiles()) {
         <div class="connection-selector">
           <button mat-button [matMenuTriggerFor]="connectionMenu" class="connection-button">
-            <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+            @if (getConnectionIconClass(connectionState.activeProfile())) {
+              <i
+                class="devicon-btn"
+                [ngClass]="getConnectionIconClass(connectionState.activeProfile())!"
+              ></i>
+            } @else {
+              <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+            }
             <span class="connection-name">
               {{ connectionState.activeProfile()?.name || 'Select Connection' }}
             </span>
@@ -91,15 +98,11 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                 (click)="connectTo(profile.id)"
                 [class.active]="profile.id === connectionState.activeConnectionId()"
               >
-                <mat-icon>{{
-                  profile.id === connectionState.activeConnectionId()
-                    ? 'check'
-                    : profile.engine === 'postgresql'
-                      ? 'view_cozy'
-                      : profile.engine === 'mysql'
-                        ? 'grid_on'
-                        : 'dns'
-                }}</mat-icon>
+                @if (profile.id === connectionState.activeConnectionId()) {
+                  <mat-icon>check</mat-icon>
+                } @else {
+                  <i class="devicon-menu" [ngClass]="getEngineIconClass(profile.engine)"></i>
+                }
                 <span>{{ profile.name }}</span>
                 <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
                   profile.engine === 'postgresql' ? 'PG' : 'MY'
@@ -132,7 +135,10 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             @if (connectionState.loadingDatabases()) {
               <mat-spinner diameter="16" />
             } @else {
-              <mat-icon svgIcon="database-cylinder"></mat-icon>
+              <i
+                class="devicon-btn"
+                [ngClass]="getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')"
+              ></i>
             }
             <span class="database-name">
               {{
@@ -153,7 +159,12 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                 @if (db.name === connectionState.selectedDatabase()) {
                   <mat-icon>check</mat-icon>
                 } @else {
-                  <mat-icon svgIcon="database-cylinder"></mat-icon>
+                  <i
+                    class="devicon-menu"
+                    [ngClass]="
+                      getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')
+                    "
+                  ></i>
                 }
                 <span>{{ db.name }}</span>
               </button>
@@ -218,16 +229,20 @@ import type { DatabaseEngine } from '@mj-forge/shared';
           } @else {
             <span class="expand-placeholder"></span>
           }
-          @if (node.icon === 'database-cylinder') {
-            @if (connectionState.activeProfile()?.engine === 'postgresql') {
-              <mat-icon class="node-icon icon-pg" [class]="'icon-' + node.type">view_cozy</mat-icon>
+          @if (node.type === 'server') {
+            @if (
+              getConnectionIconClass(connectionState.getProfile(node.connectionId!));
+              as hostIcon
+            ) {
+              <i class="node-icon devicon-node" [ngClass]="hostIcon"></i>
             } @else {
-              <mat-icon
-                class="node-icon"
-                [class]="'icon-' + node.type"
-                svgIcon="database-cylinder"
-              ></mat-icon>
+              <mat-icon class="node-icon icon-server">dns</mat-icon>
             }
+          } @else if (node.icon === 'database-cylinder') {
+            <i
+              class="node-icon devicon-node"
+              [ngClass]="getEngineIconClass(getEngine(node.connectionId))"
+            ></i>
           } @else {
             <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
           }
@@ -375,6 +390,16 @@ import type { DatabaseEngine } from '@mj-forge/shared';
           color: var(--text-secondary);
         }
 
+        .devicon-btn {
+          margin-right: var(--spacing-sm);
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
         .connection-name,
         .database-name {
           flex: 1;
@@ -390,6 +415,31 @@ import type { DatabaseEngine } from '@mj-forge/shared';
           margin-left: auto;
           color: var(--text-muted);
         }
+      }
+
+      /* Devicon icons inside tree nodes */
+      .devicon-node {
+        font-size: 16px;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
+        margin-right: var(--spacing-xs);
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Devicon icons inside mat-menu-items */
+      .devicon-menu {
+        font-size: 18px;
+        width: 24px;
+        min-width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 16px;
       }
 
       .explorer-tree {
@@ -583,8 +633,31 @@ export class SidebarComponent {
   private pendingDeleteDatabase: string | null = null;
   private pendingRenameDatabase: string | null = null;
 
+  /** Get devicon CSS class for the connection host (cloud provider or docker) */
+  getConnectionIconClass(profile?: { server?: string; isDocker?: boolean } | null): string | null {
+    if (!profile) return null;
+    if (profile.isDocker) return 'devicon-docker-plain colored';
+    const s = profile.server?.toLowerCase();
+    if (!s) return null;
+    if (s.endsWith('amazonaws.com')) return 'devicon-amazonwebservices-plain colored';
+    if (s.endsWith('windows.net')) return 'devicon-azure-plain colored';
+    return null;
+  }
+
+  /** Get devicon CSS class for a database engine */
+  getEngineIconClass(engine: DatabaseEngine): string {
+    switch (engine) {
+      case 'mysql':
+        return 'devicon-mysql-original colored';
+      case 'postgresql':
+        return 'devicon-postgresql-plain colored';
+      case 'mssql':
+        return 'devicon-azuresqldatabase-plain colored';
+    }
+  }
+
   /** Get the database engine for a connection, defaulting to mssql */
-  private getEngine(connectionId?: string): DatabaseEngine {
+  getEngine(connectionId?: string): DatabaseEngine {
     if (connectionId) {
       const profile = this.connectionState.getProfile(connectionId);
       if (profile) return profile.engine;

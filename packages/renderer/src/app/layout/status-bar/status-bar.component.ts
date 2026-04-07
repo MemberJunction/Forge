@@ -4,7 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
-import { CdkOverlayOrigin, OverlayModule } from '@angular/cdk/overlay';
+import { OverlayModule } from '@angular/cdk/overlay';
 import { ConnectionStateService } from '../../core/state/connection.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { ChatStateService } from '../../core/state/chat.state';
@@ -38,9 +38,15 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             class="status-item"
             [class.connected]="connectionState.connectionHealthy()"
             [class.unhealthy]="!connectionState.connectionHealthy()"
-            [matTooltip]="connectionState.connectionHealthy() ? 'Connected' : 'Connection lost — attempting to reconnect...'"
+            [matTooltip]="
+              connectionState.connectionHealthy()
+                ? 'Connected'
+                : 'Connection lost — attempting to reconnect...'
+            "
           >
-            <mat-icon>{{ connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+            <mat-icon>{{
+              connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off'
+            }}</mat-icon>
             <span>{{ connectionState.activeProfile()?.name }}</span>
             @if (!connectionState.connectionHealthy()) {
               <mat-icon class="health-warning spinning">sync</mat-icon>
@@ -54,7 +60,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           }
           @if (connectionState.activeProfile()?.isDocker) {
             <div class="status-item docker" matTooltip="Docker Container">
-              <span class="docker-icon">🐳</span>
+              <i class="devicon-docker-plain colored docker-icon"></i>
               <span>{{ connectionState.activeProfile()?.dockerContainerId || 'Docker' }}</span>
             </div>
           }
@@ -73,9 +79,18 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             <span>Connecting...</span>
           </div>
         } @else if (queryExecution.isAnyRunning()) {
-          <div class="status-item executing" matTooltip="Running {{ queryExecution.runningCount() }} quer{{ queryExecution.runningCount() === 1 ? 'y' : 'ies' }}">
+          <div
+            class="status-item executing"
+            matTooltip="Running {{ queryExecution.runningCount() }} quer{{
+              queryExecution.runningCount() === 1 ? 'y' : 'ies'
+            }}"
+          >
             <mat-icon class="spinning">hourglass_top</mat-icon>
-            <span>Executing{{ queryExecution.runningCount() > 1 ? ' (' + queryExecution.runningCount() + ')' : '' }}...</span>
+            <span
+              >Executing{{
+                queryExecution.runningCount() > 1 ? ' (' + queryExecution.runningCount() + ')' : ''
+              }}...</span
+            >
           </div>
         }
       </div>
@@ -96,7 +111,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           [class.docker-warning]="!dockerStatus()?.isRunning"
           [class.docker-success]="dockerStatus()?.isRunning && runningContainers() > 0"
         >
-          <mat-icon>sailing</mat-icon>
+          <i class="devicon-docker-plain colored"></i>
           @if (dockerStatus()?.isRunning && runningContainers() > 0) {
             <span class="docker-count">{{ runningContainers() }}</span>
           }
@@ -108,7 +123,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           [cdkConnectedOverlayOrigin]="dockerTrigger"
           [cdkConnectedOverlayOpen]="dockerPanelOpen()"
           [cdkConnectedOverlayPositions]="[
-            { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -8 }
+            { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -8 },
           ]"
           [cdkConnectedOverlayHasBackdrop]="true"
           [cdkConnectedOverlayBackdropClass]="'cdk-overlay-transparent-backdrop'"
@@ -325,10 +340,13 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           background-color: var(--bg-hover);
         }
 
-        mat-icon {
+        i[class*='devicon-'] {
           font-size: 14px;
           width: 14px;
           height: 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .docker-count {
@@ -344,11 +362,11 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           justify-content: center;
         }
 
-        &.docker-warning mat-icon {
+        &.docker-warning i[class*='devicon-'] {
           color: var(--status-warning);
         }
 
-        &.docker-success mat-icon {
+        &.docker-success i[class*='devicon-'] {
           color: var(--status-success);
         }
       }
@@ -383,8 +401,8 @@ export class StatusBarComponent implements OnInit, OnDestroy {
     return '';
   });
 
-  readonly runningContainers = computed(() =>
-    this.containers().filter(c => c.state === 'running').length
+  readonly runningContainers = computed(
+    () => this.containers().filter(c => c.state === 'running').length
   );
 
   readonly dockerTooltip = computed(() => {
