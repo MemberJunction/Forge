@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { MSSQLDialect } from './mssql-dialect';
 import { PgDialect } from './pg-dialect';
+import { MySQLDialect } from './mysql-dialect';
 import { getDialect } from './index';
 
 describe('getDialect factory', () => {
@@ -20,9 +21,10 @@ describe('getDialect factory', () => {
     expect(dialect.engine).toBe('postgresql');
   });
 
-  it('returns a dialect for mysql (placeholder)', () => {
+  it('returns MySQLDialect for mysql engine', () => {
     const dialect = getDialect('mysql');
-    expect(dialect).toBeDefined();
+    expect(dialect).toBeInstanceOf(MySQLDialect);
+    expect(dialect.engine).toBe('mysql');
   });
 });
 
@@ -39,7 +41,8 @@ describe('MSSQLDialect', () => {
     it('supports Windows auth', () => expect(dialect.supportsWindowsAuth).toBe(true));
     it('supports backup/restore', () => expect(dialect.supportsBackupRestore).toBe(true));
     it('supports extended properties', () => expect(dialect.supportsExtendedProperties).toBe(true));
-    it('supports server file browsing', () => expect(dialect.supportsServerFileBrowsing).toBe(true));
+    it('supports server file browsing', () =>
+      expect(dialect.supportsServerFileBrowsing).toBe(true));
   });
 
   describe('quoteIdentifier', () => {
@@ -201,11 +204,14 @@ describe('PgDialect', () => {
     it('has correct default port', () => expect(dialect.defaultPort).toBe(5432));
     it('has correct Monaco language', () => expect(dialect.monacoLanguage).toBe('pgsql'));
     it('has no batch separator', () => expect(dialect.batchSeparator).toBeNull());
-    it('does not support batch separator', () => expect(dialect.supportsBatchSeparator).toBe(false));
+    it('does not support batch separator', () =>
+      expect(dialect.supportsBatchSeparator).toBe(false));
     it('does not support Windows auth', () => expect(dialect.supportsWindowsAuth).toBe(false));
     it('does not support backup/restore', () => expect(dialect.supportsBackupRestore).toBe(false));
-    it('does not support extended properties', () => expect(dialect.supportsExtendedProperties).toBe(false));
-    it('does not support server file browsing', () => expect(dialect.supportsServerFileBrowsing).toBe(false));
+    it('does not support extended properties', () =>
+      expect(dialect.supportsExtendedProperties).toBe(false));
+    it('does not support server file browsing', () =>
+      expect(dialect.supportsServerFileBrowsing).toBe(false));
   });
 
   describe('quoteIdentifier', () => {
@@ -267,7 +273,11 @@ describe('PgDialect', () => {
     });
 
     it('generates RENAME with close connections', () => {
-      const sql = dialect.renameDatabaseSQL({ currentName: 'olddb', newName: 'newdb', closeConnections: true });
+      const sql = dialect.renameDatabaseSQL({
+        currentName: 'olddb',
+        newName: 'newdb',
+        closeConnections: true,
+      });
       expect(sql).toContain('pg_terminate_backend');
       expect(sql).toContain('RENAME TO');
     });
@@ -355,7 +365,8 @@ describe('PgDialect', () => {
 
   describe('feature flags', () => {
     it('supports object comments', () => expect(dialect.supportsObjectComments).toBe(true));
-    it('does not support extended properties', () => expect(dialect.supportsExtendedProperties).toBe(false));
+    it('does not support extended properties', () =>
+      expect(dialect.supportsExtendedProperties).toBe(false));
   });
 
   describe('SQL injection prevention', () => {
@@ -376,32 +387,215 @@ describe('PgDialect', () => {
   });
 });
 
+describe('MySQLDialect', () => {
+  const dialect = new MySQLDialect();
+
+  describe('properties', () => {
+    it('has correct engine', () => expect(dialect.engine).toBe('mysql'));
+    it('has correct label', () => expect(dialect.label).toBe('MySQL'));
+    it('has correct default port', () => expect(dialect.defaultPort).toBe(3306));
+    it('has correct Monaco language', () => expect(dialect.monacoLanguage).toBe('mysql'));
+    it('has no batch separator', () => expect(dialect.batchSeparator).toBeNull());
+    it('does not support batch separator', () =>
+      expect(dialect.supportsBatchSeparator).toBe(false));
+    it('does not support Windows auth', () => expect(dialect.supportsWindowsAuth).toBe(false));
+    it('does not support backup/restore SQL', () =>
+      expect(dialect.supportsBackupRestore).toBe(false));
+    it('does not support extended properties', () =>
+      expect(dialect.supportsExtendedProperties).toBe(false));
+    it('does not support server file browsing', () =>
+      expect(dialect.supportsServerFileBrowsing).toBe(false));
+  });
+
+  describe('quoteIdentifier', () => {
+    it('wraps name in backticks', () => {
+      expect(dialect.quoteIdentifier('users')).toBe('`users`');
+    });
+
+    it('escapes backticks', () => {
+      expect(dialect.quoteIdentifier('table`name')).toBe('`table``name`');
+    });
+
+    it('handles empty string', () => {
+      expect(dialect.quoteIdentifier('')).toBe('``');
+    });
+  });
+
+  describe('quoteSchemaObject', () => {
+    it('quotes schema and object separately', () => {
+      expect(dialect.quoteSchemaObject('mydb', 'users')).toBe('`mydb`.`users`');
+    });
+  });
+
+  describe('useDatabaseSQL', () => {
+    it('generates USE statement with backticks', () => {
+      expect(dialect.useDatabaseSQL('mydb')).toBe('USE `mydb`;');
+    });
+
+    it('escapes backticks in database name', () => {
+      expect(dialect.useDatabaseSQL('my`db')).toBe('USE `my``db`;');
+    });
+  });
+
+  describe('DDL', () => {
+    it('generates CREATE DATABASE with utf8mb4', () => {
+      const sql = dialect.createDatabaseSQL({ name: 'testdb' });
+      expect(sql).toContain('CREATE DATABASE');
+      expect(sql).toContain('`testdb`');
+      expect(sql).toContain('utf8mb4');
+    });
+
+    it('generates CREATE DATABASE with collation', () => {
+      const sql = dialect.createDatabaseSQL({ name: 'testdb', collation: 'utf8mb4_bin' });
+      expect(sql).toContain('utf8mb4_bin');
+    });
+
+    it('generates DROP DATABASE', () => {
+      const sql = dialect.dropDatabaseSQL({ name: 'testdb' });
+      expect(sql).toContain('DROP DATABASE');
+      expect(sql).toContain('`testdb`');
+    });
+
+    it('returns comment for RENAME DATABASE (not supported)', () => {
+      const sql = dialect.renameDatabaseSQL({ currentName: 'olddb', newName: 'newdb' });
+      expect(sql).toContain('does not support RENAME DATABASE');
+    });
+  });
+
+  describe('metadata queries', () => {
+    it('generates listDatabases SQL using information_schema.SCHEMATA', () => {
+      const sql = dialect.listDatabasesSQL();
+      expect(sql).toContain('information_schema.SCHEMATA');
+      expect(sql).not.toContain('sys.databases');
+      expect(sql).not.toContain('pg_database');
+    });
+
+    it('generates listSchemas SQL returning database as schema', () => {
+      const sql = dialect.listSchemasSQL('mydb');
+      expect(sql).toContain("'mydb'");
+    });
+
+    it('generates listTables SQL using information_schema.TABLES', () => {
+      const sql = dialect.listTablesSQL('mydb');
+      expect(sql).toContain('information_schema.TABLES');
+      expect(sql).toContain('BASE TABLE');
+    });
+
+    it('generates listViews SQL using information_schema.VIEWS', () => {
+      const sql = dialect.listViewsSQL('mydb');
+      expect(sql).toContain('information_schema.VIEWS');
+    });
+
+    it('generates listProcedures SQL using information_schema.ROUTINES', () => {
+      const sql = dialect.listProceduresSQL('mydb');
+      expect(sql).toContain('information_schema.ROUTINES');
+      expect(sql).toContain("'PROCEDURE'");
+    });
+
+    it('generates listFunctions SQL using information_schema.ROUTINES', () => {
+      const sql = dialect.listFunctionsSQL('mydb');
+      expect(sql).toContain('information_schema.ROUTINES');
+      expect(sql).toContain("'FUNCTION'");
+    });
+
+    it('generates listColumns SQL using information_schema.COLUMNS', () => {
+      const sql = dialect.listColumnsSQL('mydb', 'mydb', 'users');
+      expect(sql).toContain('information_schema.COLUMNS');
+      expect(sql).toContain("'mydb'");
+      expect(sql).toContain("'users'");
+    });
+
+    it('generates listIndexes SQL using information_schema.STATISTICS', () => {
+      const sql = dialect.listIndexesSQL('mydb', 'mydb', 'users');
+      expect(sql).toContain('information_schema.STATISTICS');
+      expect(sql).toContain('GROUP_CONCAT');
+    });
+
+    it('generates listForeignKeys SQL using KEY_COLUMN_USAGE', () => {
+      const sql = dialect.listForeignKeysSQL('mydb', 'mydb', 'users');
+      expect(sql).toContain('KEY_COLUMN_USAGE');
+      expect(sql).toContain('REFERENCED_TABLE_NAME');
+    });
+
+    it('generates listConstraints SQL using TABLE_CONSTRAINTS', () => {
+      const sql = dialect.listConstraintsSQL('mydb', 'mydb', 'users');
+      expect(sql).toContain('TABLE_CONSTRAINTS');
+    });
+
+    it('generates listTriggers SQL using information_schema.TRIGGERS', () => {
+      const sql = dialect.listTriggersSQL('mydb', 'mydb', 'users');
+      expect(sql).toContain('information_schema.TRIGGERS');
+    });
+
+    it('generates getObjectDefinition SQL', () => {
+      const sql = dialect.getObjectDefinitionSQL('mydb', 'mydb', 'my_view');
+      expect(sql).toContain('VIEW_DEFINITION');
+      expect(sql).toContain('ROUTINE_DEFINITION');
+    });
+
+    it('generates listObjectComments SQL using TABLE_COMMENT and COLUMN_COMMENT', () => {
+      const sql = dialect.listObjectCommentsSQL('mydb', 'mydb', 'users');
+      expect(sql).toContain('TABLE_COMMENT');
+      expect(sql).toContain('COLUMN_COMMENT');
+    });
+  });
+
+  describe('feature flags', () => {
+    it('supports object comments', () => expect(dialect.supportsObjectComments).toBe(true));
+    it('does not support extended properties', () =>
+      expect(dialect.supportsExtendedProperties).toBe(false));
+  });
+
+  describe('SQL injection prevention', () => {
+    it('escapes single quotes in schema names', () => {
+      const sql = dialect.listColumnsSQL('db', "sch'ema", 'table');
+      expect(sql).toContain("sch''ema");
+    });
+
+    it('escapes single quotes in table names', () => {
+      const sql = dialect.listColumnsSQL('db', 'schema', "tab'le");
+      expect(sql).toContain("tab''le");
+    });
+
+    it('escapes backticks in identifiers', () => {
+      const quoted = dialect.quoteIdentifier('name`with`ticks');
+      expect(quoted).toBe('`name``with``ticks`');
+    });
+  });
+});
+
 describe('dialect cross-engine consistency', () => {
   const mssql = new MSSQLDialect();
   const pg = new PgDialect();
+  const mysql = new MySQLDialect();
 
-  it('both generate non-empty listDatabases SQL', () => {
+  it('all generate non-empty listDatabases SQL', () => {
     expect(mssql.listDatabasesSQL().trim().length).toBeGreaterThan(0);
     expect(pg.listDatabasesSQL().trim().length).toBeGreaterThan(0);
+    expect(mysql.listDatabasesSQL().trim().length).toBeGreaterThan(0);
   });
 
-  it('both generate non-empty listSchemas SQL', () => {
+  it('all generate non-empty listSchemas SQL', () => {
     expect(mssql.listSchemasSQL('db').trim().length).toBeGreaterThan(0);
     expect(pg.listSchemasSQL('db').trim().length).toBeGreaterThan(0);
+    expect(mysql.listSchemasSQL('db').trim().length).toBeGreaterThan(0);
   });
 
-  it('both generate non-empty listTables SQL', () => {
+  it('all generate non-empty listTables SQL', () => {
     expect(mssql.listTablesSQL('db').trim().length).toBeGreaterThan(0);
     expect(pg.listTablesSQL('db').trim().length).toBeGreaterThan(0);
+    expect(mysql.listTablesSQL('db').trim().length).toBeGreaterThan(0);
   });
 
-  it('both generate non-empty listColumns SQL', () => {
+  it('all generate non-empty listColumns SQL', () => {
     expect(mssql.listColumnsSQL('db', 's', 't').trim().length).toBeGreaterThan(0);
     expect(pg.listColumnsSQL('db', 's', 't').trim().length).toBeGreaterThan(0);
+    expect(mysql.listColumnsSQL('db', 's', 't').trim().length).toBeGreaterThan(0);
   });
 
-  it('escapeString works the same across both dialects', () => {
+  it('escapeString works the same across all dialects', () => {
     const input = "it's a test";
     expect(mssql.escapeString(input)).toBe(pg.escapeString(input));
+    expect(pg.escapeString(input)).toBe(mysql.escapeString(input));
   });
 });

@@ -69,12 +69,22 @@ export interface BackupDialogData {
         <div class="form-grid">
           <!-- Backup Type -->
           <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>{{ data.engine === 'postgresql' ? 'Dump Format' : 'Backup Type' }}</mat-label>
+            <mat-label>{{
+              data.engine === 'postgresql'
+                ? 'Dump Format'
+                : data.engine === 'mysql'
+                  ? 'Dump Format'
+                  : 'Backup Type'
+            }}</mat-label>
             @if (data.engine === 'postgresql') {
               <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
                 <mat-option value="full">Custom (compressed, pg_restore)</mat-option>
                 <mat-option value="differential">Plain SQL (readable text)</mat-option>
                 <mat-option value="log">Directory (parallel dump)</mat-option>
+              </mat-select>
+            } @else if (data.engine === 'mysql') {
+              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                <mat-option value="full">SQL dump (mysqldump)</mat-option>
               </mat-select>
             } @else {
               <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
@@ -88,15 +98,23 @@ export interface BackupDialogData {
           <!-- Backup Path -->
           <div class="path-row">
             <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-              <mat-label>{{ data.engine === 'postgresql' ? 'Backup File Path (local)' : 'Backup Path (on SQL Server)' }}</mat-label>
+              <mat-label>{{
+                data.engine === 'mssql' ? 'Backup Path (on SQL Server)' : 'Backup File Path (local)'
+              }}</mat-label>
               <input
                 matInput
                 [(ngModel)]="formData.backupPath"
                 [disabled]="backing()"
-                [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
+                [placeholder]="
+                  data.engine === 'postgresql'
+                    ? 'e.g., /tmp/mydb.dump'
+                    : data.engine === 'mysql'
+                      ? 'e.g., /tmp/mydb.sql'
+                      : 'e.g., /var/opt/mssql/backup/db.bak'
+                "
               />
             </mat-form-field>
-            @if (data.engine !== 'postgresql') {
+            @if (data.engine === 'mssql' || !data.engine) {
               <button
                 mat-icon-button
                 [disabled]="backing()"
@@ -108,24 +126,26 @@ export interface BackupDialogData {
             }
           </div>
 
-          <!-- Options -->
-          <div class="options-row">
-            <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
-              >Compression</mat-checkbox
-            >
-            <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
-              >Copy-Only</mat-checkbox
-            >
-            <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
-              >Checksum</mat-checkbox
-            >
-          </div>
+          <!-- Options (MSSQL only — mysqldump/pg_dump handle these differently) -->
+          @if (data.engine === 'mssql' || !data.engine) {
+            <div class="options-row">
+              <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
+                >Compression</mat-checkbox
+              >
+              <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
+                >Copy-Only</mat-checkbox
+              >
+              <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
+                >Checksum</mat-checkbox
+              >
+            </div>
 
-          <!-- Description -->
-          <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>Description (optional)</mat-label>
-            <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
-          </mat-form-field>
+            <!-- Description -->
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Description (optional)</mat-label>
+              <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
+            </mat-form-field>
+          }
         </div>
 
         <!-- Progress -->
@@ -133,47 +153,58 @@ export interface BackupDialogData {
           <div class="progress-section">
             <div class="progress-header">
               <span>{{ progress()?.currentPhase || 'Starting backup...' }}</span>
-              <span>{{ progress()?.percentComplete || 0 }}%</span>
+              @if ((progress()?.percentComplete ?? 0) >= 0) {
+                <span>{{ progress()?.percentComplete || 0 }}%</span>
+              }
             </div>
-            <mat-progress-bar mode="determinate" [value]="progress()?.percentComplete || 0" />
+            <mat-progress-bar
+              [mode]="(progress()?.percentComplete ?? 0) < 0 ? 'indeterminate' : 'determinate'"
+              [value]="
+                (progress()?.percentComplete ?? 0) < 0 ? 0 : progress()?.percentComplete || 0
+              "
+            />
           </div>
         }
 
-        <!-- Expandable panels -->
-        <mat-accordion class="panels">
-          <mat-expansion-panel>
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
-            </mat-expansion-panel-header>
-            <pre class="tsql-code">{{ generatedTsql() }}</pre>
-          </mat-expansion-panel>
+        <!-- Expandable panels (MSSQL only) -->
+        @if (data.engine === 'mssql' || !data.engine) {
+          <mat-accordion class="panels">
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
+              </mat-expansion-panel-header>
+              <pre class="tsql-code">{{ generatedTsql() }}</pre>
+            </mat-expansion-panel>
 
-          <mat-expansion-panel>
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
-            </mat-expansion-panel-header>
-            <div class="history-list">
-              @if (loadingHistory()) {
-                <div class="empty-text">Loading...</div>
-              } @else if (backupHistory().length === 0) {
-                <div class="empty-text">No backup history</div>
-              } @else {
-                @for (entry of backupHistory(); track entry.backupStartDate) {
-                  <div class="history-item">
-                    <div class="history-main">
-                      <span class="history-type">{{ entry.backupType }}</span>
-                      <span class="history-date">{{ entry.backupFinishDate | date: 'short' }}</span>
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
+              </mat-expansion-panel-header>
+              <div class="history-list">
+                @if (loadingHistory()) {
+                  <div class="empty-text">Loading...</div>
+                } @else if (backupHistory().length === 0) {
+                  <div class="empty-text">No backup history</div>
+                } @else {
+                  @for (entry of backupHistory(); track entry.backupStartDate) {
+                    <div class="history-item">
+                      <div class="history-main">
+                        <span class="history-type">{{ entry.backupType }}</span>
+                        <span class="history-date">{{
+                          entry.backupFinishDate | date: 'short'
+                        }}</span>
+                      </div>
+                      <div class="history-details">
+                        <span class="history-path">{{ entry.physicalDeviceName }}</span>
+                        <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
+                      </div>
                     </div>
-                    <div class="history-details">
-                      <span class="history-path">{{ entry.physicalDeviceName }}</span>
-                      <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
-                    </div>
-                  </div>
+                  }
                 }
-              }
-            </div>
-          </mat-expansion-panel>
-        </mat-accordion>
+              </div>
+            </mat-expansion-panel>
+          </mat-accordion>
+        }
       </mat-dialog-content>
 
       <mat-dialog-actions align="start">
@@ -193,7 +224,7 @@ export interface BackupDialogData {
   styles: [
     `
       .backup-dialog {
-        width: 520px;
+        overflow: hidden;
       }
 
       h2[mat-dialog-title] {
@@ -209,6 +240,7 @@ export interface BackupDialogData {
 
       mat-dialog-content {
         padding-top: 16px;
+        overflow-x: hidden !important;
       }
 
       .form-grid {

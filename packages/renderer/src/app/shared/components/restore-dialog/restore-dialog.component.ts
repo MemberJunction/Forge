@@ -67,22 +67,22 @@ export interface RestoreDialogData {
       </h2>
 
       <mat-dialog-content>
-        <!-- Source Selection Tabs -->
-        <mat-tab-group [(selectedIndex)]="sourceTab" (selectedIndexChange)="onSourceTabChange()">
-          <mat-tab label="Browse File">
-            <div class="tab-content">
-              <div class="path-row">
-                <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-                  <mat-label>{{ data.engine === 'postgresql' ? 'Backup File Path (local)' : 'Backup File (on SQL Server)' }}</mat-label>
-                  <input
-                    matInput
-                    [(ngModel)]="formData.backupPath"
-                    [disabled]="restoring()"
-                    [placeholder]="data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /var/opt/mssql/backup/db.bak'"
-                    (ngModelChange)="onBackupPathChange()"
-                  />
-                </mat-form-field>
-                @if (data.engine !== 'postgresql') {
+        @if (data.engine === 'mssql' || !data.engine) {
+          <!-- Source Selection Tabs (MSSQL: browse server + backup history) -->
+          <mat-tab-group [(selectedIndex)]="sourceTab" (selectedIndexChange)="onSourceTabChange()">
+            <mat-tab label="Browse File">
+              <div class="tab-content">
+                <div class="path-row">
+                  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
+                    <mat-label>Backup File (on SQL Server)</mat-label>
+                    <input
+                      matInput
+                      [(ngModel)]="formData.backupPath"
+                      [disabled]="restoring()"
+                      placeholder="e.g., /var/opt/mssql/backup/db.bak"
+                      (ngModelChange)="onBackupPathChange()"
+                    />
+                  </mat-form-field>
                   <button
                     mat-icon-button
                     [disabled]="restoring()"
@@ -91,63 +91,82 @@ export interface RestoreDialogData {
                   >
                     <mat-icon>folder_open</mat-icon>
                   </button>
-                }
-                <button
-                  mat-icon-button
-                  [disabled]="restoring() || !formData.backupPath"
-                  (click)="loadBackupInfo()"
-                  matTooltip="Read backup info"
-                >
-                  <mat-icon>{{ loadingInfo() ? 'hourglass_empty' : 'info' }}</mat-icon>
-                </button>
+                  <button
+                    mat-icon-button
+                    [disabled]="restoring() || !formData.backupPath"
+                    (click)="loadBackupInfo()"
+                    matTooltip="Read backup info"
+                  >
+                    <mat-icon>{{ loadingInfo() ? 'hourglass_empty' : 'info' }}</mat-icon>
+                  </button>
+                </div>
               </div>
-            </div>
-          </mat-tab>
+            </mat-tab>
 
-          <mat-tab label="Backup History">
-            <div class="tab-content">
-              @if (data.databaseName) {
-                <div class="history-filter">
-                  <mat-checkbox [(ngModel)]="showAllDatabases" (ngModelChange)="onShowAllChange()">
-                    Show all databases
-                  </mat-checkbox>
-                  @if (!showAllDatabases) {
-                    <span class="filter-label">Showing: {{ data.databaseName }}</span>
-                  }
-                </div>
-              }
-              @if (loadingHistory()) {
-                <div class="empty-text">Loading backup history...</div>
-              } @else if (backupHistory().length === 0) {
-                <div class="empty-text">No backup history found</div>
-              } @else {
-                <div class="history-list">
-                  @for (entry of backupHistory(); track entry.backupStartDate) {
-                    <div
-                      class="history-item"
-                      [class.selected]="selectedHistoryEntry() === entry"
-                      (click)="selectHistoryEntry(entry)"
+            <mat-tab label="Backup History">
+              <div class="tab-content">
+                @if (data.databaseName) {
+                  <div class="history-filter">
+                    <mat-checkbox
+                      [(ngModel)]="showAllDatabases"
+                      (ngModelChange)="onShowAllChange()"
                     >
-                      <div class="history-row">
-                        @if (showAllDatabases) {
-                          <span class="history-db">{{ entry.databaseName }}</span>
+                      Show all databases
+                    </mat-checkbox>
+                    @if (!showAllDatabases) {
+                      <span class="filter-label">Showing: {{ data.databaseName }}</span>
+                    }
+                  </div>
+                }
+                @if (loadingHistory()) {
+                  <div class="empty-text">Loading backup history...</div>
+                } @else if (backupHistory().length === 0) {
+                  <div class="empty-text">No backup history found</div>
+                } @else {
+                  <div class="history-list">
+                    @for (entry of backupHistory(); track entry.backupStartDate) {
+                      <div
+                        class="history-item"
+                        [class.selected]="selectedHistoryEntry() === entry"
+                        (click)="selectHistoryEntry(entry)"
+                      >
+                        <div class="history-row">
+                          @if (showAllDatabases) {
+                            <span class="history-db">{{ entry.databaseName }}</span>
+                          }
+                          <span class="history-date">{{
+                            entry.backupFinishDate | date: 'M/d/yy h:mm a'
+                          }}</span>
+                          <span class="history-type">{{ entry.backupType }}</span>
+                          <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
+                        </div>
+                        @if (entry.description) {
+                          <div class="history-description">{{ entry.description }}</div>
                         }
-                        <span class="history-date">{{
-                          entry.backupFinishDate | date: 'M/d/yy h:mm a'
-                        }}</span>
-                        <span class="history-type">{{ entry.backupType }}</span>
-                        <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
                       </div>
-                      @if (entry.description) {
-                        <div class="history-description">{{ entry.description }}</div>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-            </div>
-          </mat-tab>
-        </mat-tab-group>
+                    }
+                  </div>
+                }
+              </div>
+            </mat-tab>
+          </mat-tab-group>
+        } @else {
+          <!-- Simple file path input for MySQL/PostgreSQL (local file, no server browse or backup history) -->
+          <div class="file-section">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full-width">
+              <mat-label>Backup File Path (local)</mat-label>
+              <input
+                matInput
+                [(ngModel)]="formData.backupPath"
+                [disabled]="restoring()"
+                [placeholder]="
+                  data.engine === 'postgresql' ? 'e.g., /tmp/mydb.dump' : 'e.g., /tmp/mydb.sql'
+                "
+                (ngModelChange)="onBackupPathChange()"
+              />
+            </mat-form-field>
+          </div>
+        }
 
         <!-- Backup Info -->
         @if (backupInfo()) {
@@ -188,78 +207,95 @@ export interface RestoreDialogData {
           />
         </mat-form-field>
 
-        <!-- Options -->
-        <div class="options-section">
-          <div class="options-row">
-            <mat-checkbox [(ngModel)]="formData.withReplace" [disabled]="restoring()">
-              Overwrite (REPLACE)
-            </mat-checkbox>
-            <mat-checkbox [(ngModel)]="formData.withRecovery" [disabled]="restoring()">
-              Recovery
-            </mat-checkbox>
-            <mat-checkbox
-              [(ngModel)]="formData.withNoRecovery"
-              [disabled]="restoring() || formData.withRecovery"
-            >
-              No Recovery
-            </mat-checkbox>
+        <!-- Options (MSSQL only — these don't apply to mysqldump/pg_restore) -->
+        @if (data.engine === 'mssql' || !data.engine) {
+          <div class="options-section">
+            <div class="options-row">
+              <mat-checkbox [(ngModel)]="formData.withReplace" [disabled]="restoring()">
+                Overwrite (REPLACE)
+              </mat-checkbox>
+              <mat-checkbox [(ngModel)]="formData.withRecovery" [disabled]="restoring()">
+                Recovery
+              </mat-checkbox>
+              <mat-checkbox
+                [(ngModel)]="formData.withNoRecovery"
+                [disabled]="restoring() || formData.withRecovery"
+              >
+                No Recovery
+              </mat-checkbox>
+            </div>
           </div>
-        </div>
+        }
 
         <!-- Progress -->
         @if (restoring()) {
           <div class="progress-section">
             <div class="progress-header">
               <span>{{ progress()?.currentPhase || 'Starting restore...' }}</span>
-              <span>{{ progress()?.percentComplete || 0 }}%</span>
+              @if ((progress()?.percentComplete ?? 0) >= 0) {
+                <span>{{ progress()?.percentComplete || 0 }}%</span>
+              }
             </div>
-            <mat-progress-bar mode="determinate" [value]="progress()?.percentComplete || 0" />
+            <mat-progress-bar
+              [mode]="(progress()?.percentComplete ?? 0) < 0 ? 'indeterminate' : 'determinate'"
+              [value]="
+                (progress()?.percentComplete ?? 0) < 0 ? 0 : progress()?.percentComplete || 0
+              "
+            />
           </div>
         }
 
-        <!-- Expandable panels -->
-        <mat-accordion class="panels">
-          @if (backupInfo()?.files?.length) {
+        <!-- Expandable panels (MSSQL only — file relocations and T-SQL preview) -->
+        @if (data.engine === 'mssql' || !data.engine) {
+          <mat-accordion class="panels">
+            @if (backupInfo()?.files?.length) {
+              <mat-expansion-panel>
+                <mat-expansion-panel-header>
+                  <mat-panel-title
+                    ><mat-icon>folder_copy</mat-icon>File Relocations</mat-panel-title
+                  >
+                </mat-expansion-panel-header>
+                <div class="files-list">
+                  @for (file of backupInfo()!.files; track file.logicalName; let i = $index) {
+                    <div class="file-item">
+                      <div class="file-header">
+                        <span class="file-name">{{ file.logicalName }}</span>
+                        <span class="file-type">{{ file.fileType === 'D' ? 'Data' : 'Log' }}</span>
+                      </div>
+                      <div class="file-path">
+                        <mat-form-field
+                          appearance="outline"
+                          subscriptSizing="dynamic"
+                          class="full-width"
+                        >
+                          <input
+                            matInput
+                            [(ngModel)]="fileRelocations[i].newPath"
+                            [disabled]="restoring()"
+                          />
+                        </mat-form-field>
+                        <button
+                          mat-icon-button
+                          [disabled]="restoring()"
+                          (click)="browseFilePath(i)"
+                        >
+                          <mat-icon>folder_open</mat-icon>
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </mat-expansion-panel>
+            }
+
             <mat-expansion-panel>
               <mat-expansion-panel-header>
-                <mat-panel-title><mat-icon>folder_copy</mat-icon>File Relocations</mat-panel-title>
+                <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
               </mat-expansion-panel-header>
-              <div class="files-list">
-                @for (file of backupInfo()!.files; track file.logicalName; let i = $index) {
-                  <div class="file-item">
-                    <div class="file-header">
-                      <span class="file-name">{{ file.logicalName }}</span>
-                      <span class="file-type">{{ file.fileType === 'D' ? 'Data' : 'Log' }}</span>
-                    </div>
-                    <div class="file-path">
-                      <mat-form-field
-                        appearance="outline"
-                        subscriptSizing="dynamic"
-                        class="full-width"
-                      >
-                        <input
-                          matInput
-                          [(ngModel)]="fileRelocations[i].newPath"
-                          [disabled]="restoring()"
-                        />
-                      </mat-form-field>
-                      <button mat-icon-button [disabled]="restoring()" (click)="browseFilePath(i)">
-                        <mat-icon>folder_open</mat-icon>
-                      </button>
-                    </div>
-                  </div>
-                }
-              </div>
+              <pre class="tsql-code">{{ generatedTsql() }}</pre>
             </mat-expansion-panel>
-          }
-
-          <mat-expansion-panel>
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
-            </mat-expansion-panel-header>
-            <pre class="tsql-code">{{ generatedTsql() }}</pre>
-          </mat-expansion-panel>
-        </mat-accordion>
+          </mat-accordion>
+        }
       </mat-dialog-content>
 
       <mat-dialog-actions align="start">
@@ -279,7 +315,7 @@ export interface RestoreDialogData {
   styles: [
     `
       .restore-dialog {
-        width: 560px;
+        overflow: hidden;
       }
 
       h2[mat-dialog-title] {
@@ -295,9 +331,14 @@ export interface RestoreDialogData {
 
       mat-dialog-content {
         padding-top: 8px;
+        overflow-x: hidden !important;
       }
 
       .tab-content {
+        padding: 12px 0;
+      }
+
+      .file-section {
         padding: 12px 0;
       }
 
@@ -305,9 +346,11 @@ export interface RestoreDialogData {
         display: flex;
         gap: 8px;
         align-items: center;
+        min-width: 0;
 
         .flex-1 {
           flex: 1;
+          min-width: 0;
         }
       }
 
@@ -645,7 +688,9 @@ export class RestoreDialogComponent implements OnInit, OnDestroy {
     try {
       // Filter by database if one is provided and not showing all
       const dbFilter = this.showAllDatabases ? undefined : this.data.databaseName;
-      const history = await firstValueFrom(this.ipc.getBackupHistory(this.data.connectionId, dbFilter));
+      const history = await firstValueFrom(
+        this.ipc.getBackupHistory(this.data.connectionId, dbFilter)
+      );
       this.backupHistory.set(history || []);
     } catch {
       // Ignore errors

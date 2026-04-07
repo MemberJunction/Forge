@@ -1,11 +1,13 @@
 /**
  * Connection Pool Manager
  * Manages database connection pools for multiple connections.
- * Supports SQL Server (mssql) and PostgreSQL (pg) engines.
+ * Supports SQL Server (mssql), PostgreSQL (pg), and MySQL (mysql2) engines.
  */
 
 import { ConnectionPool, config as SqlConfig, IResult } from 'mssql';
 import { Pool as PgPool } from 'pg';
+import mysql from 'mysql2/promise';
+import type { Pool as MySQLPool } from 'mysql2/promise';
 import type { ConnectionProfile, TestConnectionResult, DatabaseEngine } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
@@ -28,9 +30,17 @@ interface PgPoolEntry {
   activeQueries: number;
 }
 
+interface MySQLPoolEntry {
+  pool: MySQLPool;
+  profileId: string;
+  lastUsed: Date;
+  activeQueries: number;
+}
+
 export class ConnectionPoolManager extends BaseSingleton {
   private pools: Map<string, PoolEntry> = new Map();
   private pgPools: Map<string, PgPoolEntry> = new Map();
+  private mysqlPools: Map<string, MySQLPoolEntry> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
   private profileStore: ConnectionProfilesStore;
 
@@ -69,6 +79,10 @@ export class ConnectionPoolManager extends BaseSingleton {
 
     if ((profile.engine || 'mssql') === 'postgresql') {
       return this.testPgConnection(profile, password || '');
+    }
+
+    if ((profile.engine || 'mssql') === 'mysql') {
+      return this.testMySQLConnection(profile, password || '');
     }
 
     // Default: SQL Server
@@ -227,6 +241,99 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
+   * Test a MySQL connection
+   */
+  private async testMySQLConnection(
+    profile: ConnectionProfile,
+    password: string
+  ): Promise<TestConnectionResult> {
+    let testPool: MySQLPool | null = null;
+    try {
+      testPool = mysql.createPool({
+        host: profile.server,
+        port: profile.port,
+        user: profile.username,
+        password,
+        database: profile.database || undefined,
+        ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : undefined,
+        connectTimeout: profile.connectionTimeout * 1000,
+        connectionLimit: 1,
+      });
+
+      const [rows] = await testPool.query('SELECT VERSION() AS version, DATABASE() AS name');
+      const row = (rows as Record<string, unknown>[])[0];
+
+      return {
+        success: true,
+        serverVersion: String(row?.version || 'Unknown'),
+        serverName: String(row?.name || 'Unknown'),
+      };
+    } catch (error) {
+      const err = error as Error & { code?: string };
+      return {
+        success: false,
+        error: err.message,
+        errorCode: err.code || 'UNKNOWN',
+        guidance: this.categorizeMySQLError(err),
+      };
+    } finally {
+      if (testPool) {
+        await testPool.end().catch(() => {});
+      }
+    }
+  }
+
+  /**
+   * Get a MySQL pool for a profile.
+   * MySQL supports USE for database switching, but we still create pools per
+   * database for consistency with the PG pattern and connection isolation.
+   */
+  async getMySQLPool(profileId: string, database?: string): Promise<MySQLPool> {
+    const profile = this.profileStore.getById(profileId);
+    if (!profile) throw new Error('Connection profile not found');
+
+    const dbName = database || profile.database || undefined;
+    const poolKey = `${profileId}:${dbName ?? '__default__'}`;
+
+    const existing = this.mysqlPools.get(poolKey);
+    if (existing) {
+      existing.lastUsed = new Date();
+      return existing.pool;
+    }
+
+    const password = await this.profileStore.getPassword(profileId);
+    if (!password) throw new Error('Connection password not found in Keychain');
+
+    const pool = mysql.createPool({
+      host: profile.server,
+      port: profile.port,
+      user: profile.username,
+      password,
+      database: dbName,
+      ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : undefined,
+      connectTimeout: profile.connectionTimeout * 1000,
+      connectionLimit: 10,
+      waitForConnections: true,
+      idleTimeout: 30000,
+      multipleStatements: true,
+    });
+
+    // Verify connection
+    const conn = await pool.getConnection();
+    conn.release();
+
+    this.mysqlPools.set(poolKey, {
+      pool,
+      profileId,
+      lastUsed: new Date(),
+      activeQueries: 0,
+    });
+
+    log.info(`Connected to MySQL: ${profile.name} (${dbName})`);
+    return pool;
+  }
+
+  /**
    * Get or create a SQL Server connection pool for a profile
    */
   async getPool(profileId: string): Promise<ConnectionPool> {
@@ -352,16 +459,27 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Execute DDL statements on any engine (MSSQL or PostgreSQL).
    * Routes to the correct pool based on the connection's engine.
    */
-  async executeDDL(profileId: string, sql: string): Promise<void> {
+  async executeDDL(profileId: string, sql: string, database?: string): Promise<void> {
     const engine = this.getEngineForProfile(profileId);
 
     if (engine === 'postgresql') {
-      const pool = await this.getPgPool(profileId);
+      const pool = await this.getPgPool(profileId, database);
       const client = await pool.connect();
       try {
         await client.query(sql);
       } finally {
         client.release();
+      }
+      return;
+    }
+
+    if (engine === 'mysql') {
+      const pool = await this.getMySQLPool(profileId, database);
+      const conn = await pool.getConnection();
+      try {
+        await conn.query(sql);
+      } finally {
+        conn.release();
       }
       return;
     }
@@ -395,6 +513,18 @@ export class ConnectionPoolManager extends BaseSingleton {
         this.pgPools.delete(key);
       }
     }
+
+    // MySQL pools are keyed as "profileId:dbName", same pattern as PG
+    for (const [key, mysqlEntry] of this.mysqlPools) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) {
+        try {
+          await mysqlEntry.pool.end();
+        } catch {
+          /* ignore */
+        }
+        this.mysqlPools.delete(key);
+      }
+    }
   }
 
   /**
@@ -413,7 +543,18 @@ export class ConnectionPoolManager extends BaseSingleton {
         this.pgPools.delete(id);
       }
     });
-    await Promise.all([...mssqlCloses, ...pgCloses]);
+    const mysqlCloses = Array.from(this.mysqlPools.keys()).map(async id => {
+      const entry = this.mysqlPools.get(id);
+      if (entry) {
+        try {
+          await entry.pool.end();
+        } catch {
+          /* ignore */
+        }
+        this.mysqlPools.delete(id);
+      }
+    });
+    await Promise.all([...mssqlCloses, ...pgCloses, ...mysqlCloses]);
   }
 
   /**
@@ -423,7 +564,12 @@ export class ConnectionPoolManager extends BaseSingleton {
     const mssqlEntry = this.pools.get(profileId);
     if (mssqlEntry?.pool.connected) return true;
     const pgEntry = this.pgPools.get(profileId);
-    return pgEntry != null;
+    if (pgEntry != null) return true;
+    // MySQL pools: check if any pool for this profile exists
+    for (const key of this.mysqlPools.keys()) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) return true;
+    }
+    return false;
   }
 
   /**
@@ -526,6 +672,38 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
+   * Categorize MySQL connection errors for user-friendly messages
+   */
+  private categorizeMySQLError(error: Error & { code?: string }): string[] {
+    switch (error.code) {
+      case 'ECONNREFUSED':
+        return [
+          'Check that MySQL is running',
+          'Verify the hostname and port are correct',
+          'Check if a firewall is blocking the connection',
+          'For Docker: ensure the container is running and port is exposed',
+        ];
+      case 'ER_ACCESS_DENIED_ERROR':
+        return [
+          'Check that the username is correct',
+          'Check that the password is correct',
+          'Ensure the user has access from this host',
+        ];
+      case 'ER_BAD_DB_ERROR':
+        return ['The specified database does not exist', 'Check the database name'];
+      case 'ETIMEDOUT':
+      case 'ECONNRESET':
+        return [
+          'The server took too long to respond',
+          'Check network connectivity',
+          'Try increasing the connection timeout',
+        ];
+      default:
+        return ['Check the error details and try again'];
+    }
+  }
+
+  /**
    * Start cleanup timer for idle connections
    */
   private startCleanupTimer(): void {
@@ -545,6 +723,14 @@ export class ConnectionPoolManager extends BaseSingleton {
           if (idleMs > 600000 && entry.activeQueries === 0) {
             entry.pool.end().catch(() => {});
             this.pgPools.delete(id);
+          }
+        }
+        // Also clean idle MySQL pools
+        for (const [id, entry] of this.mysqlPools) {
+          const idleMs = now.getTime() - entry.lastUsed.getTime();
+          if (idleMs > 600000 && entry.activeQueries === 0) {
+            entry.pool.end().catch(() => {});
+            this.mysqlPools.delete(id);
           }
         }
       },
