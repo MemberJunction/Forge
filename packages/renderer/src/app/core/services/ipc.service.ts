@@ -128,8 +128,18 @@ declare global {
 
 interface ForgeAPI {
   connection: {
-    test: (profile: ConnectionProfile, password?: string) => Promise<TestConnectionResult>;
-    save: (profile: ConnectionProfile, password?: string) => Promise<ConnectionProfile>;
+    test: (
+      profile: ConnectionProfile,
+      password?: string,
+      sshPassword?: string,
+      sshPassphrase?: string
+    ) => Promise<TestConnectionResult>;
+    save: (
+      profile: ConnectionProfile,
+      password?: string,
+      sshPassword?: string,
+      sshPassphrase?: string
+    ) => Promise<ConnectionProfile>;
     delete: (profileId: string) => Promise<void>;
     list: () => Promise<ConnectionProfile[]>;
     connect: (profileId: string) => Promise<void>;
@@ -254,7 +264,11 @@ interface ForgeAPI {
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
     fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
-    convertSql: (sql: string, fromEngine: string, toEngine: string) => Promise<{ success: boolean; sql: string; error?: string }>;
+    convertSql: (
+      sql: string,
+      fromEngine: string,
+      toEngine: string
+    ) => Promise<{ success: boolean; sql: string; error?: string }>;
   };
   queryResults: {
     saveSnapshot: (
@@ -302,7 +316,11 @@ interface ForgeAPI {
     deleteConversation: (id: string) => Promise<boolean>;
     renameConversation: (id: string, title: string) => Promise<Conversation | null>;
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>;
-    confirmTool: (conversationId: string, toolCallId: string, confirmed: boolean) => Promise<{ confirmed: boolean }>;
+    confirmTool: (
+      conversationId: string,
+      toolCallId: string,
+      confirmed: boolean
+    ) => Promise<{ confirmed: boolean }>;
     cancelStream: (conversationId: string) => Promise<{ cancelled: boolean }>;
     onStreamChunk: (callback: (chunk: ChatStreamChunk) => void) => () => void;
   };
@@ -493,15 +511,24 @@ export class IpcService {
   }
 
   // Connection methods
-  testConnection(profile: ConnectionProfile, password?: string): Observable<TestConnectionResult> {
-    return from(this.api.connection.test(profile, password));
+  testConnection(
+    profile: ConnectionProfile,
+    password?: string,
+    sshPassword?: string,
+    sshPassphrase?: string
+  ): Observable<TestConnectionResult> {
+    return from(this.api.connection.test(profile, password, sshPassword, sshPassphrase));
   }
 
   saveConnection(
     profile: Partial<ConnectionProfile>,
-    password?: string
+    password?: string,
+    sshPassword?: string,
+    sshPassphrase?: string
   ): Observable<ConnectionProfile> {
-    return from(this.api.connection.save(profile as ConnectionProfile, password));
+    return from(
+      this.api.connection.save(profile as ConnectionProfile, password, sshPassword, sshPassphrase)
+    );
   }
 
   deleteConnection(profileId: string): Observable<void> {
@@ -668,7 +695,9 @@ export class IpcService {
     name: string,
     schema: string
   ): Observable<ObjectDefinition> {
-    return from(this.api.explorer.getDefinition(connectionId, databaseName, schema, name, objectType));
+    return from(
+      this.api.explorer.getDefinition(connectionId, databaseName, schema, name, objectType)
+    );
   }
 
   scriptTableCreate(
@@ -677,7 +706,9 @@ export class IpcService {
     schema: string,
     tableName: string
   ): Observable<string> {
-    return from(this.api.explorer.scriptTableAsCreate(connectionId, databaseName, schema, tableName));
+    return from(
+      this.api.explorer.scriptTableAsCreate(connectionId, databaseName, schema, tableName)
+    );
   }
 
   // Query methods
@@ -709,7 +740,11 @@ export class IpcService {
     return from(this.api.query.fetchFkRecord(request));
   }
 
-  convertSql(sql: string, fromEngine: string, toEngine: string): Observable<{ success: boolean; sql: string; error?: string }> {
+  convertSql(
+    sql: string,
+    fromEngine: string,
+    toEngine: string
+  ): Observable<{ success: boolean; sql: string; error?: string }> {
     return from(this.api.query.convertSql(sql, fromEngine, toEngine));
   }
 
@@ -1092,7 +1127,11 @@ export class IpcService {
     return from(this.api.chat.sendMessage(request));
   }
 
-  confirmChatTool(conversationId: string, toolCallId: string, confirmed: boolean): Observable<{ confirmed: boolean }> {
+  confirmChatTool(
+    conversationId: string,
+    toolCallId: string,
+    confirmed: boolean
+  ): Observable<{ confirmed: boolean }> {
     return from(this.api.chat.confirmTool(conversationId, toolCallId, confirmed));
   }
 

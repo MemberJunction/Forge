@@ -109,6 +109,14 @@ export class ConnectionProfilesStore extends BaseSingleton {
       log.debug('No password provided, skipping keychain storage');
     }
 
+    // Store SSH credentials if provided
+    if (request.sshPassword) {
+      await this.credentialStore.set(`${profile.id}:ssh-password`, request.sshPassword);
+    }
+    if (request.sshPassphrase) {
+      await this.credentialStore.set(`${profile.id}:ssh-passphrase`, request.sshPassphrase);
+    }
+
     log.info(`Profile saved: ${profile.id}`);
     return profile;
   }
@@ -127,8 +135,10 @@ export class ConnectionProfilesStore extends BaseSingleton {
     profiles.splice(index, 1);
     this.store.set('profiles', profiles);
 
-    // Also delete the credential
+    // Also delete credentials (DB password + SSH credentials)
     await this.credentialStore.delete(id);
+    await this.credentialStore.delete(`${id}:ssh-password`);
+    await this.credentialStore.delete(`${id}:ssh-passphrase`);
 
     return true;
   }

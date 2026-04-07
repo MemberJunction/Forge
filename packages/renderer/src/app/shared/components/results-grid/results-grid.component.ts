@@ -940,7 +940,6 @@ interface FkPreviewData {
         .ag-header-cell {
           font-weight: 600;
           font-size: 11px;
-          text-transform: uppercase;
           letter-spacing: 0.3px;
         }
 

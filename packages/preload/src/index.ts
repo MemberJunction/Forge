@@ -87,8 +87,18 @@ import type {
  */
 export interface ForgeAPI {
   connection: {
-    test: (profile: ConnectionProfile, password?: string) => Promise<TestConnectionResult>;
-    save: (profile: ConnectionProfile, password?: string) => Promise<ConnectionProfile>;
+    test: (
+      profile: ConnectionProfile,
+      password?: string,
+      sshPassword?: string,
+      sshPassphrase?: string
+    ) => Promise<TestConnectionResult>;
+    save: (
+      profile: ConnectionProfile,
+      password?: string,
+      sshPassword?: string,
+      sshPassphrase?: string
+    ) => Promise<ConnectionProfile>;
     delete: (profileId: string) => Promise<void>;
     list: () => Promise<ConnectionProfile[]>;
     connect: (profileId: string) => Promise<void>;
@@ -241,7 +251,11 @@ export interface ForgeAPI {
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
     fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
-    convertSql: (sql: string, fromEngine: string, toEngine: string) => Promise<{ success: boolean; sql: string; error?: string }>;
+    convertSql: (
+      sql: string,
+      fromEngine: string,
+      toEngine: string
+    ) => Promise<{ success: boolean; sql: string; error?: string }>;
   };
 
   queryResults: {
@@ -292,7 +306,11 @@ export interface ForgeAPI {
     deleteConversation: (id: string) => Promise<boolean>;
     renameConversation: (id: string, title: string) => Promise<Conversation | null>;
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>;
-    confirmTool: (conversationId: string, toolCallId: string, confirmed: boolean) => Promise<{ confirmed: boolean }>;
+    confirmTool: (
+      conversationId: string,
+      toolCallId: string,
+      confirmed: boolean
+    ) => Promise<{ confirmed: boolean }>;
     cancelStream: (conversationId: string) => Promise<{ cancelled: boolean }>;
     onStreamChunk: (callback: (chunk: ChatStreamChunk) => void) => () => void;
   };
@@ -529,10 +547,22 @@ const MENU_CHANNELS = {
 // Create the API implementation
 const forgeAPI: ForgeAPI = {
   connection: {
-    test: (profile, password) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.TEST, profile, password),
-    save: (profile, password) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.SAVE, profile, password),
+    test: (profile, password, sshPassword, sshPassphrase) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.CONNECTION.TEST,
+        profile,
+        password,
+        sshPassword,
+        sshPassphrase
+      ),
+    save: (profile, password, sshPassword, sshPassphrase) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.CONNECTION.SAVE,
+        profile,
+        password,
+        sshPassword,
+        sshPassphrase
+      ),
     delete: profileId => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.DELETE, profileId),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.LIST),
     connect: profileId => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION.CONNECT, profileId),
@@ -547,8 +577,7 @@ const forgeAPI: ForgeAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.START_CONTAINER, containerId),
     stopContainer: containerId =>
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.STOP_CONTAINER, containerId),
-    createContainer: options =>
-      ipcRenderer.invoke(IPC_CHANNELS.DOCKER.CREATE_CONTAINER, options),
+    createContainer: options => ipcRenderer.invoke(IPC_CHANNELS.DOCKER.CREATE_CONTAINER, options),
   },
 
   database: {
@@ -734,11 +763,13 @@ const forgeAPI: ForgeAPI = {
     getConversation: id => ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_CONVERSATION, id),
     createConversation: title => ipcRenderer.invoke(CHAT_IPC_CHANNELS.CREATE_CONVERSATION, title),
     deleteConversation: id => ipcRenderer.invoke(CHAT_IPC_CHANNELS.DELETE_CONVERSATION, id),
-    renameConversation: (id, title) => ipcRenderer.invoke(CHAT_IPC_CHANNELS.RENAME_CONVERSATION, id, title),
+    renameConversation: (id, title) =>
+      ipcRenderer.invoke(CHAT_IPC_CHANNELS.RENAME_CONVERSATION, id, title),
     sendMessage: request => ipcRenderer.invoke(CHAT_IPC_CHANNELS.SEND_MESSAGE, request),
     confirmTool: (conversationId, toolCallId, confirmed) =>
       ipcRenderer.invoke(CHAT_IPC_CHANNELS.CONFIRM_TOOL, conversationId, toolCallId, confirmed),
-    cancelStream: conversationId => ipcRenderer.invoke(CHAT_IPC_CHANNELS.CANCEL_STREAM, conversationId),
+    cancelStream: conversationId =>
+      ipcRenderer.invoke(CHAT_IPC_CHANNELS.CANCEL_STREAM, conversationId),
     onStreamChunk: callback => createEventListener(CHAT_IPC_CHANNELS.STREAM_CHUNK, callback),
   },
 

@@ -68,10 +68,14 @@ export class ConnectionStateService {
 
   async saveProfile(
     profile: Partial<ConnectionProfile>,
-    password?: string
+    password?: string,
+    sshPassword?: string,
+    sshPassphrase?: string
   ): Promise<ConnectionProfile | null> {
     try {
-      const savedProfile = await firstValueFrom(this.ipc.saveConnection(profile, password));
+      const savedProfile = await firstValueFrom(
+        this.ipc.saveConnection(profile, password, sshPassword, sshPassphrase)
+      );
       await this.loadProfiles();
       this.notification.success('Connection saved successfully');
       return savedProfile;
@@ -99,10 +103,17 @@ export class ConnectionStateService {
     }
   }
 
-  async testConnection(profile: ConnectionProfile, password?: string): Promise<boolean> {
+  async testConnection(
+    profile: ConnectionProfile,
+    password?: string,
+    sshPassword?: string,
+    sshPassphrase?: string
+  ): Promise<boolean> {
     try {
       this._connecting.set(true);
-      const result = await firstValueFrom(this.ipc.testConnection(profile, password));
+      const result = await firstValueFrom(
+        this.ipc.testConnection(profile, password, sshPassword, sshPassphrase)
+      );
       if (result.success) {
         this.notification.success(`Connected to ${result.serverVersion || 'SQL Server'}`);
         return true;

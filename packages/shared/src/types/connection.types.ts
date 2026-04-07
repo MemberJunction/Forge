@@ -25,6 +25,17 @@ export interface VolumeMapping {
   containerPath: string;
 }
 
+export type SshAuthType = 'password' | 'privateKey';
+
+export interface SshTunnelConfig {
+  enabled: boolean;
+  host: string;
+  port: number; // default 22
+  username: string;
+  authType: SshAuthType;
+  privateKeyPath?: string; // only for authType === 'privateKey'
+}
+
 export interface ConnectionProfile {
   id: string;
   name: string;
@@ -43,6 +54,7 @@ export interface ConnectionProfile {
   isDocker?: boolean;
   dockerContainerId?: string;
   volumeMappings?: VolumeMapping[];
+  sshTunnel?: SshTunnelConfig;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -59,6 +71,8 @@ export interface TestConnectionResult {
 export interface SaveConnectionRequest {
   profile: Omit<ConnectionProfile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string };
   password?: string;
+  sshPassword?: string;
+  sshPassphrase?: string;
 }
 
 export interface ActiveConnection {
