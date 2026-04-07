@@ -24,7 +24,6 @@ import type {
 } from '@mj-forge/shared';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { MetadataService } from '../services/sql/metadata';
-import { TsqlBuilder } from '../utils/tsql-builder';
 import { safeHandle } from './safe-handle';
 
 export function registerDatabaseHandlers(): void {
@@ -47,15 +46,16 @@ export function registerDatabaseHandlers(): void {
       connectionId: string,
       options: CreateDatabaseOptions
     ): Promise<CreateDatabaseResult> => {
-      const tsql = TsqlBuilder.createDatabase(options);
+      const dialect = poolManager.getDialectForProfile(connectionId);
+      const sql = dialect.createDatabaseSQL(options);
 
       try {
-        await poolManager.batch(connectionId, tsql);
+        await poolManager.executeDDL(connectionId, sql);
         metadataService.invalidateDatabases(connectionId);
-        return { success: true, tsql };
+        return { success: true, tsql: sql };
       } catch (error) {
         const err = error as Error;
-        return { success: false, tsql, error: err.message };
+        return { success: false, tsql: sql, error: err.message };
       }
     }
   );
@@ -68,15 +68,16 @@ export function registerDatabaseHandlers(): void {
       connectionId: string,
       options: RenameDatabaseOptions
     ): Promise<RenameDatabaseResult> => {
-      const tsql = TsqlBuilder.renameDatabase(options);
+      const dialect = poolManager.getDialectForProfile(connectionId);
+      const sql = dialect.renameDatabaseSQL(options);
 
       try {
-        await poolManager.batch(connectionId, tsql);
+        await poolManager.executeDDL(connectionId, sql);
         metadataService.invalidateDatabases(connectionId);
-        return { success: true, tsql };
+        return { success: true, tsql: sql };
       } catch (error) {
         const err = error as Error;
-        return { success: false, tsql, error: err.message };
+        return { success: false, tsql: sql, error: err.message };
       }
     }
   );
@@ -89,15 +90,16 @@ export function registerDatabaseHandlers(): void {
       connectionId: string,
       options: DeleteDatabaseOptions
     ): Promise<DeleteDatabaseResult> => {
-      const tsql = TsqlBuilder.dropDatabase(options);
+      const dialect = poolManager.getDialectForProfile(connectionId);
+      const sql = dialect.dropDatabaseSQL(options);
 
       try {
-        await poolManager.batch(connectionId, tsql);
+        await poolManager.executeDDL(connectionId, sql);
         metadataService.invalidateDatabases(connectionId);
-        return { success: true, tsql };
+        return { success: true, tsql: sql };
       } catch (error) {
         const err = error as Error;
-        return { success: false, tsql, error: err.message };
+        return { success: false, tsql: sql, error: err.message };
       }
     }
   );

@@ -254,6 +254,7 @@ interface ForgeAPI {
     deleteHistoryEntry: (id: string) => Promise<boolean>;
     exportResults: (resultSet: ResultSet, options: ExportOptions) => Promise<ExportResult>;
     fetchFkRecord: (request: FkRecordRequest) => Promise<FkRecordResult>;
+    convertSql: (sql: string, fromEngine: string, toEngine: string) => Promise<{ success: boolean; sql: string; error?: string }>;
   };
   queryResults: {
     saveSnapshot: (
@@ -706,6 +707,10 @@ export class IpcService {
 
   fetchFkRecord(request: FkRecordRequest): Observable<FkRecordResult> {
     return from(this.api.query.fetchFkRecord(request));
+  }
+
+  convertSql(sql: string, fromEngine: string, toEngine: string): Observable<{ success: boolean; sql: string; error?: string }> {
+    return from(this.api.query.convertSql(sql, fromEngine, toEngine));
   }
 
   // Query Results Persistence methods

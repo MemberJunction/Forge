@@ -380,6 +380,7 @@ export class ConnectionsComponent {
 
   formData: Partial<ConnectionProfile> & { password?: string } = {
     name: '',
+    engine: 'mssql',
     server: 'localhost',
     port: 1433,
     authenticationType: 'sql',
@@ -459,6 +460,7 @@ export class ConnectionsComponent {
     return {
       id: 'test-connection',
       name: this.formData.name || 'Test Connection',
+      engine: this.formData.engine || 'mssql',
       server: this.formData.server!,
       port: this.formData.port!,
       authenticationType: this.formData.authenticationType as AuthenticationType,
@@ -539,6 +541,7 @@ export class ConnectionsComponent {
     return {
       ...(existingId ? { id: existingId } : {}),
       name: this.formData.name!,
+      engine: this.formData.engine || 'mssql',
       server: this.formData.server!,
       port: this.formData.port!,
       authenticationType: this.formData.authenticationType as AuthenticationType,

@@ -39,6 +39,8 @@ import {
   ConnectionDialogComponent,
   ConnectionDialogData,
 } from '../../shared/components/connection-dialog/connection-dialog.component';
+import { ConnectionManagerDialogComponent } from '../../shared/components/connection-manager-dialog/connection-manager-dialog.component';
+import type { DatabaseEngine } from '@mj-forge/shared';
 
 @Component({
   selector: 'app-sidebar',
@@ -62,7 +64,12 @@ import {
           <img class="app-icon" src="assets/icons/mj-logo.png" alt="MJ Forge" />
           <span class="logo">Forge</span>
         </div>
-        <button mat-icon-button matTooltip="New Connection" aria-label="New Connection" (click)="openConnectionDialog()">
+        <button
+          mat-icon-button
+          matTooltip="New Connection"
+          aria-label="New Connection"
+          (click)="openConnectionDialog()"
+        >
           <mat-icon>add</mat-icon>
         </button>
       </div>
@@ -71,7 +78,14 @@ import {
       @if (connectionState.hasProfiles()) {
         <div class="connection-selector">
           <button mat-button [matMenuTriggerFor]="connectionMenu" class="connection-button">
-            <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+            @if (getConnectionIconClass(connectionState.activeProfile())) {
+              <i
+                class="devicon-btn"
+                [ngClass]="getConnectionIconClass(connectionState.activeProfile())!"
+              ></i>
+            } @else {
+              <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+            }
             <span class="connection-name">
               {{ connectionState.activeProfile()?.name || 'Select Connection' }}
             </span>
@@ -84,10 +98,15 @@ import {
                 (click)="connectTo(profile.id)"
                 [class.active]="profile.id === connectionState.activeConnectionId()"
               >
-                <mat-icon>{{
-                  profile.id === connectionState.activeConnectionId() ? 'check' : 'dns'
-                }}</mat-icon>
+                @if (profile.id === connectionState.activeConnectionId()) {
+                  <mat-icon>check</mat-icon>
+                } @else {
+                  <i class="devicon-menu" [ngClass]="getEngineIconClass(profile.engine)"></i>
+                }
                 <span>{{ profile.name }}</span>
+                <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
+                  profile.engine === 'postgresql' ? 'PG' : 'MY'
+                }}</span>
               </button>
             }
             <mat-divider />
@@ -116,10 +135,17 @@ import {
             @if (connectionState.loadingDatabases()) {
               <mat-spinner diameter="16" />
             } @else {
-              <mat-icon svgIcon="database-cylinder"></mat-icon>
+              <i
+                class="devicon-btn"
+                [ngClass]="getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')"
+              ></i>
             }
             <span class="database-name">
-              {{ connectionState.loadingDatabases() ? 'Loading...' : (connectionState.selectedDatabase() || 'Select Database') }}
+              {{
+                connectionState.loadingDatabases()
+                  ? 'Loading...'
+                  : connectionState.selectedDatabase() || 'Select Database'
+              }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
@@ -133,7 +159,12 @@ import {
                 @if (db.name === connectionState.selectedDatabase()) {
                   <mat-icon>check</mat-icon>
                 } @else {
-                  <mat-icon svgIcon="database-cylinder"></mat-icon>
+                  <i
+                    class="devicon-menu"
+                    [ngClass]="
+                      getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')
+                    "
+                  ></i>
                 }
                 <span>{{ db.name }}</span>
               </button>
@@ -198,12 +229,20 @@ import {
           } @else {
             <span class="expand-placeholder"></span>
           }
-          @if (node.icon === 'database-cylinder') {
-            <mat-icon
-              class="node-icon"
-              [class]="'icon-' + node.type"
-              svgIcon="database-cylinder"
-            ></mat-icon>
+          @if (node.type === 'server') {
+            @if (
+              getConnectionIconClass(connectionState.getProfile(node.connectionId!));
+              as hostIcon
+            ) {
+              <i class="node-icon devicon-node" [ngClass]="hostIcon"></i>
+            } @else {
+              <mat-icon class="node-icon icon-server">dns</mat-icon>
+            }
+          } @else if (node.icon === 'database-cylinder') {
+            <i
+              class="node-icon devicon-node"
+              [ngClass]="getEngineIconClass(getEngine(node.connectionId))"
+            ></i>
           } @else {
             <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
           }
@@ -351,6 +390,16 @@ import {
           color: var(--text-secondary);
         }
 
+        .devicon-btn {
+          margin-right: var(--spacing-sm);
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
         .connection-name,
         .database-name {
           flex: 1;
@@ -366,6 +415,31 @@ import {
           margin-left: auto;
           color: var(--text-muted);
         }
+      }
+
+      /* Devicon icons inside tree nodes */
+      .devicon-node {
+        font-size: 16px;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
+        margin-right: var(--spacing-xs);
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Devicon icons inside mat-menu-items */
+      .devicon-menu {
+        font-size: 18px;
+        width: 24px;
+        min-width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 16px;
       }
 
       .explorer-tree {
@@ -524,7 +598,9 @@ import {
 
       .ai-sidebar-btn {
         color: var(--text-secondary);
-        transition: color var(--transition-fast), background-color var(--transition-fast);
+        transition:
+          color var(--transition-fast),
+          background-color var(--transition-fast);
 
         &:hover {
           color: var(--accent-primary);
@@ -557,6 +633,78 @@ export class SidebarComponent {
   private pendingDeleteDatabase: string | null = null;
   private pendingRenameDatabase: string | null = null;
 
+  /** Get devicon CSS class for the connection host (cloud provider or docker) */
+  getConnectionIconClass(profile?: { server?: string; isDocker?: boolean } | null): string | null {
+    if (!profile) return null;
+    if (profile.isDocker) return 'devicon-docker-plain colored';
+    const s = profile.server?.toLowerCase();
+    if (!s) return null;
+    if (s.endsWith('amazonaws.com')) return 'devicon-amazonwebservices-plain colored';
+    if (s.endsWith('windows.net')) return 'devicon-azure-plain colored';
+    return null;
+  }
+
+  /** Get devicon CSS class for a database engine */
+  getEngineIconClass(engine: DatabaseEngine): string {
+    switch (engine) {
+      case 'mysql':
+        return 'devicon-mysql-original colored';
+      case 'postgresql':
+        return 'devicon-postgresql-plain colored';
+      case 'mssql':
+        return 'devicon-azuresqldatabase-plain colored';
+    }
+  }
+
+  /** Get the database engine for a connection, defaulting to mssql */
+  getEngine(connectionId?: string): DatabaseEngine {
+    if (connectionId) {
+      const profile = this.connectionState.getProfile(connectionId);
+      if (profile) return profile.engine;
+    }
+    return this.connectionState.activeProfile()?.engine || 'mssql';
+  }
+
+  /** Quote an identifier appropriately for the database engine */
+  private quoteId(name: string, engine: DatabaseEngine): string {
+    switch (engine) {
+      case 'mysql':
+        return '`' + name.replace(/`/g, '``') + '`';
+      case 'postgresql':
+        return '"' + name.replace(/"/g, '""') + '"';
+      default:
+        return '[' + name.replace(/]/g, ']]') + ']';
+    }
+  }
+
+  /** Build a qualified table reference (schema.table) for the given engine */
+  private qualifiedTable(schema: string, table: string, engine: DatabaseEngine): string {
+    if (engine === 'mysql') {
+      return this.quoteId(table, engine);
+    }
+    return `${this.quoteId(schema, engine)}.${this.quoteId(table, engine)}`;
+  }
+
+  /** Get the default schema name for the given engine */
+  private defaultSchema(engine: DatabaseEngine): string {
+    switch (engine) {
+      case 'postgresql':
+        return 'public';
+      case 'mysql':
+        return '';
+      default:
+        return 'dbo';
+    }
+  }
+
+  /** Generate a SELECT with row limit appropriate for the engine */
+  private selectWithLimit(tableRef: string, limit: number, engine: DatabaseEngine): string {
+    if (engine === 'mssql') {
+      return `SELECT TOP ${limit} * FROM ${tableRef}`;
+    }
+    return `SELECT * FROM ${tableRef} LIMIT ${limit}`;
+  }
+
   openConnectionDialog(): void {
     this.dialog.open(ConnectionDialogComponent, {
       data: {} as ConnectionDialogData,
@@ -566,9 +714,8 @@ export class SidebarComponent {
   }
 
   manageConnections(): void {
-    this.dialog.open(ConnectionDialogComponent, {
-      data: {} as ConnectionDialogData,
-      width: '540px',
+    this.dialog.open(ConnectionManagerDialogComponent, {
+      width: '560px',
       maxHeight: '90vh',
     });
   }
@@ -627,7 +774,7 @@ export class SidebarComponent {
       node.databaseName,
       node.metadata.name,
       node.metadata.type,
-      node.metadata.schema || node.schema || 'dbo'
+      node.metadata.schema || node.schema || this.defaultSchema(this.getEngine(node.connectionId))
     );
     this.router.navigate(['/explorer']);
   }
@@ -654,6 +801,15 @@ export class SidebarComponent {
     }
   }
 
+  /** Check if the active connection's engine supports a feature */
+  engineSupports(feature: 'backupRestore' | 'serverFileBrowsing' | 'extendedProperties'): boolean {
+    const engine = this.connectionState.activeProfile()?.engine;
+    if (!engine || engine === 'mssql') return true; // MSSQL supports all
+    // MySQL supports backup/restore via mysqldump CLI
+    if (feature === 'backupRestore' && engine === 'mysql') return true;
+    return false; // PG/MySQL don't support server file browsing or extended properties
+  }
+
   openBackup(databaseName?: string): void {
     const connectionId = this.connectionState.activeConnectionId();
     const dbName = databaseName || this.connectionState.selectedDatabase();
@@ -663,6 +819,8 @@ export class SidebarComponent {
       return;
     }
 
+    // Backup works for all engines — MSSQL uses BACKUP DATABASE, PG uses pg_dump
+
     if (!dbName) {
       this.notification.error('Please select a database first');
       return;
@@ -671,11 +829,12 @@ export class SidebarComponent {
     const dialogData: BackupDialogData = {
       connectionId,
       databaseName: dbName,
+      engine: this.connectionState.activeProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(BackupDialogComponent, {
       data: dialogData,
-      width: '650px',
+      width: '520px',
       disableClose: true,
     });
 
@@ -694,14 +853,17 @@ export class SidebarComponent {
       return;
     }
 
+    // Restore works for all engines — MSSQL uses RESTORE DATABASE, PG uses pg_restore
+
     const dialogData: RestoreDialogData = {
       connectionId,
       databaseName,
+      engine: this.connectionState.activeProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(RestoreDialogComponent, {
       data: dialogData,
-      width: '750px',
+      width: '560px',
       disableClose: true,
     });
 
@@ -903,8 +1065,10 @@ export class SidebarComponent {
         icon: 'table_rows',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 1000, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
@@ -917,8 +1081,10 @@ export class SidebarComponent {
         icon: 'edit_note',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 200, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
@@ -933,7 +1099,8 @@ export class SidebarComponent {
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const sql = await window.forge.explorer.scriptTableAsCreate(
                 node.connectionId,
                 node.databaseName,
@@ -955,8 +1122,10 @@ export class SidebarComponent {
         icon: 'code',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = `SELECT * FROM ${tableRef}`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
@@ -970,7 +1139,8 @@ export class SidebarComponent {
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const sql = await window.forge.explorer.scriptTableAsInsert(
                 node.connectionId,
                 node.databaseName,
@@ -993,7 +1163,8 @@ export class SidebarComponent {
         icon: 'account_tree',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
+            const schema =
+              node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openErdTab(
               node.connectionId,
@@ -1015,7 +1186,7 @@ export class SidebarComponent {
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
             });
           }
@@ -1097,8 +1268,10 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'table_rows',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 1000 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 1000, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
@@ -1111,8 +1284,10 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'edit_note',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT TOP 200 * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = this.selectWithLimit(tableRef, 200, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
@@ -1127,7 +1302,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1151,7 +1327,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1175,8 +1352,10 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'code',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `SELECT * FROM [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql = `SELECT * FROM ${tableRef}`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1193,7 +1372,7 @@ ORDER BY al.CreatedAt DESC`;
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
               objectType: 'view',
             });
@@ -1219,7 +1398,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1243,7 +1423,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1272,7 +1453,7 @@ ORDER BY al.CreatedAt DESC`;
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
               objectType: 'function',
             });
@@ -1297,8 +1478,15 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'play_arrow',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata) {
-            const schema = node.metadata.schema || 'dbo';
-            const sql = `EXEC [${schema}].[${node.metadata.name}]`;
+            const engine = this.getEngine(node.connectionId);
+            const schema = node.metadata.schema || this.defaultSchema(engine);
+            const procRef = this.qualifiedTable(schema, node.metadata.name, engine);
+            const sql =
+              engine === 'mysql'
+                ? `CALL ${procRef}()`
+                : engine === 'postgresql'
+                  ? `CALL ${procRef}()`
+                  : `EXEC ${procRef}`;
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
@@ -1312,7 +1500,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1336,7 +1525,8 @@ ORDER BY al.CreatedAt DESC`;
         action: async () => {
           if (node.connectionId && node.databaseName && node.metadata) {
             try {
-              const schema = node.metadata.schema || 'dbo';
+              const schema =
+                node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
               const result = await window.forge.explorer.getDefinition(
                 node.connectionId,
                 node.databaseName,
@@ -1365,7 +1555,7 @@ ORDER BY al.CreatedAt DESC`;
             this.tableProperties.open({
               connectionId: node.connectionId,
               databaseName: node.databaseName,
-              schema: node.metadata.schema || 'dbo',
+              schema: node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId)),
               tableName: node.metadata.name,
               objectType: 'procedure',
             });
@@ -1391,7 +1581,9 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'table_chart',
         action: () => {
           if (node.connectionId && node.databaseName && node.schema && node.tableName) {
-            const sql = `SELECT TOP 1000 * FROM [${node.schema}].[${node.tableName}]`;
+            const engine = this.getEngine(node.connectionId);
+            const tableRef = this.qualifiedTable(node.schema, node.tableName, engine);
+            const sql = this.selectWithLimit(tableRef, 1000, engine);
             this.connectionState.selectDatabase(node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }

@@ -61,6 +61,16 @@ export interface ConnectionDialogResult {
       </h2>
 
       <mat-dialog-content>
+        <!-- Database Engine -->
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Database Engine</mat-label>
+          <mat-select [(ngModel)]="formData.engine" (ngModelChange)="onEngineChange($event)">
+            <mat-option value="mssql">SQL Server</mat-option>
+            <mat-option value="postgresql">PostgreSQL</mat-option>
+            <mat-option value="mysql">MySQL</mat-option>
+          </mat-select>
+        </mat-form-field>
+
         <!-- Connection Name -->
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Connection Name</mat-label>
@@ -76,7 +86,18 @@ export interface ConnectionDialogResult {
           </mat-form-field>
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>Port</mat-label>
-            <input matInput type="number" [(ngModel)]="formData.port" placeholder="1433" />
+            <input
+              matInput
+              type="number"
+              [(ngModel)]="formData.port"
+              [placeholder]="
+                formData.engine === 'postgresql'
+                  ? '5432'
+                  : formData.engine === 'mysql'
+                    ? '3306'
+                    : '1433'
+              "
+            />
           </mat-form-field>
         </div>
 
@@ -84,16 +105,18 @@ export interface ConnectionDialogResult {
 
         <!-- Authentication -->
         <h3>Authentication</h3>
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Authentication Type</mat-label>
-          <mat-select [(ngModel)]="formData.authenticationType">
-            <mat-option value="sql">SQL Server Authentication</mat-option>
-            <mat-option value="windows">Windows Authentication</mat-option>
-            <mat-option value="azure-ad">Azure AD Authentication</mat-option>
-          </mat-select>
-        </mat-form-field>
+        @if (formData.engine === 'mssql') {
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Authentication Type</mat-label>
+            <mat-select [(ngModel)]="formData.authenticationType">
+              <mat-option value="sql">SQL Server Authentication</mat-option>
+              <mat-option value="windows">Windows Authentication</mat-option>
+              <mat-option value="azure-ad">Azure AD Authentication</mat-option>
+            </mat-select>
+          </mat-form-field>
+        }
 
-        @if (formData.authenticationType === 'sql') {
+        @if (formData.authenticationType === 'sql' || formData.engine !== 'mssql') {
           <div class="form-row">
             <mat-form-field appearance="outline" class="flex-1">
               <mat-label>Username</mat-label>
@@ -150,7 +173,17 @@ export interface ConnectionDialogResult {
           </mat-form-field>
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>Default Database</mat-label>
-            <input matInput [(ngModel)]="formData.database" placeholder="master" />
+            <input
+              matInput
+              [(ngModel)]="formData.database"
+              [placeholder]="
+                formData.engine === 'postgresql'
+                  ? 'postgres'
+                  : formData.engine === 'mysql'
+                    ? 'mysql'
+                    : 'master'
+              "
+            />
           </mat-form-field>
         </div>
       </mat-dialog-content>
@@ -276,7 +309,9 @@ export interface ConnectionDialogResult {
         border-radius: 50%;
         border: 2px solid transparent;
         cursor: pointer;
-        transition: transform 0.12s ease, border-color 0.12s ease;
+        transition:
+          transform 0.12s ease,
+          border-color 0.12s ease;
         padding: 0;
         display: flex;
         align-items: center;
@@ -347,6 +382,7 @@ export class ConnectionDialogComponent {
 
   formData: Partial<ConnectionProfile> & { password?: string } = {
     name: '',
+    engine: 'mssql',
     server: 'localhost',
     port: 1433,
     authenticationType: 'sql',
@@ -444,6 +480,38 @@ export class ConnectionDialogComponent {
     );
   }
 
+  onEngineChange(engine: string): void {
+    const ports: Record<string, number> = { mssql: 1433, postgresql: 5432, mysql: 3306 };
+    this.formData.port = ports[engine] || 1433;
+    // Adjust default username for engine
+    if (
+      engine === 'postgresql' &&
+      (!this.formData.username ||
+        this.formData.username === 'sa' ||
+        this.formData.username === 'root')
+    ) {
+      this.formData.username = 'postgres';
+    } else if (
+      engine === 'mysql' &&
+      (!this.formData.username ||
+        this.formData.username === 'sa' ||
+        this.formData.username === 'postgres')
+    ) {
+      this.formData.username = 'root';
+    } else if (
+      engine === 'mssql' &&
+      (!this.formData.username ||
+        this.formData.username === 'postgres' ||
+        this.formData.username === 'root')
+    ) {
+      this.formData.username = 'sa';
+    }
+    // PG/MySQL don't support Windows auth
+    if (engine !== 'mssql' && this.formData.authenticationType !== 'sql') {
+      this.formData.authenticationType = 'sql';
+    }
+  }
+
   canTestConnection(): boolean {
     return !!(
       this.formData.server &&
@@ -456,6 +524,7 @@ export class ConnectionDialogComponent {
     return {
       id: 'test-connection',
       name: this.formData.name || 'Test Connection',
+      engine: this.formData.engine || 'mssql',
       server: this.formData.server!,
       port: this.formData.port!,
       authenticationType: this.formData.authenticationType as AuthenticationType,
@@ -474,6 +543,7 @@ export class ConnectionDialogComponent {
     return {
       ...(existingId ? { id: existingId } : {}),
       name: this.formData.name!,
+      engine: this.formData.engine || 'mssql',
       server: this.formData.server!,
       port: this.formData.port!,
       authenticationType: this.formData.authenticationType as AuthenticationType,

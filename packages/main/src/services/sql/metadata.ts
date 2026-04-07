@@ -1,6 +1,7 @@
 /**
  * Metadata Service
- * Queries SQL Server for database metadata
+ * Queries databases for metadata (SQL Server, PostgreSQL, MySQL).
+ * Uses the SQL dialect abstraction for engine-specific queries.
  */
 
 import type {
@@ -34,6 +35,7 @@ import { ObjectCache } from '../../utils/object-cache';
 import { TsqlBuilder } from '../../utils/tsql-builder';
 import { createLogger } from '../../utils/logger';
 import { ConnectionPoolManager } from './connection-pool';
+import type { SQLDialect } from './dialect';
 
 const log = createLogger('Metadata');
 
@@ -45,6 +47,37 @@ export class MetadataService extends BaseSingleton {
   private viewCache: ObjectCache<ViewInfo[]>;
   private procedureCache: ObjectCache<ProcedureInfo[]>;
   private functionCache: ObjectCache<FunctionInfo[]>;
+
+  /**
+   * Get the SQL dialect for a connection
+   */
+  private getDialect(connectionId: string): SQLDialect {
+    return this.poolManager.getDialectForProfile(connectionId);
+  }
+
+  /**
+   * Execute a query on any engine (MSSQL or PG).
+   * Routes to the correct pool based on the connection's engine.
+   */
+  private async queryAny<T>(connectionId: string, sql: string, database?: string): Promise<T[]> {
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    if (engine === 'postgresql') {
+      const pool = await this.poolManager.getPgPool(connectionId, database);
+      const result = await pool.query(sql);
+      return result.rows as T[];
+    }
+
+    if (engine === 'mysql') {
+      const pool = await this.poolManager.getMySQLPool(connectionId, database);
+      const [rows] = await pool.query(sql);
+      return rows as T[];
+    }
+
+    // Default: SQL Server
+    const result = await this.poolManager.query<T>(connectionId, sql, database);
+    return result.recordset;
+  }
 
   /** Escape a SQL identifier for use inside square brackets (doubles any `]` characters) */
   private escId(name: string): string {
@@ -82,10 +115,11 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listDatabases();
-    const result = await this.poolManager.query<DatabaseInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listDatabasesSQL();
+    const rows = await this.queryAny<DatabaseInfo>(connectionId, sql);
 
-    const databases = result.recordset.map(row => ({
+    const databases = rows.map(row => ({
       ...row,
       isSystemDb: Boolean(row.isSystemDb),
       state: (row.state?.toLowerCase() || 'online') as DatabaseInfo['state'],
@@ -114,10 +148,11 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listSchemas(database);
-    const result = await this.poolManager.query<SchemaInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listSchemasSQL(database);
+    const rows = await this.queryAny<SchemaInfo>(connectionId, sql, database);
 
-    const schemas = result.recordset.map(row => ({
+    const schemas = rows.map(row => ({
       ...row,
       isSystem: Boolean(row.isSystem),
     }));
@@ -143,11 +178,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listTables(database);
-    const result = await this.poolManager.query<TableInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listTablesSQL(database);
+    const rows = await this.queryAny<TableInfo>(connectionId, sql, database);
 
-    this.tableCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.tableCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -167,11 +203,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listViews(database);
-    const result = await this.poolManager.query<ViewInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listViewsSQL(database);
+    const rows = await this.queryAny<ViewInfo>(connectionId, sql, database);
 
-    this.viewCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.viewCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -191,11 +228,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listProcedures(database);
-    const result = await this.poolManager.query<ProcedureInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listProceduresSQL(database);
+    const rows = await this.queryAny<ProcedureInfo>(connectionId, sql, database);
 
-    this.procedureCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.procedureCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -215,11 +253,12 @@ export class MetadataService extends BaseSingleton {
       }
     }
 
-    const sql = TsqlBuilder.listFunctions(database);
-    const result = await this.poolManager.query<FunctionInfo>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listFunctionsSQL(database);
+    const rows = await this.queryAny<FunctionInfo>(connectionId, sql, database);
 
-    this.functionCache.set(cacheKey, result.recordset);
-    return result.recordset;
+    this.functionCache.set(cacheKey, rows);
+    return rows;
   }
 
   /**
@@ -232,14 +271,15 @@ export class MetadataService extends BaseSingleton {
     name: string,
     objectType: string
   ): Promise<ObjectDefinition> {
-    const sql = TsqlBuilder.getObjectDefinition(database, schema, name);
-    const result = await this.poolManager.query<{ definition: string }>(connectionId, sql);
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.getObjectDefinitionSQL(database, schema, name);
+    const rows = await this.queryAny<{ definition: string }>(connectionId, sql, database);
 
     return {
       objectType: objectType as ObjectDefinition['objectType'],
       schema,
       name,
-      definition: result.recordset[0]?.definition || '-- Definition not available',
+      definition: rows[0]?.definition || '-- Definition not available',
     };
   }
 
@@ -252,9 +292,10 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ColumnInfo[]> {
-    const sql = TsqlBuilder.listColumns(database, schema, table);
-    const result = await this.poolManager.query<ColumnInfo>(connectionId, sql);
-    return result.recordset.map(row => ({
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listColumnsSQL(database, schema, table);
+    const rows = await this.queryAny<ColumnInfo>(connectionId, sql, database);
+    return rows.map(row => ({
       ...row,
       isNullable: Boolean(row.isNullable),
       isPrimaryKey: Boolean(row.isPrimaryKey),
@@ -271,15 +312,16 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<IndexInfo[]> {
-    const sql = TsqlBuilder.listIndexes(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listIndexesSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       type: string;
       isUnique: boolean;
       isPrimaryKey: boolean;
       columns: string;
-    }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    }>(connectionId, sql, database);
+    return rows.map(row => ({
       name: row.name,
       type: row.type as IndexInfo['type'],
       isUnique: Boolean(row.isUnique),
@@ -297,8 +339,9 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ForeignKeyInfo[]> {
-    const sql = TsqlBuilder.listForeignKeys(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listForeignKeysSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       columns: string;
       referencedSchema: string;
@@ -306,8 +349,8 @@ export class MetadataService extends BaseSingleton {
       referencedColumns: string;
       onDelete: string;
       onUpdate: string;
-    }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    }>(connectionId, sql, database);
+    return rows.map(row => ({
       name: row.name,
       columns: row.columns ? row.columns.split(', ') : [],
       referencedSchema: row.referencedSchema,
@@ -327,14 +370,15 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ConstraintInfo[]> {
-    const sql = TsqlBuilder.listConstraints(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listConstraintsSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       type: string;
       columns: string;
       definition: string;
-    }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    }>(connectionId, sql, database);
+    return rows.map(row => ({
       name: row.name,
       type: row.type as ConstraintInfo['type'],
       columns: row.columns ? row.columns.split(', ') : [],
@@ -351,14 +395,15 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<TriggerInfo[]> {
-    const sql = TsqlBuilder.listTriggers(database, schema, table);
-    const result = await this.poolManager.query<{
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listTriggersSQL(database, schema, table);
+    const rows = await this.queryAny<{
       name: string;
       isDisabled: boolean;
       triggerType: string;
       createdAt: string;
-    }>(connectionId, sql);
-    return result.recordset.map(row => ({
+    }>(connectionId, sql, database);
+    return rows.map(row => ({
       name: row.name,
       isEnabled: !row.isDisabled,
       triggerType: row.triggerType as TriggerInfo['triggerType'],
@@ -367,7 +412,8 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
-   * List extended properties for a table and its columns
+   * List extended properties (MSSQL) or COMMENT ON descriptions (PG) for a table and its columns.
+   * Returns data shaped as ExtendedProperty[] for UI consistency across engines.
    */
   async listExtendedProperties(
     connectionId: string,
@@ -375,9 +421,12 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<ExtendedProperty[]> {
-    const sql = TsqlBuilder.listExtendedProperties(database, schema, table);
-    const result = await this.poolManager.query<ExtendedProperty>(connectionId, sql);
-    return result.recordset;
+    const dialect = this.getDialect(connectionId);
+    const sql = dialect.listObjectCommentsSQL(database, schema, table);
+    if (!sql) return [];
+
+    const rows = await this.queryAny<ExtendedProperty>(connectionId, sql, database);
+    return rows;
   }
 
   /**
@@ -389,7 +438,19 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<TableProperties> {
-    // Get basic properties
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    // For PostgreSQL, build properties from pg_catalog queries
+    if (engine === 'postgresql') {
+      return this.getTablePropertiesPg(connectionId, database, schema, table);
+    }
+
+    // For MySQL, build properties from information_schema
+    if (engine === 'mysql') {
+      return this.getTablePropertiesMySQL(connectionId, database, schema, table);
+    }
+
+    // SQL Server: use TsqlBuilder for detailed system view queries
     const propertiesSql = TsqlBuilder.getTableProperties(database, schema, table);
     const propertiesResult = await this.poolManager.query<{
       schema: string;
@@ -410,7 +471,7 @@ export class MetadataService extends BaseSingleton {
       hasTextImage: boolean;
       textImageOnFilegroup: string;
       filegroup: string;
-    }>(connectionId, propertiesSql);
+    }>(connectionId, propertiesSql, database);
 
     const baseProps = propertiesResult.recordset[0];
     if (!baseProps) {
@@ -457,6 +518,116 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
+   * Get table properties for PostgreSQL using pg_catalog
+   */
+  private async getTablePropertiesPg(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<TableProperties> {
+    const sql = `
+SELECT
+  n.nspname AS schema,
+  c.relname AS name,
+  c.oid AS "objectId",
+  NULL AS "createdAt",
+  NULL AS "modifiedAt",
+  COALESCE(s.n_live_tup, 0) AS "rowCount",
+  pg_relation_size(c.oid) / 1024 AS "dataSpaceKb",
+  pg_indexes_size(c.oid) / 1024 AS "indexSpaceKb",
+  0 AS "unusedSpaceKb",
+  pg_total_relation_size(c.oid) / 1024 AS "totalSpaceKb",
+  EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attidentity != '') AS "hasIdentity",
+  (SELECT a.attname FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attidentity != '' LIMIT 1) AS "identityColumn",
+  false AS "isReplicated",
+  false AS "hasTextImage",
+  ts.spcname AS filegroup
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+LEFT JOIN pg_tablespace ts ON c.reltablespace = ts.oid
+WHERE n.nspname = '${this.escId(schema)}'
+  AND c.relname = '${this.escId(table)}';`;
+
+    const rows = await this.queryAny<TableProperties>(connectionId, sql, database);
+    const props = rows[0] || ({} as TableProperties);
+
+    // Fetch sub-resources using dialect-routed methods
+    const [columns, indexes, foreignKeys, constraints, triggers, extendedProperties] =
+      await Promise.all([
+        this.listColumns(connectionId, database, schema, table),
+        this.listIndexes(connectionId, database, schema, table),
+        this.listForeignKeys(connectionId, database, schema, table),
+        this.listConstraints(connectionId, database, schema, table),
+        this.listTriggers(connectionId, database, schema, table),
+        this.listExtendedProperties(connectionId, database, schema, table),
+      ]);
+
+    return {
+      ...props,
+      columns,
+      indexes,
+      foreignKeys,
+      constraints,
+      triggers,
+      extendedProperties,
+    };
+  }
+
+  /**
+   * Get table properties for MySQL using information_schema
+   */
+  private async getTablePropertiesMySQL(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<TableProperties> {
+    const sql = `
+SELECT
+  TABLE_SCHEMA AS \`schema\`,
+  TABLE_NAME AS name,
+  0 AS \`objectId\`,
+  CREATE_TIME AS \`createdAt\`,
+  UPDATE_TIME AS \`modifiedAt\`,
+  TABLE_ROWS AS \`rowCount\`,
+  ROUND(DATA_LENGTH / 1024) AS \`dataSpaceKb\`,
+  ROUND(INDEX_LENGTH / 1024) AS \`indexSpaceKb\`,
+  ROUND(DATA_FREE / 1024) AS \`unusedSpaceKb\`,
+  ROUND((DATA_LENGTH + INDEX_LENGTH) / 1024) AS \`totalSpaceKb\`,
+  IF(AUTO_INCREMENT IS NOT NULL, true, false) AS \`hasIdentity\`,
+  ENGINE AS filegroup
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
+  AND TABLE_NAME = '${this.escStr(table)}';`;
+
+    const rows = await this.queryAny<TableProperties>(connectionId, sql, database);
+    const props = rows[0] || ({} as TableProperties);
+
+    // Fetch sub-resources using dialect-routed methods
+    const [columns, indexes, foreignKeys, constraints, triggers, extendedProperties] =
+      await Promise.all([
+        this.listColumns(connectionId, database, schema, table),
+        this.listIndexes(connectionId, database, schema, table),
+        this.listForeignKeys(connectionId, database, schema, table),
+        this.listConstraints(connectionId, database, schema, table),
+        this.listTriggers(connectionId, database, schema, table),
+        this.listExtendedProperties(connectionId, database, schema, table),
+      ]);
+
+    return {
+      ...props,
+      columns,
+      indexes,
+      foreignKeys,
+      constraints,
+      triggers,
+      extendedProperties,
+    };
+  }
+
+  /**
    * Generate CREATE TABLE script
    */
   async scriptTableAsCreate(
@@ -465,7 +636,19 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<string> {
-    // Get column data
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    // For PostgreSQL, generate CREATE TABLE from information_schema
+    if (engine === 'postgresql') {
+      return this.scriptTableAsCreatePg(connectionId, database, schema, table);
+    }
+
+    // For MySQL, generate CREATE TABLE from information_schema
+    if (engine === 'mysql') {
+      return this.scriptTableAsCreateMySQL(connectionId, database, schema, table);
+    }
+
+    // SQL Server: use TsqlBuilder for detailed scripting
     const columnsSql = TsqlBuilder.getTableScriptData(database, schema, table);
     const columnsResult = await this.poolManager.query<{
       ordinalPosition: number;
@@ -482,7 +665,7 @@ export class MetadataService extends BaseSingleton {
       defaultConstraintName: string;
       computedDefinition: string;
       computedIsPersisted: boolean;
-    }>(connectionId, columnsSql);
+    }>(connectionId, columnsSql, database);
 
     // Get primary key
     const pkSql = TsqlBuilder.getPrimaryKeyScript(database, schema, table);
@@ -490,7 +673,7 @@ export class MetadataService extends BaseSingleton {
       constraintName: string;
       indexType: string;
       columns: string;
-    }>(connectionId, pkSql);
+    }>(connectionId, pkSql, database);
 
     // Get foreign keys
     const fkSql = TsqlBuilder.getForeignKeyScript(database, schema, table);
@@ -502,7 +685,7 @@ export class MetadataService extends BaseSingleton {
       referencedColumns: string;
       onDelete: string;
       onUpdate: string;
-    }>(connectionId, fkSql);
+    }>(connectionId, fkSql, database);
 
     // Get other constraints
     const constraintsSql = TsqlBuilder.getConstraintsScript(database, schema, table);
@@ -512,7 +695,7 @@ export class MetadataService extends BaseSingleton {
       indexType: string;
       columns: string;
       definition: string;
-    }>(connectionId, constraintsSql);
+    }>(connectionId, constraintsSql, database);
 
     // Get indexes
     const indexesSql = TsqlBuilder.getIndexesScript(database, schema, table);
@@ -523,7 +706,7 @@ export class MetadataService extends BaseSingleton {
       keyColumns: string;
       includedColumns: string;
       filterDefinition: string;
-    }>(connectionId, indexesSql);
+    }>(connectionId, indexesSql, database);
 
     // Build the CREATE TABLE script
     return this.buildCreateTableScript(
@@ -710,6 +893,94 @@ export class MetadataService extends BaseSingleton {
   }
 
   /**
+   * Generate CREATE TABLE script for PostgreSQL
+   */
+  private async scriptTableAsCreatePg(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<string> {
+    const columns = await this.listColumns(connectionId, database, schema, table);
+    const dialect = this.getDialect(connectionId);
+    const fullName = dialect.quoteSchemaObject(schema, table);
+
+    const colDefs = columns.map(col => {
+      let def = `  ${dialect.quoteIdentifier(col.name)} ${col.dataType}`;
+      if (col.maxLength && col.dataType === 'character varying') {
+        def += `(${col.maxLength})`;
+      }
+      if (!col.isNullable) def += ' NOT NULL';
+      if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+      return def;
+    });
+
+    // Add primary key constraint
+    const pkCols = columns.filter(c => c.isPrimaryKey).map(c => dialect.quoteIdentifier(c.name));
+    if (pkCols.length > 0) {
+      colDefs.push(`  PRIMARY KEY (${pkCols.join(', ')})`);
+    }
+
+    return `CREATE TABLE ${fullName} (\n${colDefs.join(',\n')}\n);`;
+  }
+
+  /**
+   * Generate CREATE TABLE script for MySQL
+   */
+  private async scriptTableAsCreateMySQL(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<string> {
+    // Query column details including auto_increment from EXTRA field
+    const colSql = `
+SELECT
+  COLUMN_NAME AS name,
+  COLUMN_TYPE AS columnType,
+  IS_NULLABLE,
+  COLUMN_DEFAULT AS defaultValue,
+  EXTRA,
+  COLUMN_KEY
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
+  AND TABLE_NAME = '${this.escStr(table)}'
+ORDER BY ORDINAL_POSITION;`;
+
+    const colRows = await this.queryAny<{
+      name: string;
+      columnType: string;
+      IS_NULLABLE: string;
+      defaultValue: string | null;
+      EXTRA: string;
+      COLUMN_KEY: string;
+    }>(connectionId, colSql, database);
+
+    const dialect = this.getDialect(connectionId);
+    const fullName = dialect.quoteSchemaObject(schema, table);
+
+    const colDefs = colRows.map(col => {
+      let def = `  ${dialect.quoteIdentifier(col.name)} ${col.columnType}`;
+      if (col.IS_NULLABLE === 'NO') def += ' NOT NULL';
+      if (col.EXTRA?.includes('auto_increment')) def += ' AUTO_INCREMENT';
+      if (col.defaultValue !== null && !col.EXTRA?.includes('auto_increment')) {
+        def += ` DEFAULT ${col.defaultValue}`;
+      }
+      return def;
+    });
+
+    // Add primary key
+    const pkCols = colRows
+      .filter(c => c.COLUMN_KEY === 'PRI')
+      .map(c => dialect.quoteIdentifier(c.name));
+    if (pkCols.length > 0) {
+      colDefs.push(`  PRIMARY KEY (${pkCols.join(', ')})`);
+    }
+
+    return `CREATE TABLE ${fullName} (\n${colDefs.join(',\n')}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`;
+  }
+
+  /**
    * Generate INSERT statement template for a table
    */
   async scriptTableAsInsert(
@@ -718,19 +989,53 @@ export class MetadataService extends BaseSingleton {
     schema: string,
     table: string
   ): Promise<string> {
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    const dialect = this.getDialect(connectionId);
     const columns = await this.listColumns(connectionId, database, schema, table);
+
+    if (engine === 'postgresql') {
+      // PG insert template — skip identity/serial columns
+      const nonIdentityCols = columns.filter(c => {
+        const def = c.defaultValue?.toLowerCase() || '';
+        return !def.includes('nextval(') && !def.includes('generated');
+      });
+      const colNames = nonIdentityCols.map(c => dialect.quoteIdentifier(c.name)).join(', ');
+      const values = nonIdentityCols.map(c => `/* ${c.dataType} */`).join(', ');
+      return `INSERT INTO ${dialect.quoteSchemaObject(schema, table)} (${colNames})\nVALUES (${values});`;
+    }
+
+    if (engine === 'mysql') {
+      // MySQL insert template — skip auto_increment columns
+      const extraSql = `
+SELECT COLUMN_NAME, EXTRA FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
+  AND TABLE_NAME = '${this.escStr(table)}'
+  AND EXTRA LIKE '%auto_increment%'`;
+      const autoIncRows = await this.queryAny<{ COLUMN_NAME: string }>(
+        connectionId,
+        extraSql,
+        database
+      );
+      const autoIncCols = new Set(autoIncRows.map(r => r.COLUMN_NAME));
+
+      const nonAutoCols = columns.filter(c => !autoIncCols.has(c.name));
+      const colNames = nonAutoCols.map(c => dialect.quoteIdentifier(c.name)).join(', ');
+      const values = nonAutoCols.map(c => `/* ${c.dataType} */`).join(', ');
+      return `INSERT INTO ${dialect.quoteSchemaObject(schema, table)} (${colNames})\nVALUES (${values});`;
+    }
+
+    // SQL Server path
     const columnData = columns.map(c => ({
       name: c.name,
       dataType: c.dataType,
-      isIdentity: false, // We'll check via the column query
+      isIdentity: false,
     }));
 
-    // Get identity info
     const columnsSql = TsqlBuilder.getTableScriptData(database, schema, table);
     const result = await this.poolManager.query<{
       columnName: string;
       isIdentity: boolean;
-    }>(connectionId, columnsSql);
+    }>(connectionId, columnsSql, database);
 
     for (const r of result.recordset) {
       const col = columnData.find(c => c.name === r.columnName);
@@ -776,13 +1081,48 @@ export class MetadataService extends BaseSingleton {
       this.listForeignKeys(connectionId, database, schema, table),
     ]);
 
-    // Get identity column info
-    const identitySql = TsqlBuilder.getTableScriptData(database, schema, table);
-    const identityResult = await this.poolManager.query<{
-      columnName: string;
-      isIdentity: boolean;
-      defaultValue: string;
-    }>(connectionId, identitySql);
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+
+    // Get identity column info (MSSQL uses TsqlBuilder, PG uses column defaults)
+    const identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
+    if (engine === 'postgresql') {
+      // PG: detect identity from column defaults (nextval, GENERATED)
+      for (const col of columns) {
+        const def = col.defaultValue?.toLowerCase() || '';
+        const isId = def.includes('nextval(') || def.includes('generated');
+        identityMap.set(col.name, { isIdentity: isId, defaultValue: col.defaultValue || '' });
+      }
+    } else if (engine === 'mysql') {
+      // MySQL: detect auto_increment from information_schema.COLUMNS.EXTRA
+      const extraSql = `
+SELECT COLUMN_NAME, EXTRA, COLUMN_DEFAULT FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = '${this.escStr(schema)}'
+  AND TABLE_NAME = '${this.escStr(table)}'`;
+      const extraRows = await this.queryAny<{
+        COLUMN_NAME: string;
+        EXTRA: string;
+        COLUMN_DEFAULT: string | null;
+      }>(connectionId, extraSql, database);
+      for (const r of extraRows) {
+        identityMap.set(r.COLUMN_NAME, {
+          isIdentity: r.EXTRA?.includes('auto_increment') ?? false,
+          defaultValue: r.COLUMN_DEFAULT || '',
+        });
+      }
+    } else {
+      const identitySql = TsqlBuilder.getTableScriptData(database, schema, table);
+      const identityResult = await this.poolManager.query<{
+        columnName: string;
+        isIdentity: boolean;
+        defaultValue: string;
+      }>(connectionId, identitySql, database);
+      for (const r of identityResult.recordset) {
+        identityMap.set(r.columnName, {
+          isIdentity: Boolean(r.isIdentity),
+          defaultValue: r.defaultValue,
+        });
+      }
+    }
 
     // Build a map of column -> FK info
     const fkMap = new Map<
@@ -806,15 +1146,6 @@ export class MetadataService extends BaseSingleton {
           constraintName: fk.name,
         });
       }
-    }
-
-    // Build a map of column -> identity/default info
-    const identityMap = new Map<string, { isIdentity: boolean; defaultValue: string }>();
-    for (const row of identityResult.recordset) {
-      identityMap.set(row.columnName, {
-        isIdentity: Boolean(row.isIdentity),
-        defaultValue: row.defaultValue,
-      });
     }
 
     return columns.map(col => ({
@@ -845,65 +1176,108 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJDatabaseInfo> {
     try {
+      const engine = this.poolManager.getEngineForProfile(connectionId);
       const db = this.escId(database);
-      const mj = this.escId(mjSchemaName);
       const mjStr = mjSchemaName.replace(/'/g, "''");
 
-      // Check if the MJ schema exists and has the Entity table
-      const detectSql = `
-        USE [${db}];
-        SELECT
-          CASE WHEN SCHEMA_ID('${mjStr}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
-          CASE WHEN OBJECT_ID('${mjStr}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
-          CASE WHEN OBJECT_ID('${mjStr}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
-          CASE WHEN OBJECT_ID('${mjStr}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
-          CASE WHEN OBJECT_ID('${mjStr}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
-          CASE WHEN OBJECT_ID('${mjStr}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
-      `;
+      // Build engine-appropriate detection query
+      let detectSql: string;
+      if (engine === 'postgresql') {
+        detectSql = `
+          SELECT
+            (SELECT COUNT(*) FROM pg_namespace WHERE nspname = '${mjStr}')::int AS "hasSchema",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'Entity')::int AS "hasEntityTable",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'EntityField')::int AS "hasEntityFieldTable",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'User')::int AS "hasUsers",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'AuditLog')::int AS "hasAuditLog",
+            (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${mjStr}' AND table_name = 'Application')::int AS "hasApplications"
+        `;
+      } else if (engine === 'mysql') {
+        // MySQL treats schema and database as synonyms — check for MJ as a database/schema
+        detectSql = `
+          SELECT
+            (SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '${mjStr}') AS hasSchema,
+            (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${mjStr}' AND TABLE_NAME = 'Entity') AS hasEntityTable,
+            (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${mjStr}' AND TABLE_NAME = 'EntityField') AS hasEntityFieldTable,
+            (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${mjStr}' AND TABLE_NAME = 'User') AS hasUsers,
+            (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${mjStr}' AND TABLE_NAME = 'AuditLog') AS hasAuditLog,
+            (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${mjStr}' AND TABLE_NAME = 'Application') AS hasApplications
+        `;
+      } else {
+        detectSql = `
+          USE [${db}];
+          SELECT
+            CASE WHEN SCHEMA_ID('${mjStr}') IS NOT NULL THEN 1 ELSE 0 END AS hasSchema,
+            CASE WHEN OBJECT_ID('${mjStr}.Entity') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityTable,
+            CASE WHEN OBJECT_ID('${mjStr}.EntityField') IS NOT NULL THEN 1 ELSE 0 END AS hasEntityFieldTable,
+            CASE WHEN OBJECT_ID('${mjStr}.User') IS NOT NULL THEN 1 ELSE 0 END AS hasUsers,
+            CASE WHEN OBJECT_ID('${mjStr}.AuditLog') IS NOT NULL THEN 1 ELSE 0 END AS hasAuditLog,
+            CASE WHEN OBJECT_ID('${mjStr}.Application') IS NOT NULL THEN 1 ELSE 0 END AS hasApplications
+        `;
+      }
 
-      const result = await this.poolManager.query<{
+      const rows = await this.queryAny<{
         hasSchema: number;
         hasEntityTable: number;
         hasEntityFieldTable: number;
         hasUsers: number;
         hasAuditLog: number;
         hasApplications: number;
-      }>(connectionId, detectSql);
+      }>(connectionId, detectSql, database);
 
-      const detection = result.recordset[0];
+      const detection = rows[0];
       if (!detection || !detection.hasSchema || !detection.hasEntityTable) {
         return { isMJEnabled: false };
       }
 
       // MJ is detected - get additional info
-      const countsSql = `
-        USE [${db}];
-        SELECT
-          (SELECT COUNT(*) FROM [${mj}].[Entity]) AS entityCount,
-          (SELECT COUNT(*) FROM [${mj}].[Application]) AS applicationCount
-      `;
+      const dialect = this.getDialect(connectionId);
+      const mjQuoted = dialect.quoteIdentifier(mjSchemaName);
+      let countsSql: string;
+      if (engine === 'postgresql') {
+        countsSql = `SELECT
+            (SELECT COUNT(*) FROM ${mjQuoted}."Entity") AS "entityCount",
+            (SELECT COUNT(*) FROM ${mjQuoted}."Application") AS "applicationCount"`;
+      } else if (engine === 'mysql') {
+        countsSql = `SELECT
+            (SELECT COUNT(*) FROM ${mjQuoted}.\`Entity\`) AS entityCount,
+            (SELECT COUNT(*) FROM ${mjQuoted}.\`Application\`) AS applicationCount`;
+      } else {
+        countsSql = `USE [${db}];
+          SELECT
+            (SELECT COUNT(*) FROM [${this.escId(mjSchemaName)}].[Entity]) AS entityCount,
+            (SELECT COUNT(*) FROM [${this.escId(mjSchemaName)}].[Application]) AS applicationCount`;
+      }
 
-      const countsResult = await this.poolManager.query<{
+      const countsRows = await this.queryAny<{
         entityCount: number;
         applicationCount: number;
-      }>(connectionId, countsSql);
+      }>(connectionId, countsSql, database);
 
-      const counts = countsResult.recordset[0] || { entityCount: 0, applicationCount: 0 };
+      const counts = countsRows[0] || { entityCount: 0, applicationCount: 0 };
 
       // Try to get version from VersionInstallation if it exists
       let version: string | undefined;
       try {
-        const versionSql = `
-          USE [${db}];
-          IF OBJECT_ID('${mjStr}.VersionInstallation') IS NOT NULL
-            SELECT TOP 1 MJVersion as version FROM [${mj}].[VersionInstallation]
-            ORDER BY InstalledAt DESC
-        `;
-        const versionResult = await this.poolManager.query<{ version: string }>(
+        let versionSql: string;
+        if (engine === 'postgresql') {
+          versionSql = `SELECT "MJVersion" AS version FROM ${mjQuoted}."VersionInstallation"
+             ORDER BY "InstalledAt" DESC LIMIT 1`;
+        } else if (engine === 'mysql') {
+          versionSql = `SELECT MJVersion AS version FROM ${mjQuoted}.\`VersionInstallation\`
+             ORDER BY InstalledAt DESC LIMIT 1`;
+        } else {
+          versionSql = `USE [${db}];
+            IF OBJECT_ID('${mjStr}.VersionInstallation') IS NOT NULL
+              SELECT TOP 1 MJVersion as version FROM [${this.escId(mjSchemaName)}].[VersionInstallation]
+              ORDER BY InstalledAt DESC`;
+        }
+        const versionRows = await this.queryAny<{ version: string }>(
           connectionId,
-          versionSql
+          versionSql,
+          database
         );
-        version = versionResult.recordset[0]?.version;
+        version = versionRows[0]?.version;
       } catch {
         // Version table may not exist in older MJ versions
       }
@@ -926,37 +1300,85 @@ export class MetadataService extends BaseSingleton {
   /**
    * Get MJ entities from a database
    */
+  /**
+   * Execute an MJ schema query using the correct engine.
+   * PG uses queryAny with double-quoted identifiers; MSSQL uses USE + bracket quoting.
+   */
+  private async queryMJ<T>(
+    connectionId: string,
+    database: string,
+    _mjSchemaName: string,
+    selectSql: string
+  ): Promise<T[]> {
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    if (engine === 'postgresql') {
+      return this.queryAny<T>(connectionId, selectSql, database);
+    }
+    if (engine === 'mysql') {
+      return this.queryAny<T>(connectionId, selectSql, database);
+    }
+    // MSSQL: prepend USE [database]
+    const db = this.escId(database);
+    const fullSql = `USE [${db}];\n${selectSql}`;
+    const result = await this.poolManager.query<T>(connectionId, fullSql, database);
+    return result.recordset;
+  }
+
   async getMJEntities(
     connectionId: string,
     database: string,
     mjSchemaName = '__mj'
   ): Promise<MJEntityInfo[]> {
-    const db = this.escId(database);
-    const mj = this.escId(mjSchemaName);
-    const sql = `
-      USE [${db}];
-      SELECT
-        CAST(ID AS NVARCHAR(36)) AS id,
-        Name AS name,
-        Description AS description,
-        BaseTable AS baseTable,
-        BaseView AS baseView,
-        SchemaName AS schemaName,
-        CAST(VirtualEntity AS BIT) AS isVirtual,
-        CAST(TrackRecordChanges AS BIT) AS trackRecordChanges,
-        CAST(AuditRecordAccess AS BIT) AS auditRecordAccess,
-        CAST(IncludeInAPI AS BIT) AS includeInAPI,
-        CAST(AllowCreateAPI AS BIT) AS allowCreateAPI,
-        CAST(AllowUpdateAPI AS BIT) AS allowUpdateAPI,
-        CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
-        CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
-        CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
-      FROM [${mj}].[Entity]
-      ORDER BY Name
-    `;
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    const dialect = this.getDialect(connectionId);
+    const mj = dialect.quoteIdentifier(mjSchemaName);
 
-    const result = await this.poolManager.query<MJEntityInfo>(connectionId, sql);
-    return result.recordset.map(row => ({
+    let sql: string;
+    if (engine === 'postgresql') {
+      sql = `SELECT
+          "ID"::text AS id, "Name" AS name, "Description" AS description,
+          "BaseTable" AS "baseTable", "BaseView" AS "baseView", "SchemaName" AS "schemaName",
+          "VirtualEntity" AS "isVirtual", "TrackRecordChanges" AS "trackRecordChanges",
+          "AuditRecordAccess" AS "auditRecordAccess", "IncludeInAPI" AS "includeInAPI",
+          "AllowCreateAPI" AS "allowCreateAPI", "AllowUpdateAPI" AS "allowUpdateAPI",
+          "AllowDeleteAPI" AS "allowDeleteAPI",
+          "__mj_CreatedAt"::text AS "createdAt", "__mj_UpdatedAt"::text AS "updatedAt"
+        FROM ${mj}."Entity" ORDER BY "Name"`;
+    } else if (engine === 'mysql') {
+      sql = `SELECT
+          CAST(ID AS CHAR(36)) AS id,
+          Name AS name, Description AS description,
+          BaseTable AS baseTable, BaseView AS baseView, SchemaName AS schemaName,
+          VirtualEntity AS isVirtual,
+          TrackRecordChanges AS trackRecordChanges,
+          AuditRecordAccess AS auditRecordAccess,
+          IncludeInAPI AS includeInAPI,
+          AllowCreateAPI AS allowCreateAPI,
+          AllowUpdateAPI AS allowUpdateAPI,
+          AllowDeleteAPI AS allowDeleteAPI,
+          DATE_FORMAT(__mj_CreatedAt, '%Y-%m-%dT%H:%i:%s') AS createdAt,
+          DATE_FORMAT(__mj_UpdatedAt, '%Y-%m-%dT%H:%i:%s') AS updatedAt
+        FROM ${mj}.\`Entity\` ORDER BY Name`;
+    } else {
+      sql = `SELECT
+          CAST(ID AS NVARCHAR(36)) AS id,
+          Name AS name, Description AS description,
+          BaseTable AS baseTable, BaseView AS baseView, SchemaName AS schemaName,
+          CAST(VirtualEntity AS BIT) AS isVirtual,
+          CAST(TrackRecordChanges AS BIT) AS trackRecordChanges,
+          CAST(AuditRecordAccess AS BIT) AS auditRecordAccess,
+          CAST(IncludeInAPI AS BIT) AS includeInAPI,
+          CAST(AllowCreateAPI AS BIT) AS allowCreateAPI,
+          CAST(AllowUpdateAPI AS BIT) AS allowUpdateAPI,
+          CAST(AllowDeleteAPI AS BIT) AS allowDeleteAPI,
+          CONVERT(VARCHAR(30), __mj_CreatedAt, 126) AS createdAt,
+          CONVERT(VARCHAR(30), __mj_UpdatedAt, 126) AS updatedAt
+        FROM [${this.escId(mjSchemaName)}].[Entity]
+        ORDER BY Name`;
+    }
+
+    const rows = await this.queryMJ<MJEntityInfo>(connectionId, database, mjSchemaName, sql);
+    return rows.map(row => ({
       ...row,
       isVirtual: Boolean(row.isVirtual),
       trackRecordChanges: Boolean(row.trackRecordChanges),
@@ -977,35 +1399,53 @@ export class MetadataService extends BaseSingleton {
     entityId: string,
     mjSchemaName = '__mj'
   ): Promise<MJEntityFieldInfo[]> {
-    const db = this.escId(database);
-    const mj = this.escId(mjSchemaName);
-    const sql = `
-      USE [${db}];
+    const engine = this.poolManager.getEngineForProfile(connectionId);
+    const dialect = this.getDialect(connectionId);
+    const mj = dialect.quoteIdentifier(mjSchemaName);
+
+    let sql: string;
+    if (engine === 'postgresql') {
+      sql = `SELECT
+        "ID"::text AS id, "EntityID"::text AS "entityId",
+        "Name" AS name, "DisplayName" AS "displayName", "Description" AS description,
+        "Type" AS type, "Length" AS length, "Precision" AS precision, "Scale" AS scale,
+        "AllowsNull" AS "allowsNull", "IsPrimaryKey" AS "isPrimaryKey", "IsUnique" AS "isUnique",
+        "DefaultValue" AS "defaultValue", "IsVirtual" AS "isVirtual", "Sequence" AS sequence,
+        "RelatedEntityID"::text AS "relatedEntityId", "RelatedEntityFieldName" AS "relatedEntityFieldName"
+      FROM ${mj}."EntityField"
+      WHERE "EntityID"::text = '${this.escStr(entityId)}'
+      ORDER BY "Sequence"`;
+    } else if (engine === 'mysql') {
+      sql = `SELECT
+        CAST(ID AS CHAR(36)) AS id, CAST(EntityID AS CHAR(36)) AS entityId,
+        Name AS name, DisplayName AS displayName, Description AS description,
+        Type AS type, Length AS length, \`Precision\` AS \`precision\`, Scale AS scale,
+        AllowsNull AS allowsNull, IsPrimaryKey AS isPrimaryKey, IsUnique AS isUnique,
+        DefaultValue AS defaultValue, IsVirtual AS isVirtual, Sequence AS sequence,
+        CAST(RelatedEntityID AS CHAR(36)) AS relatedEntityId, RelatedEntityFieldName AS relatedEntityFieldName
+      FROM ${mj}.\`EntityField\`
+      WHERE EntityID = '${this.escStr(entityId)}'
+      ORDER BY Sequence`;
+    } else {
+      const db = this.escId(database);
+      const mjEsc = this.escId(mjSchemaName);
+      sql = `USE [${db}];
       SELECT
-        CAST(ID AS NVARCHAR(36)) AS id,
-        CAST(EntityID AS NVARCHAR(36)) AS entityId,
-        Name AS name,
-        DisplayName AS displayName,
-        Description AS description,
-        Type AS type,
-        Length AS length,
-        Precision AS precision,
-        Scale AS scale,
-        CAST(AllowsNull AS BIT) AS allowsNull,
-        CAST(IsPrimaryKey AS BIT) AS isPrimaryKey,
-        CAST(IsUnique AS BIT) AS isUnique,
-        DefaultValue AS defaultValue,
-        CAST(IsVirtual AS BIT) AS isVirtual,
-        Sequence AS sequence,
+        CAST(ID AS NVARCHAR(36)) AS id, CAST(EntityID AS NVARCHAR(36)) AS entityId,
+        Name AS name, DisplayName AS displayName, Description AS description,
+        Type AS type, Length AS length, Precision AS precision, Scale AS scale,
+        CAST(AllowsNull AS BIT) AS allowsNull, CAST(IsPrimaryKey AS BIT) AS isPrimaryKey,
+        CAST(IsUnique AS BIT) AS isUnique, DefaultValue AS defaultValue,
+        CAST(IsVirtual AS BIT) AS isVirtual, Sequence AS sequence,
         CAST(RelatedEntityID AS NVARCHAR(36)) AS relatedEntityId,
         RelatedEntityFieldName AS relatedEntityFieldName
-      FROM [${mj}].[EntityField]
+      FROM [${mjEsc}].[EntityField]
       WHERE EntityID = '${this.escStr(entityId)}'
-      ORDER BY Sequence
-    `;
+      ORDER BY Sequence`;
+    }
 
-    const result = await this.poolManager.query<MJEntityFieldInfo>(connectionId, sql);
-    return result.recordset.map(row => ({
+    const rows = await this.queryMJ<MJEntityFieldInfo>(connectionId, database, mjSchemaName, sql);
+    return rows.map(row => ({
       ...row,
       allowsNull: Boolean(row.allowsNull),
       isPrimaryKey: Boolean(row.isPrimaryKey),
@@ -1023,21 +1463,25 @@ export class MetadataService extends BaseSingleton {
     mjSchemaName = '__mj'
   ): Promise<MJApplicationInfo[]> {
     try {
-      const db = this.escId(database);
-      const mj = this.escId(mjSchemaName);
-      const sql = `
-        USE [${db}];
-        SELECT
-          CAST(ID AS NVARCHAR(36)) AS id,
-          Name AS name,
-          Description AS description,
-          Icon AS icon
-        FROM [${mj}].[Application]
-        ORDER BY Name
-      `;
+      const engine = this.poolManager.getEngineForProfile(connectionId);
+      const dialect = this.getDialect(connectionId);
+      const mj = dialect.quoteIdentifier(mjSchemaName);
 
-      const result = await this.poolManager.query<MJApplicationInfo>(connectionId, sql);
-      return result.recordset;
+      let sql: string;
+      if (engine === 'postgresql') {
+        sql = `SELECT "ID"::text AS id, "Name" AS name, "Description" AS description, "Icon" AS icon
+          FROM ${mj}."Application" ORDER BY "Name"`;
+      } else if (engine === 'mysql') {
+        sql = `SELECT CAST(ID AS CHAR(36)) AS id, Name AS name, Description AS description, Icon AS icon
+          FROM ${mj}.\`Application\` ORDER BY Name`;
+      } else {
+        const db = this.escId(database);
+        const mjEsc = this.escId(mjSchemaName);
+        sql = `USE [${db}]; SELECT CAST(ID AS NVARCHAR(36)) AS id, Name AS name, Description AS description, Icon AS icon
+          FROM [${mjEsc}].[Application] ORDER BY Name`;
+      }
+
+      return await this.queryMJ<MJApplicationInfo>(connectionId, database, mjSchemaName, sql);
     } catch (error) {
       log.error('getMJApplications:', error);
       return [];
@@ -1078,7 +1522,11 @@ export class MetadataService extends BaseSingleton {
         ORDER BY er.Sequence
       `;
 
-      const result = await this.poolManager.query<MJEntityRelationship>(connectionId, sql);
+      const result = await this.poolManager.query<MJEntityRelationship>(
+        connectionId,
+        sql,
+        database
+      );
       return result.recordset.map(row => ({
         ...row,
         bundleInAPI: Boolean(row.bundleInAPI),
@@ -1138,7 +1586,7 @@ export class MetadataService extends BaseSingleton {
         ORDER BY rc.CreatedAt DESC
       `;
 
-      const result = await this.poolManager.query<MJRecordChange>(connectionId, sql);
+      const result = await this.poolManager.query<MJRecordChange>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJRecordChanges:', error);
@@ -1192,7 +1640,7 @@ export class MetadataService extends BaseSingleton {
         ORDER BY al.CreatedAt DESC
       `;
 
-      const result = await this.poolManager.query<MJAuditLog>(connectionId, sql);
+      const result = await this.poolManager.query<MJAuditLog>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJAuditLogs:', error);
@@ -1234,7 +1682,7 @@ export class MetadataService extends BaseSingleton {
         ORDER BY q.Name
       `;
 
-      const result = await this.poolManager.query<MJQuery>(connectionId, sql);
+      const result = await this.poolManager.query<MJQuery>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJSavedQueries:', error);
@@ -1275,7 +1723,7 @@ export class MetadataService extends BaseSingleton {
         ORDER BY __mj_CreatedAt DESC
       `;
 
-      const result = await this.poolManager.query<MJErrorLog>(connectionId, sql);
+      const result = await this.poolManager.query<MJErrorLog>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJErrorLogs:', error);
@@ -1326,7 +1774,7 @@ export class MetadataService extends BaseSingleton {
         ORDER BY url.LatestAt DESC
       `;
 
-      const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql);
+      const result = await this.poolManager.query<MJUserRecordLog>(connectionId, sql, database);
       return result.recordset;
     } catch (error) {
       log.error('getMJUserRecordLogs:', error);
