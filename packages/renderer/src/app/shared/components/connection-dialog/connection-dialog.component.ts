@@ -18,7 +18,12 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ConnectionStateService } from '../../../core/state/connection.state';
 import { ExplorerStateService } from '../../../core/state/explorer.state';
-import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
+import type {
+  ConnectionProfile,
+  AuthenticationType,
+  SshAuthType,
+  SshTunnelConfig,
+} from '@mj-forge/shared';
 
 export interface ConnectionDialogData {
   /** Profile to edit, or undefined for new connection */
@@ -186,6 +191,60 @@ export interface ConnectionDialogResult {
             />
           </mat-form-field>
         </div>
+
+        <mat-divider />
+
+        <!-- SSH Tunnel -->
+        <h3>SSH Tunnel</h3>
+        <mat-checkbox [(ngModel)]="formData.sshEnabled">Connect via SSH tunnel</mat-checkbox>
+
+        @if (formData.sshEnabled) {
+          <div class="form-row" style="margin-top: 12px">
+            <mat-form-field appearance="outline" class="flex-2">
+              <mat-label>SSH Host</mat-label>
+              <input matInput [(ngModel)]="formData.sshHost" placeholder="bastion.example.com" />
+            </mat-form-field>
+            <mat-form-field appearance="outline" class="flex-1">
+              <mat-label>SSH Port</mat-label>
+              <input matInput type="number" [(ngModel)]="formData.sshPort" />
+            </mat-form-field>
+          </div>
+
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>SSH Username</mat-label>
+            <input matInput [(ngModel)]="formData.sshUsername" />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>SSH Auth Type</mat-label>
+            <mat-select [(ngModel)]="formData.sshAuthType">
+              <mat-option value="password">Password</mat-option>
+              <mat-option value="privateKey">Private Key</mat-option>
+            </mat-select>
+          </mat-form-field>
+
+          @if (formData.sshAuthType === 'password') {
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>SSH Password</mat-label>
+              <input matInput type="password" [(ngModel)]="formData.sshPassword" />
+            </mat-form-field>
+          }
+
+          @if (formData.sshAuthType === 'privateKey') {
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Private Key Path</mat-label>
+              <input
+                matInput
+                [(ngModel)]="formData.sshPrivateKeyPath"
+                placeholder="~/.ssh/id_rsa"
+              />
+            </mat-form-field>
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Passphrase (optional)</mat-label>
+              <input matInput type="password" [(ngModel)]="formData.sshPassphrase" />
+            </mat-form-field>
+          }
+        }
       </mat-dialog-content>
 
       <mat-dialog-actions align="start">
@@ -380,7 +439,17 @@ export class ConnectionDialogComponent {
     { value: '#d81b60', label: 'Pink' },
   ];
 
-  formData: Partial<ConnectionProfile> & { password?: string } = {
+  formData: Partial<ConnectionProfile> & {
+    password?: string;
+    sshEnabled?: boolean;
+    sshHost?: string;
+    sshPort?: number;
+    sshUsername?: string;
+    sshAuthType?: SshAuthType;
+    sshPassword?: string;
+    sshPrivateKeyPath?: string;
+    sshPassphrase?: string;
+  } = {
     name: '',
     engine: 'mssql',
     server: 'localhost',
@@ -393,15 +462,32 @@ export class ConnectionDialogComponent {
     connectionTimeout: 30,
     database: '',
     color: undefined,
+    sshEnabled: false,
+    sshHost: '',
+    sshPort: 22,
+    sshUsername: '',
+    sshAuthType: 'password',
+    sshPassword: '',
+    sshPrivateKeyPath: '',
+    sshPassphrase: '',
   };
 
   constructor() {
     // Initialize from dialog data
     if (this.data.profile) {
       this.isEditing.set(true);
+      const ssh = this.data.profile.sshTunnel;
       this.formData = {
         ...this.data.profile,
         password: '', // Don't show stored password
+        sshEnabled: ssh?.enabled ?? false,
+        sshHost: ssh?.host ?? '',
+        sshPort: ssh?.port ?? 22,
+        sshUsername: ssh?.username ?? '',
+        sshAuthType: ssh?.authType ?? 'password',
+        sshPrivateKeyPath: ssh?.privateKeyPath ?? '',
+        sshPassword: '',
+        sshPassphrase: '',
       };
     } else {
       // Apply pre-fill values
@@ -424,7 +510,12 @@ export class ConnectionDialogComponent {
     this.testing.set(true);
     try {
       const profile = this.buildTestProfile();
-      await this.connectionState.testConnection(profile, this.formData.password);
+      await this.connectionState.testConnection(
+        profile,
+        this.formData.password,
+        this.formData.sshPassword,
+        this.formData.sshPassphrase
+      );
     } finally {
       this.testing.set(false);
     }
@@ -436,7 +527,12 @@ export class ConnectionDialogComponent {
     this.saving.set(true);
     try {
       const profile = this.buildProfile();
-      const savedProfile = await this.connectionState.saveProfile(profile, this.formData.password);
+      const savedProfile = await this.connectionState.saveProfile(
+        profile,
+        this.formData.password,
+        this.formData.sshPassword,
+        this.formData.sshPassphrase
+      );
       if (savedProfile) {
         this.dialogRef.close({ profile: savedProfile, connected: false } as ConnectionDialogResult);
       }
@@ -450,7 +546,12 @@ export class ConnectionDialogComponent {
 
     this.saving.set(true);
     const profile = this.buildProfile();
-    const savedProfile = await this.connectionState.saveProfile(profile, this.formData.password);
+    const savedProfile = await this.connectionState.saveProfile(
+      profile,
+      this.formData.password,
+      this.formData.sshPassword,
+      this.formData.sshPassphrase
+    );
 
     if (!savedProfile) {
       this.saving.set(false);
@@ -472,12 +573,23 @@ export class ConnectionDialogComponent {
   }
 
   isValid(): boolean {
-    return !!(
+    const baseValid = !!(
       this.formData.name &&
       this.formData.server &&
       this.formData.port &&
       (this.formData.authenticationType !== 'sql' || this.formData.username)
     );
+
+    if (!baseValid) return false;
+
+    // Validate SSH fields if enabled
+    if (this.formData.sshEnabled) {
+      if (!this.formData.sshHost || !this.formData.sshUsername) return false;
+      if (this.formData.sshAuthType === 'privateKey' && !this.formData.sshPrivateKeyPath)
+        return false;
+    }
+
+    return true;
   }
 
   onEngineChange(engine: string): void {
@@ -520,6 +632,20 @@ export class ConnectionDialogComponent {
     );
   }
 
+  private buildSshTunnelConfig(): SshTunnelConfig | undefined {
+    if (!this.formData.sshEnabled) return undefined;
+    return {
+      enabled: true,
+      host: this.formData.sshHost!,
+      port: this.formData.sshPort || 22,
+      username: this.formData.sshUsername!,
+      authType: this.formData.sshAuthType || 'password',
+      ...(this.formData.sshAuthType === 'privateKey' && this.formData.sshPrivateKeyPath
+        ? { privateKeyPath: this.formData.sshPrivateKeyPath }
+        : {}),
+    };
+  }
+
   private buildTestProfile(): ConnectionProfile {
     return {
       id: 'test-connection',
@@ -534,6 +660,7 @@ export class ConnectionDialogComponent {
       trustServerCertificate: this.formData.trustServerCertificate ?? true,
       connectionTimeout: this.formData.connectionTimeout || 30,
       color: this.formData.color,
+      sshTunnel: this.buildSshTunnelConfig(),
     };
   }
 
@@ -553,6 +680,7 @@ export class ConnectionDialogComponent {
       trustServerCertificate: this.formData.trustServerCertificate ?? true,
       connectionTimeout: this.formData.connectionTimeout || 30,
       color: this.formData.color,
+      sshTunnel: this.buildSshTunnelConfig(),
     };
   }
 }

@@ -15,6 +15,7 @@ import { SQLConverterService } from './services/sql/sql-converter';
 import { ChatService } from './services/ai/chat-service';
 import { AIService } from './services/ai/ai-service';
 import { CredentialStore } from './services/keychain/credential-store';
+import { SshTunnelManager } from './services/ssh/ssh-tunnel-manager';
 import { cleanupWorkspaceWatchers } from './ipc/workspace.ipc';
 
 const log = createLogger('App');
@@ -79,7 +80,7 @@ if (!gotTheLock) {
   // Cleanup before quit — Electron does NOT await async before-quit handlers,
   // so we prevent the default quit, run cleanup ourselves, then force exit.
   let isQuitting = false;
-  app.on('before-quit', (event) => {
+  app.on('before-quit', event => {
     if (isQuitting) return; // Already running shutdown sequence
     isQuitting = true;
     event.preventDefault(); // Hold quit until cleanup finishes (or times out)
@@ -102,24 +103,53 @@ if (!gotTheLock) {
     cleanupWorkspaceWatchers();
     log.info('Shutdown: closed workspace file watchers');
 
-    try { QueryExecutor.getInstance().cancelAll(); } catch { /* singleton may not exist */ }
+    try {
+      QueryExecutor.getInstance().cancelAll();
+    } catch {
+      /* singleton may not exist */
+    }
     log.info('Shutdown: cancelled active queries');
 
-    try { BackupRestoreService.getInstance().stopAllOperations(); } catch { /* singleton may not exist */ }
-    try { PgBackupService.getInstance().stopAllOperations(); } catch { /* singleton may not exist */ }
+    try {
+      BackupRestoreService.getInstance().stopAllOperations();
+    } catch {
+      /* singleton may not exist */
+    }
+    try {
+      PgBackupService.getInstance().stopAllOperations();
+    } catch {
+      /* singleton may not exist */
+    }
     log.info('Shutdown: stopped backup/restore operations');
 
-    try { ChatService.getInstance().abortAll(); } catch { /* singleton may not exist */ }
-    try { AIService.getInstance().abortAll(); } catch { /* singleton may not exist */ }
+    try {
+      ChatService.getInstance().abortAll();
+    } catch {
+      /* singleton may not exist */
+    }
+    try {
+      AIService.getInstance().abortAll();
+    } catch {
+      /* singleton may not exist */
+    }
     log.info('Shutdown: aborted active AI streams');
 
-    try { SQLConverterService.getInstance().stop().catch(() => {}); } catch { /* singleton may not exist */ }
+    try {
+      SQLConverterService.getInstance()
+        .stop()
+        .catch(() => {});
+    } catch {
+      /* singleton may not exist */
+    }
     log.info('Shutdown: stopped sqlglot microservice');
 
-    // --- Async cleanup (close SQL pools) ---
-    poolManager.closeAll()
+    // --- Async cleanup (close SQL pools + SSH tunnels) ---
+    poolManager
+      .closeAll()
       .then(() => log.info(`Shutdown: closed all SQL pools in ${Date.now() - shutdownStart}ms`))
-      .catch((err) => log.error('Shutdown: error closing SQL pools:', err))
+      .then(() => SshTunnelManager.getInstance().closeAll())
+      .then(() => log.info('Shutdown: closed all SSH tunnels'))
+      .catch(err => log.error('Shutdown: error closing SQL pools/SSH tunnels:', err))
       .finally(() => {
         clearTimeout(forceExitTimer);
         log.info(`Shutdown: complete in ${Date.now() - shutdownStart}ms`);

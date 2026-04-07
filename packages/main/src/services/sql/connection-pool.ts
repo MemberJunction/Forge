@@ -12,6 +12,7 @@ import type { ConnectionProfile, TestConnectionResult, DatabaseEngine } from '@m
 import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
 import { ConnectionProfilesStore } from '../config/connection-profiles';
+import { SshTunnelManager, type SshCredentials } from '../ssh/ssh-tunnel-manager';
 import { getDialect, type SQLDialect } from './dialect';
 
 const log = createLogger('PoolManager');
@@ -43,11 +44,48 @@ export class ConnectionPoolManager extends BaseSingleton {
   private mysqlPools: Map<string, MySQLPoolEntry> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
   private profileStore: ConnectionProfilesStore;
+  private sshTunnelManager: SshTunnelManager;
 
   constructor() {
     super();
     this.profileStore = ConnectionProfilesStore.getInstance();
+    this.sshTunnelManager = SshTunnelManager.getInstance();
     this.startCleanupTimer();
+  }
+
+  /**
+   * If the profile has SSH tunneling enabled, open a tunnel and return
+   * a modified profile pointing at the local tunnel endpoint.
+   * Otherwise, return the profile unchanged.
+   */
+  private async withTunnel(
+    profile: ConnectionProfile,
+    password?: string
+  ): Promise<{ effectiveProfile: ConnectionProfile; tunnelOpened: boolean }> {
+    if (!profile.sshTunnel?.enabled) {
+      return { effectiveProfile: profile, tunnelOpened: false };
+    }
+
+    // For test connections (no real profile ID), use a temp key
+    const tunnelKey = profile.id || `test-${Date.now()}`;
+
+    // Store SSH credentials temporarily for test connections so tunnel manager can read them
+    if (password !== undefined && profile.id === 'test-connection') {
+      // For test connections, the SSH creds are passed through the profile store flow.
+      // The tunnel manager reads from credential store, so we need them cached.
+    }
+
+    const endpoint = await this.sshTunnelManager.openTunnel(
+      tunnelKey,
+      profile.sshTunnel,
+      profile.server,
+      profile.port
+    );
+
+    return {
+      effectiveProfile: { ...profile, server: endpoint.localHost, port: endpoint.localPort },
+      tunnelOpened: true,
+    };
   }
 
   /**
@@ -69,29 +107,71 @@ export class ConnectionPoolManager extends BaseSingleton {
   /**
    * Test a connection without creating a persistent pool.
    * Routes to the correct engine-specific test method.
+   * Opens a temporary SSH tunnel if configured, and tears it down afterward.
    */
   async testConnection(
     profile: ConnectionProfile,
-    password?: string
+    password?: string,
+    sshCredentials?: SshCredentials
   ): Promise<TestConnectionResult> {
     log.info(`Testing ${profile.engine || 'mssql'} connection for profile: ${profile.name}`);
     log.debug(`Server: ${profile.server}:${profile.port}, User: ${profile.username}`);
 
-    if ((profile.engine || 'mssql') === 'postgresql') {
-      return this.testPgConnection(profile, password || '');
+    // Open SSH tunnel if configured (temporary, closed in finally)
+    let tunnelKey: string | null = null;
+    let effectiveProfile = profile;
+    try {
+      if (profile.sshTunnel?.enabled) {
+        tunnelKey = `test-${Date.now()}`;
+        const endpoint = await this.sshTunnelManager.openTunnel(
+          tunnelKey,
+          profile.sshTunnel,
+          profile.server,
+          profile.port,
+          sshCredentials
+        );
+        effectiveProfile = { ...profile, server: endpoint.localHost, port: endpoint.localPort };
+        log.info(`Test tunnel open on port ${endpoint.localPort}`);
+      }
+
+      if ((effectiveProfile.engine || 'mssql') === 'postgresql') {
+        return await this.testPgConnection(effectiveProfile, password || '');
+      }
+
+      if ((effectiveProfile.engine || 'mssql') === 'mysql') {
+        return await this.testMySQLConnection(effectiveProfile, password || '');
+      }
+
+      // Default: SQL Server
+      return await this.testMssqlConnection(effectiveProfile, password || '');
+    } catch (error) {
+      // SSH tunnel errors surface here
+      const err = error as Error;
+      return {
+        success: false,
+        error: err.message,
+        errorCode: 'SSH_TUNNEL_ERROR',
+        guidance: ['Check your SSH tunnel settings', 'Verify the SSH host is reachable'],
+      };
+    } finally {
+      if (tunnelKey) {
+        await this.sshTunnelManager.closeTunnel(tunnelKey).catch(() => {});
+      }
     }
+  }
 
-    if ((profile.engine || 'mssql') === 'mysql') {
-      return this.testMySQLConnection(profile, password || '');
-    }
-
-    // Default: SQL Server
-
+  /**
+   * Test a SQL Server connection
+   */
+  private async testMssqlConnection(
+    profile: ConnectionProfile,
+    password: string
+  ): Promise<TestConnectionResult> {
     const config: SqlConfig = {
       server: profile.server,
       port: profile.port,
       user: profile.username,
-      password: password || '',
+      password,
       database: 'master',
       options: {
         encrypt: profile.encrypt,
@@ -113,7 +193,6 @@ export class ConnectionPoolManager extends BaseSingleton {
       await pool.connect();
       log.info('Test connection successful');
 
-      // Get server info
       const result = await pool.request().query<{
         version: string;
         name: string;
@@ -195,6 +274,7 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Get a PostgreSQL pool for a profile.
    * PG sets database at the connection level, so a separate pool is created
    * per database. The pool key includes the database name.
+   * All PG pools for a profile share the same SSH tunnel.
    */
   async getPgPool(profileId: string, database?: string): Promise<PgPool> {
     const profile = this.profileStore.getById(profileId);
@@ -212,15 +292,20 @@ export class ConnectionPoolManager extends BaseSingleton {
     const password = await this.profileStore.getPassword(profileId);
     if (!password) throw new Error('Connection password not found in Keychain');
 
+    // Open SSH tunnel if configured (reuses existing tunnel for this profileId)
+    const { effectiveProfile } = await this.withTunnel(profile);
+
     const pool = new PgPool({
-      host: profile.server,
-      port: profile.port,
-      user: profile.username,
+      host: effectiveProfile.server,
+      port: effectiveProfile.port,
+      user: effectiveProfile.username,
       password,
       database: dbName,
-      ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : false,
-      connectionTimeoutMillis: profile.connectionTimeout * 1000,
-      query_timeout: (profile.requestTimeout || 30) * 1000,
+      ssl: effectiveProfile.encrypt
+        ? { rejectUnauthorized: !effectiveProfile.trustServerCertificate }
+        : false,
+      connectionTimeoutMillis: effectiveProfile.connectionTimeout * 1000,
+      query_timeout: (effectiveProfile.requestTimeout || 30) * 1000,
       max: 10,
       idleTimeoutMillis: 30000,
     });
@@ -287,6 +372,7 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Get a MySQL pool for a profile.
    * MySQL supports USE for database switching, but we still create pools per
    * database for consistency with the PG pattern and connection isolation.
+   * All MySQL pools for a profile share the same SSH tunnel.
    */
   async getMySQLPool(profileId: string, database?: string): Promise<MySQLPool> {
     const profile = this.profileStore.getById(profileId);
@@ -304,14 +390,19 @@ export class ConnectionPoolManager extends BaseSingleton {
     const password = await this.profileStore.getPassword(profileId);
     if (!password) throw new Error('Connection password not found in Keychain');
 
+    // Open SSH tunnel if configured (reuses existing tunnel for this profileId)
+    const { effectiveProfile } = await this.withTunnel(profile);
+
     const pool = mysql.createPool({
-      host: profile.server,
-      port: profile.port,
-      user: profile.username,
+      host: effectiveProfile.server,
+      port: effectiveProfile.port,
+      user: effectiveProfile.username,
       password,
       database: dbName,
-      ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : undefined,
-      connectTimeout: profile.connectionTimeout * 1000,
+      ssl: effectiveProfile.encrypt
+        ? { rejectUnauthorized: !effectiveProfile.trustServerCertificate }
+        : undefined,
+      connectTimeout: effectiveProfile.connectionTimeout * 1000,
       connectionLimit: 10,
       waitForConnections: true,
       idleTimeout: 30000,
@@ -334,7 +425,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
-   * Get or create a SQL Server connection pool for a profile
+   * Get or create a SQL Server connection pool for a profile.
+   * Opens an SSH tunnel first if the profile has one configured.
    */
   async getPool(profileId: string): Promise<ConnectionPool> {
     log.debug(`Getting pool for profile: ${profileId}`);
@@ -364,19 +456,22 @@ export class ConnectionPoolManager extends BaseSingleton {
     }
     log.debug('Password retrieved from keychain');
 
+    // Open SSH tunnel if configured
+    const { effectiveProfile } = await this.withTunnel(profile);
+
     // Create new pool
     const config: SqlConfig = {
-      server: profile.server,
-      port: profile.port,
-      user: profile.username,
+      server: effectiveProfile.server,
+      port: effectiveProfile.port,
+      user: effectiveProfile.username,
       password,
-      database: profile.database || 'master',
+      database: effectiveProfile.database || 'master',
       options: {
-        encrypt: profile.encrypt,
-        trustServerCertificate: profile.trustServerCertificate,
+        encrypt: effectiveProfile.encrypt,
+        trustServerCertificate: effectiveProfile.trustServerCertificate,
       },
-      connectionTimeout: profile.connectionTimeout * 1000,
-      requestTimeout: (profile.requestTimeout || 30) * 1000,
+      connectionTimeout: effectiveProfile.connectionTimeout * 1000,
+      requestTimeout: (effectiveProfile.requestTimeout || 30) * 1000,
       pool: {
         max: 10,
         min: 0,
@@ -389,7 +484,7 @@ export class ConnectionPoolManager extends BaseSingleton {
     );
 
     const pool = new ConnectionPool(config);
-    log.info(`Connecting to ${profile.server}:${profile.port}...`);
+    log.info(`Connecting to ${effectiveProfile.server}:${effectiveProfile.port}...`);
     await pool.connect();
     log.info(`Connected to ${profile.name}`);
 
@@ -489,7 +584,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
-   * Close a specific connection pool (SQL Server or PostgreSQL)
+   * Close a specific connection pool (SQL Server, PostgreSQL, or MySQL)
+   * and its associated SSH tunnel if any.
    */
   async closePool(profileId: string): Promise<void> {
     const entry = this.pools.get(profileId);
@@ -525,6 +621,9 @@ export class ConnectionPoolManager extends BaseSingleton {
         this.mysqlPools.delete(key);
       }
     }
+
+    // Close SSH tunnel for this profile
+    await this.sshTunnelManager.closeTunnel(profileId);
   }
 
   /**
@@ -555,6 +654,7 @@ export class ConnectionPoolManager extends BaseSingleton {
       }
     });
     await Promise.all([...mssqlCloses, ...pgCloses, ...mysqlCloses]);
+    await this.sshTunnelManager.closeAll();
   }
 
   /**

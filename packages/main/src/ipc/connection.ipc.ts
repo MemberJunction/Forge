@@ -21,22 +21,39 @@ export function registerConnectionHandlers(): void {
     async (
       _event,
       profile: ConnectionProfile,
-      password?: string
+      password?: string,
+      sshPassword?: string,
+      sshPassphrase?: string
     ): Promise<TestConnectionResult> => {
       // Get password from the profile store if this is a saved profile and no password provided
       const pwd =
         password ??
         (profile.id ? ((await profileStore.getPassword(profile.id)) ?? undefined) : undefined);
-      return poolManager.testConnection(profile, pwd);
+
+      // Pass SSH credentials directly for test connections (not yet saved to Keychain)
+      const sshCreds = sshPassword || sshPassphrase ? { sshPassword, sshPassphrase } : undefined;
+
+      return poolManager.testConnection(profile, pwd, sshCreds);
     }
   );
 
   // Save connection
   safeHandle(
     IPC_CHANNELS.CONNECTION.SAVE,
-    async (_event, profile: ConnectionProfile, password?: string): Promise<ConnectionProfile> => {
+    async (
+      _event,
+      profile: ConnectionProfile,
+      password?: string,
+      sshPassword?: string,
+      sshPassphrase?: string
+    ): Promise<ConnectionProfile> => {
       log.info(`Saving profile: ${profile.name}`);
-      const savedProfile = await profileStore.save({ profile, password });
+      const savedProfile = await profileStore.save({
+        profile,
+        password,
+        sshPassword,
+        sshPassphrase,
+      });
       return savedProfile;
     }
   );
