@@ -2,6 +2,7 @@
  * App IPC Handlers
  */
 
+import * as fs from 'fs/promises';
 import { app, shell, dialog } from 'electron';
 import { IPC_CHANNELS, type AppState, type TabState, type LayoutConfig } from '@mj-forge/shared';
 import { AppStateStore } from '../services/config/app-state';
@@ -74,11 +75,21 @@ export function registerAppHandlers(): void {
     }
   );
 
-  // General-purpose file write (for exports — user chose the path via save dialog)
-  safeHandle(IPC_CHANNELS.APP.SAVE_TO_FILE, async (_event, filePath: string, content: string) => {
-    const fs = await import('fs/promises');
-    await fs.writeFile(filePath, content, 'utf-8');
-  });
+  // Atomic save-dialog + file write (renderer sends dialog options + content,
+  // main process shows the dialog and writes — renderer never controls the path)
+  safeHandle(
+    IPC_CHANNELS.APP.SAVE_TO_FILE,
+    async (
+      _event,
+      options: Electron.SaveDialogOptions,
+      content: string
+    ): Promise<{ canceled: boolean; filePath?: string }> => {
+      const result = await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return { canceled: true };
+      await fs.writeFile(result.filePath, content, 'utf-8');
+      return { canceled: false, filePath: result.filePath };
+    }
+  );
 
   // Save golden layout config
   safeHandle(

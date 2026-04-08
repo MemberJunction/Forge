@@ -1220,6 +1220,7 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
     this.columnDefs = [
       // Row number column
       {
+        colId: 'rowNumber',
         headerName: '#',
         valueGetter: params => (params.node?.rowIndex != null ? params.node.rowIndex + 1 : ''),
         width: 60,
@@ -1441,7 +1442,7 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
     // Get visible columns (excluding row number column)
     const columns = this.gridApi.getAllDisplayedColumns().filter(col => {
       const colId = col.getColId();
-      return colId !== '0' && colId !== 'ag-Grid-SelectionColumn';
+      return colId !== 'rowNumber' && colId !== 'ag-Grid-SelectionColumn';
     });
 
     const lines: string[] = [];
@@ -1487,7 +1488,7 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
       .getAllDisplayedColumns()
       .filter(col => {
         const colId = col.getColId();
-        return colId !== '0' && colId !== 'ag-Grid-SelectionColumn';
+        return colId !== 'rowNumber' && colId !== 'ag-Grid-SelectionColumn';
       })
       .map(col => col.getColId());
 
@@ -1509,28 +1510,33 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
 
     try {
       const result = await firstValueFrom(
-        this.ipc.showSaveDialog({
-          title: 'Export as JSON',
-          defaultPath,
-          filters: [{ name: 'JSON Files', extensions: ['json'] }],
-        })
+        this.ipc.saveToFile(
+          {
+            title: 'Export as JSON',
+            defaultPath,
+            filters: [{ name: 'JSON Files', extensions: ['json'] }],
+          },
+          json
+        )
       );
 
-      if (!result.canceled && result.filePath) {
-        await firstValueFrom(this.ipc.saveToFile(result.filePath, json));
+      if (!result.canceled) {
         this.notification.success('Results exported to JSON');
       }
     } catch (error) {
       this.notification.error('Failed to export JSON');
-      console.error('Export JSON failed:', error);
     }
   }
 
-  copyJson(): void {
+  async copyJson(): Promise<void> {
     if (!this.resultSet) return;
-    const json = JSON.stringify(this.resultSet.rows, null, 2);
-    navigator.clipboard.writeText(json);
-    this.notification.info('Results copied as JSON');
+    try {
+      const json = JSON.stringify(this.resultSet.rows, null, 2);
+      await navigator.clipboard.writeText(json);
+      this.notification.info('Results copied as JSON');
+    } catch {
+      this.notification.error('Failed to copy to clipboard');
+    }
   }
 
   async exportSqlInsert(): Promise<void> {
@@ -1554,20 +1560,21 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
 
       try {
         const result = await firstValueFrom(
-          this.ipc.showSaveDialog({
-            title: 'Export as SQL INSERT',
-            defaultPath,
-            filters: [{ name: 'SQL Files', extensions: ['sql'] }],
-          })
+          this.ipc.saveToFile(
+            {
+              title: 'Export as SQL INSERT',
+              defaultPath,
+              filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+            },
+            sql
+          )
         );
 
-        if (!result.canceled && result.filePath) {
-          await firstValueFrom(this.ipc.saveToFile(result.filePath, sql));
+        if (!result.canceled) {
           this.notification.success('Results exported as SQL INSERT statements');
         }
       } catch (error) {
         this.notification.error('Failed to export SQL');
-        console.error('Export SQL failed:', error);
       }
     } else {
       // Fallback: copy to clipboard

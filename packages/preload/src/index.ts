@@ -360,8 +360,15 @@ export interface ForgeAPI {
     // GoldenLayout persistence
     saveLayout: (config: LayoutConfig | undefined) => Promise<void>;
     getLayout: () => Promise<LayoutConfig | undefined>;
-    // General-purpose file write (for exports)
-    saveToFile: (filePath: string, content: string) => Promise<void>;
+    // Atomic save-dialog + file write (main process shows dialog and writes)
+    saveToFile: (
+      options: {
+        title?: string;
+        defaultPath?: string;
+        filters?: { name: string; extensions: string[] }[];
+      },
+      content: string
+    ) => Promise<{ canceled: boolean; filePath?: string }>;
   };
 
   workspace: {
@@ -815,8 +822,8 @@ const forgeAPI: ForgeAPI = {
     // GoldenLayout persistence
     saveLayout: config => ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_LAYOUT, config),
     getLayout: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_LAYOUT),
-    saveToFile: (filePath, content) =>
-      ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_TO_FILE, filePath, content),
+    saveToFile: (options, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP.SAVE_TO_FILE, options, content),
   },
 
   workspace: {
