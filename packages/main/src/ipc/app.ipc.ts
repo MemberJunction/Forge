@@ -74,6 +74,12 @@ export function registerAppHandlers(): void {
     }
   );
 
+  // General-purpose file write (for exports — user chose the path via save dialog)
+  safeHandle(IPC_CHANNELS.APP.SAVE_TO_FILE, async (_event, filePath: string, content: string) => {
+    const fs = await import('fs/promises');
+    await fs.writeFile(filePath, content, 'utf-8');
+  });
+
   // Save golden layout config
   safeHandle(
     IPC_CHANNELS.APP.SAVE_LAYOUT,
