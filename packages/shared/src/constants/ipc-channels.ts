@@ -160,6 +160,8 @@ export const IPC_CHANNELS = {
     // GoldenLayout persistence
     SAVE_LAYOUT: 'app:save-layout',
     GET_LAYOUT: 'app:get-layout',
+    // General-purpose file write (for exports — no workspace required)
+    SAVE_TO_FILE: 'app:save-to-file',
   },
 
   // Workspace (for file/folder support)

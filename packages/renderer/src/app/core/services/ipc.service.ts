@@ -362,6 +362,11 @@ interface ForgeAPI {
     // GoldenLayout persistence
     saveLayout: (config: LayoutConfig | undefined) => Promise<void>;
     getLayout: () => Promise<LayoutConfig | undefined>;
+    // Atomic save-dialog + file write (main process shows dialog and writes)
+    saveToFile: (
+      options: SaveDialogOptions,
+      content: string
+    ) => Promise<{ canceled: boolean; filePath?: string }>;
   };
   workspace: {
     openFolder: (path: string) => Promise<WorkspaceInfo>;
@@ -905,6 +910,13 @@ export class IpcService {
 
   getLayout(): Observable<LayoutConfig | undefined> {
     return from(this.api.app.getLayout());
+  }
+
+  saveToFile(
+    options: SaveDialogOptions,
+    content: string
+  ): Observable<{ canceled: boolean; filePath?: string }> {
+    return from(this.api.app.saveToFile(options, content));
   }
 
   // Workspace methods

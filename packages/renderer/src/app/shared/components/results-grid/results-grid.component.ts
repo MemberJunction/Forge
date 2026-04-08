@@ -15,6 +15,7 @@ import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AgGridAngular } from 'ag-grid-angular';
 import {
@@ -69,6 +70,7 @@ interface FkPreviewData {
     MatIconModule,
     MatButtonModule,
     MatMenuModule,
+    MatDividerModule,
     MatTooltipModule,
     AgGridAngular,
   ],
@@ -134,6 +136,11 @@ interface FkPreviewData {
             <button mat-menu-item (click)="exportSqlInsert()">
               <mat-icon>storage</mat-icon>
               <span>Export as SQL INSERT</span>
+            </button>
+            <mat-divider></mat-divider>
+            <button mat-menu-item (click)="copyJson()">
+              <mat-icon>content_paste</mat-icon>
+              <span>Copy as JSON</span>
             </button>
             <button mat-menu-item (click)="copySelectedToClipboard(true)">
               <mat-icon>table_chart</mat-icon>
@@ -1213,6 +1220,7 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
     this.columnDefs = [
       // Row number column
       {
+        colId: 'rowNumber',
         headerName: '#',
         valueGetter: params => (params.node?.rowIndex != null ? params.node.rowIndex + 1 : ''),
         width: 60,
@@ -1432,7 +1440,10 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
     }
 
     // Get visible columns (excluding row number column)
-    const columns = this.gridApi.getAllDisplayedColumns().filter(col => col.getColId() !== '0'); // Filter out row number column
+    const columns = this.gridApi.getAllDisplayedColumns().filter(col => {
+      const colId = col.getColId();
+      return colId !== 'rowNumber' && colId !== 'ag-Grid-SelectionColumn';
+    });
 
     const lines: string[] = [];
 
@@ -1472,10 +1483,19 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
 
   exportCsv(): void {
     if (!this.gridApi) return;
+    // Get only data columns (exclude row number and selection columns)
+    const dataColumnKeys = this.gridApi
+      .getAllDisplayedColumns()
+      .filter(col => {
+        const colId = col.getColId();
+        return colId !== 'rowNumber' && colId !== 'ag-Grid-SelectionColumn';
+      })
+      .map(col => col.getColId());
+
     this.gridApi.exportDataAsCsv({
       skipColumnGroupHeaders: true,
       skipColumnHeaders: false,
-      allColumns: false,
+      columnKeys: dataColumnKeys,
       onlySelected: false,
       fileName: `query-results-${new Date().toISOString().slice(0, 10)}.csv`,
     });
@@ -1490,20 +1510,32 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
 
     try {
       const result = await firstValueFrom(
-        this.ipc.showSaveDialog({
-          title: 'Export as JSON',
-          defaultPath,
-          filters: [{ name: 'JSON Files', extensions: ['json'] }],
-        })
+        this.ipc.saveToFile(
+          {
+            title: 'Export as JSON',
+            defaultPath,
+            filters: [{ name: 'JSON Files', extensions: ['json'] }],
+          },
+          json
+        )
       );
 
-      if (!result.canceled && result.filePath) {
-        await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, json));
+      if (!result.canceled) {
         this.notification.success('Results exported to JSON');
       }
     } catch (error) {
       this.notification.error('Failed to export JSON');
-      console.error('Export JSON failed:', error);
+    }
+  }
+
+  async copyJson(): Promise<void> {
+    if (!this.resultSet) return;
+    try {
+      const json = JSON.stringify(this.resultSet.rows, null, 2);
+      await navigator.clipboard.writeText(json);
+      this.notification.info('Results copied as JSON');
+    } catch {
+      this.notification.error('Failed to copy to clipboard');
     }
   }
 
@@ -1528,20 +1560,21 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
 
       try {
         const result = await firstValueFrom(
-          this.ipc.showSaveDialog({
-            title: 'Export as SQL INSERT',
-            defaultPath,
-            filters: [{ name: 'SQL Files', extensions: ['sql'] }],
-          })
+          this.ipc.saveToFile(
+            {
+              title: 'Export as SQL INSERT',
+              defaultPath,
+              filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+            },
+            sql
+          )
         );
 
-        if (!result.canceled && result.filePath) {
-          await firstValueFrom(this.ipc.writeWorkspaceFile(result.filePath, sql));
+        if (!result.canceled) {
           this.notification.success('Results exported as SQL INSERT statements');
         }
       } catch (error) {
         this.notification.error('Failed to export SQL');
-        console.error('Export SQL failed:', error);
       }
     } else {
       // Fallback: copy to clipboard

@@ -24,7 +24,17 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, MatIconModule, MatTooltipModule, SidebarComponent, GoldenLayoutContainerComponent, StatusBarComponent, ChatPanelComponent, TourOverlayComponent],
+  imports: [
+    CommonModule,
+    MatDialogModule,
+    MatIconModule,
+    MatTooltipModule,
+    SidebarComponent,
+    GoldenLayoutContainerComponent,
+    StatusBarComponent,
+    ChatPanelComponent,
+    TourOverlayComponent,
+  ],
   template: `
     <div class="shell" [class.resizing]="resizing">
       @if (!sidebarHidden()) {
@@ -38,11 +48,7 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
         ></div>
       }
       @if (sidebarHidden()) {
-        <button
-          class="sidebar-show-btn"
-          (click)="toggleSidebar()"
-          matTooltip="Show sidebar (⌘B)"
-        >
+        <button class="sidebar-show-btn" (click)="toggleSidebar()" matTooltip="Show sidebar (⌘B)">
           <mat-icon>chevron_right</mat-icon>
         </button>
       }
@@ -135,6 +141,7 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
         flex-direction: column;
         min-width: 0;
         height: 100%;
+        padding-top: 28px; /* Space for macOS traffic lights */
       }
 
       .content-area {
@@ -316,12 +323,14 @@ export class ShellComponent implements OnInit, OnDestroy {
       return;
     }
     // Import and open the create database dialog dynamically
-    import('../../shared/components/create-database-dialog/create-database-dialog.component').then(mod => {
-      this.dialog.open(mod.CreateDatabaseDialogComponent, {
-        width: '480px',
-        data: { connectionId: this.connectionState.activeConnectionId() },
-      });
-    });
+    import('../../shared/components/create-database-dialog/create-database-dialog.component').then(
+      mod => {
+        this.dialog.open(mod.CreateDatabaseDialogComponent, {
+          width: '480px',
+          data: { connectionId: this.connectionState.activeConnectionId() },
+        });
+      }
+    );
   }
 
   // -- Sidebar resize & toggle --
@@ -343,7 +352,10 @@ export class ShellComponent implements OnInit, OnDestroy {
   onResizeMove(event: MouseEvent): void {
     if (!this.resizing) return;
     const delta = event.clientX - this.resizeStartX;
-    const newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, this.resizeStartWidth + delta));
+    const newWidth = Math.max(
+      SIDEBAR_MIN_WIDTH,
+      Math.min(SIDEBAR_MAX_WIDTH, this.resizeStartWidth + delta)
+    );
     this.sidebarWidth.set(newWidth);
   }
 
@@ -369,7 +381,9 @@ export class ShellComponent implements OnInit, OnDestroy {
       if (state?.sidebarCollapsed) {
         this.sidebarHidden.set(true);
       }
-    } catch { /* use defaults */ }
+    } catch {
+      /* use defaults */
+    }
   }
 
   private saveSidebarPreferences(): void {
