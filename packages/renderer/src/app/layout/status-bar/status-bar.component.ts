@@ -54,7 +54,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           </div>
           @if (connectionState.selectedDatabase()) {
             <div class="status-item" matTooltip="Current Database">
-              <mat-icon>storage</mat-icon>
+              <i class="status-engine-icon" [ngClass]="getEngineIconClass()"></i>
               <span>{{ connectionState.selectedDatabase() }}</span>
             </div>
           }
@@ -262,6 +262,15 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         .docker-icon {
           font-size: 12px;
         }
+      }
+
+      .status-engine-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .ai-toggle {
@@ -497,5 +506,19 @@ export class StatusBarComponent implements OnInit, OnDestroy {
 
   setTheme(theme: 'system' | 'light' | 'dark'): void {
     this.settings.updateTheme(theme);
+  }
+
+  /** Get devicon CSS class for the active connection's engine */
+  getEngineIconClass(): string {
+    switch (this.connectionState.activeProfile()?.engine) {
+      case 'mysql':
+        return 'devicon-mysql-original colored';
+      case 'postgresql':
+        return 'devicon-postgresql-plain colored';
+      case 'mssql':
+        return 'devicon-azuresqldatabase-plain colored';
+      default:
+        return 'devicon-azuresqldatabase-plain colored';
+    }
   }
 }

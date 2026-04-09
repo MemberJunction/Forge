@@ -216,6 +216,22 @@ import type { ThemePreference } from '@mj-forge/shared';
 
             <div class="setting-item">
               <div class="setting-info">
+                <label>Execute Scope</label>
+                <span class="setting-description">What to run when there's no selection</span>
+              </div>
+              <mat-form-field appearance="outline" class="scope-select">
+                <mat-select
+                  [value]="settings().query.executeScope"
+                  (selectionChange)="updateQuerySetting('executeScope', $event.value)"
+                >
+                  <mat-option value="all">All statements</mat-option>
+                  <mat-option value="currentStatement">Current statement</mat-option>
+                </mat-select>
+              </mat-form-field>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
                 <label>Confirm Before Execute</label>
                 <span class="setting-description">Show confirmation before running queries</span>
               </div>
@@ -590,6 +606,10 @@ import type { ThemePreference } from '@mj-forge/shared';
 
       .number-input {
         width: 100px;
+      }
+
+      .scope-select {
+        width: 180px;
       }
 
       ::ng-deep .mat-mdc-form-field-subscript-wrapper {

@@ -55,6 +55,7 @@ export interface ConnectionProfile {
   dockerContainerId?: string;
   volumeMappings?: VolumeMapping[];
   sshTunnel?: SshTunnelConfig;
+  mysqlCollation?: string; // e.g. 'utf8mb4_0900_ai_ci'
   createdAt?: string;
   updatedAt?: string;
 }
