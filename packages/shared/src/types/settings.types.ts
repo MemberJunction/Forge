@@ -13,12 +13,15 @@ export interface EditorSettings {
   autoComplete: boolean;
 }
 
+export type ExecuteScope = 'all' | 'currentStatement';
+
 export interface QuerySettings {
   defaultTimeout: number; // milliseconds
   maxRowsToDisplay: number;
   autoExecuteOnOpen: boolean;
   showExecutionTime: boolean;
   confirmBeforeExecute: boolean;
+  executeScope: ExecuteScope;
 }
 
 export interface GridSettings {
@@ -51,6 +54,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoExecuteOnOpen: false,
     showExecutionTime: true,
     confirmBeforeExecute: false,
+    executeScope: 'all',
   },
   grid: {
     rowHeight: 24,

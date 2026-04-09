@@ -82,6 +82,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
               <i
                 class="devicon-btn"
                 [ngClass]="getConnectionIconClass(connectionState.activeProfile())!"
+                [style.color]="connectionState.activeProfile()?.color"
               ></i>
             } @else {
               <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
@@ -101,7 +102,11 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                 @if (profile.id === connectionState.activeConnectionId()) {
                   <mat-icon>check</mat-icon>
                 } @else {
-                  <i class="devicon-menu" [ngClass]="getEngineIconClass(profile.engine)"></i>
+                  <i
+                    class="devicon-menu"
+                    [ngClass]="getEngineIconClass(profile.engine)"
+                    [style.color]="profile.color"
+                  ></i>
                 }
                 <span>{{ profile.name }}</span>
                 <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
@@ -138,6 +143,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
               <i
                 class="devicon-btn"
                 [ngClass]="getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')"
+                [style.color]="connectionState.activeProfile()?.color"
               ></i>
             }
             <span class="database-name">
@@ -164,6 +170,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                     [ngClass]="
                       getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')
                     "
+                    [style.color]="connectionState.activeProfile()?.color"
                   ></i>
                 }
                 <span>{{ db.name }}</span>
@@ -234,14 +241,23 @@ import type { DatabaseEngine } from '@mj-forge/shared';
               getConnectionIconClass(connectionState.getProfile(node.connectionId!));
               as hostIcon
             ) {
-              <i class="node-icon devicon-node" [ngClass]="hostIcon"></i>
+              <i
+                class="node-icon devicon-node"
+                [ngClass]="hostIcon"
+                [style.color]="getConnectionColor(node.connectionId)"
+              ></i>
             } @else {
-              <mat-icon class="node-icon icon-server">dns</mat-icon>
+              <mat-icon
+                class="node-icon icon-server"
+                [style.color]="getConnectionColor(node.connectionId)"
+                >dns</mat-icon
+              >
             }
           } @else if (node.icon === 'database-cylinder') {
             <i
               class="node-icon devicon-node"
               [ngClass]="getEngineIconClass(getEngine(node.connectionId))"
+              [style.color]="getConnectionColor(node.connectionId)"
             ></i>
           } @else {
             <mat-icon class="node-icon" [class]="'icon-' + node.type">{{ node.icon }}</mat-icon>
@@ -636,24 +652,31 @@ export class SidebarComponent {
   /** Get devicon CSS class for the connection host (cloud provider or docker) */
   getConnectionIconClass(profile?: { server?: string; isDocker?: boolean } | null): string | null {
     if (!profile) return null;
-    if (profile.isDocker) return 'devicon-docker-plain colored';
+    if (profile.isDocker) return 'devicon-docker-plain';
     const s = profile.server?.toLowerCase();
     if (!s) return null;
-    if (s.endsWith('amazonaws.com')) return 'devicon-amazonwebservices-plain colored';
-    if (s.endsWith('windows.net')) return 'devicon-azure-plain colored';
+    if (s.endsWith('amazonaws.com')) return 'devicon-amazonwebservices-plain';
+    if (s.endsWith('windows.net')) return 'devicon-azure-plain';
     return null;
   }
 
-  /** Get devicon CSS class for a database engine */
+  /** Get devicon CSS class for a database engine (no `colored` — color comes from connection profile) */
   getEngineIconClass(engine: DatabaseEngine): string {
     switch (engine) {
       case 'mysql':
-        return 'devicon-mysql-original colored';
+        return 'devicon-mysql-original';
       case 'postgresql':
-        return 'devicon-postgresql-plain colored';
+        return 'devicon-postgresql-plain';
       case 'mssql':
-        return 'devicon-azuresqldatabase-plain colored';
+        return 'devicon-azuresqldatabase-plain';
     }
+  }
+
+  /** Get the connection color for a given connectionId, falling back to null */
+  getConnectionColor(connectionId?: string): string | null {
+    if (!connectionId) return null;
+    const profile = this.connectionState.getProfile(connectionId);
+    return profile?.color || null;
   }
 
   /** Get the database engine for a connection, defaulting to mssql */

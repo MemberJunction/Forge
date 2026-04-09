@@ -97,6 +97,8 @@ interface MonacoSelection {
 
 interface MonacoModel {
   getValueInRange(selection: MonacoSelection): string;
+  getLineCount(): number;
+  getLineContent(lineNumber: number): string;
 }
 
 declare const monaco: {
@@ -1621,7 +1623,8 @@ export class QueryComponent implements OnInit, OnDestroy {
       const remembered = this.loadPlaceholderValues();
 
       const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+      overlay.style.cssText =
+        'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
 
       const dialog = document.createElement('div');
       dialog.style.cssText = `
@@ -1630,9 +1633,10 @@ export class QueryComponent implements OnInit, OnDestroy {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       `;
 
-      const inputRows = placeholders.map(name => {
-        const val = remembered[name] || '';
-        return `
+      const inputRows = placeholders
+        .map(name => {
+          const val = remembered[name] || '';
+          return `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
             <label style="min-width:120px;color:var(--text-secondary);font-size:13px;font-family:monospace;text-align:right;flex-shrink:0;">
               \${${name}}
@@ -1642,7 +1646,8 @@ export class QueryComponent implements OnInit, OnDestroy {
                 background:var(--bg-primary);color:var(--text-primary);font-size:13px;font-family:monospace;outline:none;"
               placeholder="Enter value…" />
           </div>`;
-      }).join('');
+        })
+        .join('');
 
       dialog.innerHTML = `
         <div style="padding:16px 20px;border-bottom:1px solid var(--border-primary);display:flex;align-items:center;gap:8px;">
@@ -1669,12 +1674,16 @@ export class QueryComponent implements OnInit, OnDestroy {
       overlay.appendChild(dialog);
       document.body.appendChild(overlay);
 
-      const cleanup = () => { overlay.remove(); };
+      const cleanup = () => {
+        overlay.remove();
+      };
 
       const doExecute = () => {
         const inputs = dialog.querySelectorAll<HTMLInputElement>('input[data-placeholder]');
         const values: Record<string, string> = {};
-        inputs.forEach(inp => { values[inp.dataset['placeholder']!] = inp.value; });
+        inputs.forEach(inp => {
+          values[inp.dataset['placeholder']!] = inp.value;
+        });
 
         // Persist for next time
         const merged = { ...remembered, ...values };
@@ -1690,14 +1699,29 @@ export class QueryComponent implements OnInit, OnDestroy {
       };
 
       dialog.querySelector('#ph-execute')!.addEventListener('click', doExecute);
-      dialog.querySelector('#ph-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+      dialog.querySelector('#ph-cancel')!.addEventListener('click', () => {
+        cleanup();
+        resolve(null);
+      });
+      overlay.addEventListener('click', e => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(null);
+        }
+      });
 
       // Enter key in any input triggers execute
       dialog.querySelectorAll('input').forEach(inp => {
         inp.addEventListener('keydown', (e: KeyboardEvent) => {
-          if (e.key === 'Enter') { e.preventDefault(); doExecute(); }
-          if (e.key === 'Escape') { e.preventDefault(); cleanup(); resolve(null); }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            doExecute();
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            cleanup();
+            resolve(null);
+          }
         });
       });
 
@@ -2046,7 +2070,64 @@ export class QueryComponent implements OnInit, OnDestroy {
     if (selection && !selection.isEmpty()) {
       return this.editor.getModel()?.getValueInRange(selection) || '';
     }
+    const scope = this.settings.querySettings().executeScope;
+    if (scope === 'currentStatement') {
+      return this.getStatementAtCursor();
+    }
     return this.editor.getValue();
+  }
+
+  /**
+   * Extract the single statement surrounding the cursor position.
+   * Statement boundaries are semicolons (;) or GO on its own line.
+   */
+  private getStatementAtCursor(): string {
+    if (!this.editor) return '';
+    const model = this.editor.getModel();
+    const pos = this.editor.getPosition();
+    if (!model || !pos) return this.editor.getValue();
+
+    const lineCount = model.getLineCount();
+    const cursorLine = pos.lineNumber;
+
+    // Scan backward from cursor line to find start of statement
+    let startLine = 1;
+    for (let i = cursorLine - 1; i >= 1; i--) {
+      const line = model.getLineContent(i);
+      if (/^\s*GO\s*$/i.test(line)) {
+        startLine = i + 1;
+        break;
+      }
+      if (line.includes(';')) {
+        // The semicolon ends a prior statement; our statement starts after it.
+        // If the semicolon is at the end of the line, start on the next line.
+        // If there's text after the semicolon, we'd need column-level tracking,
+        // but for practical SQL editing, semicolons are typically at line end.
+        startLine = i + 1;
+        break;
+      }
+    }
+
+    // Scan forward from cursor line to find end of statement
+    let endLine = lineCount;
+    for (let i = cursorLine; i <= lineCount; i++) {
+      const line = model.getLineContent(i);
+      if (/^\s*GO\s*$/i.test(line)) {
+        endLine = i - 1;
+        break;
+      }
+      if (line.includes(';')) {
+        endLine = i;
+        break;
+      }
+    }
+
+    // Collect lines
+    const lines: string[] = [];
+    for (let i = startLine; i <= endLine; i++) {
+      lines.push(model.getLineContent(i));
+    }
+    return lines.join('\n').trim();
   }
 
   /**

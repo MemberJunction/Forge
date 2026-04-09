@@ -192,6 +192,23 @@ export interface ConnectionDialogResult {
           </mat-form-field>
         </div>
 
+        @if (formData.engine === 'mysql') {
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Collation</mat-label>
+            <mat-select [(ngModel)]="formData.mysqlCollation">
+              <mat-option [value]="undefined">Server default</mat-option>
+              <mat-option value="utf8mb4_0900_ai_ci">utf8mb4_0900_ai_ci (MySQL 8.0+)</mat-option>
+              <mat-option value="utf8mb4_unicode_ci">utf8mb4_unicode_ci</mat-option>
+              <mat-option value="utf8mb4_general_ci">utf8mb4_general_ci</mat-option>
+              <mat-option value="utf8mb4_bin">utf8mb4_bin</mat-option>
+              <mat-option value="utf8_general_ci">utf8_general_ci (legacy)</mat-option>
+            </mat-select>
+            <mat-hint
+              >Match your server's collation to avoid "Illegal mix of collations" errors</mat-hint
+            >
+          </mat-form-field>
+        }
+
         <mat-divider />
 
         <!-- SSH Tunnel -->
@@ -462,6 +479,7 @@ export class ConnectionDialogComponent {
     connectionTimeout: 30,
     database: '',
     color: undefined,
+    mysqlCollation: undefined,
     sshEnabled: false,
     sshHost: '',
     sshPort: 22,
@@ -660,6 +678,7 @@ export class ConnectionDialogComponent {
       trustServerCertificate: this.formData.trustServerCertificate ?? true,
       connectionTimeout: this.formData.connectionTimeout || 30,
       color: this.formData.color,
+      mysqlCollation: this.formData.mysqlCollation || undefined,
       sshTunnel: this.buildSshTunnelConfig(),
     };
   }
@@ -680,6 +699,7 @@ export class ConnectionDialogComponent {
       trustServerCertificate: this.formData.trustServerCertificate ?? true,
       connectionTimeout: this.formData.connectionTimeout || 30,
       color: this.formData.color,
+      mysqlCollation: this.formData.mysqlCollation || undefined,
       sshTunnel: this.buildSshTunnelConfig(),
     };
   }

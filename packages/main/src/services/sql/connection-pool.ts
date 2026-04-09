@@ -340,6 +340,7 @@ export class ConnectionPoolManager extends BaseSingleton {
         user: profile.username,
         password,
         database: profile.database || undefined,
+        charset: profile.mysqlCollation || undefined,
         ssl: profile.encrypt ? { rejectUnauthorized: !profile.trustServerCertificate } : undefined,
         connectTimeout: profile.connectionTimeout * 1000,
         connectionLimit: 1,
@@ -399,6 +400,7 @@ export class ConnectionPoolManager extends BaseSingleton {
       user: effectiveProfile.username,
       password,
       database: dbName,
+      charset: profile.mysqlCollation || undefined,
       ssl: effectiveProfile.encrypt
         ? { rejectUnauthorized: !effectiveProfile.trustServerCertificate }
         : undefined,
