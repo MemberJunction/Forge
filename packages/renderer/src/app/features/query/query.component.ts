@@ -41,6 +41,7 @@ import {
 } from '../../shared/components/row-detail-panel/row-detail-panel.component';
 import { ResultHistoryPanelComponent } from '../../shared/components/result-history-panel/result-history-panel.component';
 import { AIAnalysisPanelComponent } from '../../shared/components/ai-analysis-panel/ai-analysis-panel.component';
+import { ExecutionPlanComponent } from '../../shared/components/execution-plan/execution-plan.component';
 import type {
   QueryResult,
   ResultSet,
@@ -153,6 +154,7 @@ declare const monaco: {
     RowDetailPanelComponent,
     ResultHistoryPanelComponent,
     AIAnalysisPanelComponent,
+    ExecutionPlanComponent,
   ],
   template: `
     <div class="query-container">
@@ -419,6 +421,16 @@ declare const monaco: {
                     </button>
                   </div>
                   <div class="tabs-right">
+                    @if (planData()) {
+                      <button
+                        class="result-tab icon-tab"
+                        [class.active]="activeTab() === 'plan'"
+                        (click)="setActiveTab('plan')"
+                        matTooltip="Execution Plan"
+                      >
+                        <mat-icon>account_tree</mat-icon>
+                      </button>
+                    }
                     @if (aiState.analysisEnabled()) {
                       <button
                         class="result-tab icon-tab"
@@ -504,6 +516,14 @@ declare const monaco: {
                       [embedded]="true"
                       (viewResult)="onViewHistoryResult($event)"
                       (compareResults)="onCompareResults($event)"
+                    />
+                  </div>
+                } @else if (activeTab() === 'plan' && planData()) {
+                  <div class="tab-content-pane">
+                    <app-execution-plan
+                      [planData]="planData()"
+                      [engine]="planEngine()"
+                      [mysqlExplainUrl]="planMysqlExplainUrl()"
                     />
                   </div>
                 }
@@ -975,6 +995,11 @@ export class QueryComponent implements OnInit, OnDestroy {
   // Row detail panel state
   rowDetailData = signal<RowDetailData | null>(null);
   showRowDetail = signal(false);
+
+  // Execution plan state
+  planData = signal<unknown>(null);
+  planEngine = signal<import('@mj-forge/shared').DatabaseEngine>('mssql');
+  planMysqlExplainUrl = signal<string | null>(null);
 
   // Track last executed SQL for AI analysis
   private lastExecutedSql = '';
@@ -2360,11 +2385,25 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const engine = this.connectionState.activeProfile()?.engine || 'mssql';
     this.executing.set(true);
-    this.result.set(null);
+    this.planData.set(null);
+    this.planMysqlExplainUrl.set(null);
 
     try {
-      const planSql = `SET SHOWPLAN_TEXT ON;\n${sql}\nSET SHOWPLAN_TEXT OFF;`;
+      let planSql: string;
+      switch (engine) {
+        case 'mysql':
+          planSql = `EXPLAIN FORMAT=JSON ${sql}`;
+          break;
+        case 'postgresql':
+          planSql = `EXPLAIN (FORMAT JSON) ${sql}`;
+          break;
+        default:
+          planSql = `SET SHOWPLAN_TEXT ON;\n${sql}\nSET SHOWPLAN_TEXT OFF;`;
+          break;
+      }
+
       const result = await firstValueFrom(
         this.ipc.executeQuery({
           connectionId,
@@ -2374,8 +2413,33 @@ export class QueryComponent implements OnInit, OnDestroy {
         })
       );
 
+      // Store the normal result for the Messages tab
       this.result.set(result ?? null);
-      this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
+
+      // Extract and parse the plan JSON from the result
+      const planJson = this.extractPlanJson(result, engine);
+      if (planJson) {
+        this.planData.set(planJson);
+        this.planEngine.set(engine);
+        this.activeTab.set('plan');
+
+        // For MySQL, submit to mysqlexplain.com in background
+        if (engine === 'mysql') {
+          this.submitToMysqlExplain(sql, planJson);
+        }
+      } else if (engine === 'mssql' && result?.resultSets?.length) {
+        // MSSQL text plan: extract rows as text
+        const textRows = result.resultSets
+          .flatMap(rs => rs.rows)
+          .map(row => Object.values(row)[0])
+          .filter(Boolean);
+        this.planData.set(textRows);
+        this.planEngine.set(engine);
+        this.activeTab.set('plan');
+      } else {
+        this.activeTab.set(result?.resultSets?.length ? 'result-0' : 'messages');
+      }
+
       this.notification.success('Execution plan generated');
     } catch (error) {
       this.result.set({
@@ -2384,8 +2448,63 @@ export class QueryComponent implements OnInit, OnDestroy {
         error: error instanceof Error ? error.message : 'Failed to get execution plan',
         executionTime: 0,
       });
+      this.activeTab.set('messages');
     } finally {
       this.executing.set(false);
+    }
+  }
+
+  /**
+   * Extract the JSON execution plan from a query result.
+   * MySQL and PostgreSQL EXPLAIN FORMAT=JSON return JSON text in the first column of the first row.
+   */
+  private extractPlanJson(result: QueryResult | null | undefined, engine: string): unknown {
+    if (!result?.resultSets?.length) return null;
+    const firstRow = result.resultSets[0]?.rows?.[0];
+    if (!firstRow) return null;
+
+    // Get the first column value (the JSON text)
+    const jsonText = Object.values(firstRow)[0];
+    if (typeof jsonText !== 'string') return null;
+
+    try {
+      return JSON.parse(jsonText);
+    } catch {
+      // PostgreSQL sometimes returns multiple rows that together form the JSON
+      if (engine === 'postgresql') {
+        const allText = result.resultSets[0].rows.map(r => Object.values(r)[0]).join('');
+        try {
+          return JSON.parse(allText);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Submit explain data to mysqlexplain.com for visual rendering.
+   * Runs in background — sets the URL when available.
+   */
+  private async submitToMysqlExplain(query: string, explainJson: unknown): Promise<void> {
+    try {
+      const response = await fetch('https://api.mysqlexplain.com/v2/explains', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query,
+          explain_json: explainJson,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.url) {
+          this.planMysqlExplainUrl.set(data.url);
+        }
+      }
+    } catch {
+      // Non-critical — visual plan still works locally
     }
   }
 
