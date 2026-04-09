@@ -2326,8 +2326,10 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     try {
+      const engine = this.connectionState.activeProfile()?.engine;
+      const language = engine === 'mysql' ? 'mysql' : engine === 'postgresql' ? 'postgresql' : 'tsql';
       const formatted = formatSQL(sql, {
-        language: 'tsql',
+        language,
         tabWidth: 2,
         useTabs: false,
         keywordCase: 'upper',
