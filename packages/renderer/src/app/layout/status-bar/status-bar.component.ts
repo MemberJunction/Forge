@@ -47,21 +47,21 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             <mat-icon>{{
               connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off'
             }}</mat-icon>
-            <span>{{ connectionState.activeProfile()?.name }}</span>
+            <span>{{ displayedProfile()?.name }}</span>
             @if (!connectionState.connectionHealthy()) {
               <mat-icon class="health-warning spinning">sync</mat-icon>
             }
           </div>
-          @if (connectionState.selectedDatabase()) {
+          @if (displayedDatabase()) {
             <div class="status-item" matTooltip="Current Database">
               <i class="status-engine-icon" [ngClass]="getEngineIconClass()"></i>
-              <span>{{ connectionState.selectedDatabase() }}</span>
+              <span>{{ displayedDatabase() }}</span>
             </div>
           }
-          @if (connectionState.activeProfile()?.isDocker) {
+          @if (displayedProfile()?.isDocker) {
             <div class="status-item docker" matTooltip="Docker Container">
               <i class="devicon-docker-plain colored docker-icon"></i>
-              <span>{{ connectionState.activeProfile()?.dockerContainerId || 'Docker' }}</span>
+              <span>{{ displayedProfile()?.dockerContainerId || 'Docker' }}</span>
             </div>
           }
         } @else {
@@ -402,8 +402,25 @@ export class StatusBarComponent implements OnInit, OnDestroy {
   readonly cursorLine = signal(0);
   readonly cursorColumn = signal(0);
 
+  /** Show the focused tab's connection when available, otherwise the global active connection. */
+  readonly displayedProfile = computed(() => {
+    const activeTab = this.tabState.activeTab();
+    if (activeTab?.connectionId) {
+      return (
+        this.connectionState.getProfile(activeTab.connectionId) ??
+        this.connectionState.activeProfile()
+      );
+    }
+    return this.connectionState.activeProfile();
+  });
+
+  readonly displayedDatabase = computed(() => {
+    const activeTab = this.tabState.activeTab();
+    return activeTab?.databaseName ?? this.connectionState.selectedDatabase();
+  });
+
   readonly connectionColorBorder = computed(() => {
-    const profile = this.connectionState.activeProfile();
+    const profile = this.displayedProfile();
     if (profile?.color) {
       return `3px solid ${profile.color}`;
     }
@@ -508,9 +525,9 @@ export class StatusBarComponent implements OnInit, OnDestroy {
     this.settings.updateTheme(theme);
   }
 
-  /** Get devicon CSS class for the active connection's engine */
+  /** Get devicon CSS class for the displayed connection's engine */
   getEngineIconClass(): string {
-    switch (this.connectionState.activeProfile()?.engine) {
+    switch (this.displayedProfile()?.engine) {
       case 'mysql':
         return 'devicon-mysql-original colored';
       case 'postgresql':

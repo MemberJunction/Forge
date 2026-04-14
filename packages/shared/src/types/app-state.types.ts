@@ -9,6 +9,7 @@ export interface TabState {
   type: 'query' | 'results' | 'object' | 'welcome' | 'erd' | 'chat';
   title: string;
   content?: string;
+  connectionId?: string;
   databaseName?: string;
   isDirty?: boolean;
   isPinned?: boolean;

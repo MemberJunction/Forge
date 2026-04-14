@@ -287,18 +287,14 @@ export class TabStateService {
 
     // Try to extract a meaningful short title from the SQL
     // Match SELECT ... FROM [schema].[table]
-    const selectMatch = cleaned.match(
-      /^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
-    );
+    const selectMatch = cleaned.match(/^SELECT\b.*?\bFROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i);
     if (selectMatch) {
       const table = selectMatch[2];
       return table.length > 20 ? `${table.substring(0, 18)}…` : table;
     }
 
     // Match EXEC [schema].[proc]
-    const execMatch = cleaned.match(
-      /^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i
-    );
+    const execMatch = cleaned.match(/^EXEC(?:UTE)?\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?/i);
     if (execMatch) {
       const proc = execMatch[2];
       return `Exec ${proc.length > 16 ? proc.substring(0, 14) + '…' : proc}`;
@@ -525,6 +521,7 @@ export class TabStateService {
           type: t.type,
           title: t.title,
           content: t.content,
+          connectionId: t.connectionId,
           databaseName: t.databaseName,
           isDirty: t.isDirty,
           isPinned: t.isPinned,
@@ -560,7 +557,7 @@ export class TabStateService {
           type: t.type as TabType,
           title: t.title,
           icon: t.type === 'query' ? 'code' : 'description',
-          connectionId,
+          connectionId: t.connectionId ?? connectionId,
           databaseName: t.databaseName,
           content: t.content,
           isDirty: false, // Restored tabs start clean (baseline matches content)

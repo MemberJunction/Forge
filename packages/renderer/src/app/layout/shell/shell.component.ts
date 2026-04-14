@@ -47,12 +47,18 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
           matTooltipShowDelay="600"
         ></div>
       }
-      @if (sidebarHidden()) {
-        <button class="sidebar-show-btn" (click)="toggleSidebar()" matTooltip="Show sidebar (⌘B)">
-          <mat-icon>chevron_right</mat-icon>
-        </button>
-      }
       <div class="main-area">
+        <div class="window-drag-bar" [class.sidebar-hidden]="sidebarHidden()">
+          @if (sidebarHidden()) {
+            <button
+              class="sidebar-show-btn"
+              (click)="toggleSidebar()"
+              matTooltip="Show sidebar (⌘B)"
+            >
+              <mat-icon>chevron_right</mat-icon>
+            </button>
+          }
+        </div>
         <app-golden-layout-container class="content-area" />
         <app-status-bar class="status-bar" />
       </div>
@@ -104,11 +110,19 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
         background-color: var(--accent-primary, #007acc);
       }
 
+      .window-drag-bar {
+        height: 38px;
+        flex-shrink: 0;
+        -webkit-app-region: drag;
+        display: flex;
+        align-items: center;
+      }
+
+      .window-drag-bar.sidebar-hidden {
+        padding-left: 80px; /* Clear macOS traffic lights */
+      }
+
       .sidebar-show-btn {
-        position: absolute;
-        top: 8px;
-        left: 4px;
-        z-index: 20;
         width: 24px;
         height: 24px;
         padding: 0;
@@ -122,6 +136,7 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
         justify-content: center;
         opacity: 0.6;
         transition: opacity 0.15s ease;
+        -webkit-app-region: no-drag;
       }
 
       .sidebar-show-btn:hover {
@@ -141,7 +156,6 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
         flex-direction: column;
         min-width: 0;
         height: 100%;
-        padding-top: 28px; /* Space for macOS traffic lights */
       }
 
       .content-area {
