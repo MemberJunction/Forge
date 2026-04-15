@@ -354,7 +354,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
         align-items: center;
         justify-content: space-between;
         padding: var(--spacing-sm) var(--spacing-md);
-        padding-top: 28px; /* Space for macOS traffic lights */
+        padding-top: 38px; /* Space for macOS traffic lights */
         border-bottom: 1px solid var(--border-primary);
         background-color: var(--bg-tertiary);
         -webkit-app-region: drag; /* Allow dragging window from header */

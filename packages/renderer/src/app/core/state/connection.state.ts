@@ -31,6 +31,7 @@ export class ConnectionStateService {
   private readonly _connectionHealthy = signal(true);
   private _heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private _reconnecting = false;
+  private readonly _databaseCache = new Map<string, DatabaseInfo[]>();
 
   // Public readonly signals
   readonly profiles = this._profiles.asReadonly();
@@ -169,6 +170,7 @@ export class ConnectionStateService {
       this._activeConnectionId.set(null);
       this._databases.set([]);
       this._selectedDatabase.set(null);
+      this.clearDatabaseCache(connectionId);
       this.explorerState.removeServerNode(connectionId);
       this.notification.info('Disconnected');
       // Clear saved connection state
@@ -179,6 +181,7 @@ export class ConnectionStateService {
       this._activeConnectionId.set(null);
       this._databases.set([]);
       this._selectedDatabase.set(null);
+      this.clearDatabaseCache(connectionId);
       this.explorerState.removeServerNode(connectionId);
     }
   }
@@ -191,12 +194,30 @@ export class ConnectionStateService {
       this._loadingDatabases.set(true);
       const databases = await firstValueFrom(this.ipc.listDatabases(connectionId));
       this._databases.set(databases);
+      this._databaseCache.set(connectionId, databases);
     } catch (error) {
       this.notification.error('Failed to load databases');
       console.error('Failed to load databases:', error);
     } finally {
       this._loadingDatabases.set(false);
     }
+  }
+
+  /**
+   * Get databases for any connection (cached, fetched on demand).
+   * Used by per-tab database selectors that may reference non-active connections.
+   */
+  async getDatabasesForConnection(connectionId: string): Promise<DatabaseInfo[]> {
+    const cached = this._databaseCache.get(connectionId);
+    if (cached) return cached;
+
+    const databases = await firstValueFrom(this.ipc.listDatabases(connectionId));
+    this._databaseCache.set(connectionId, databases);
+    return databases;
+  }
+
+  clearDatabaseCache(connectionId: string): void {
+    this._databaseCache.delete(connectionId);
   }
 
   selectDatabase(name: string | null): void {

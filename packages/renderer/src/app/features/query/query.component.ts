@@ -7,6 +7,7 @@ import {
   OnInit,
   ViewChild,
   effect,
+  computed,
   inject,
   runInInjectionContext,
   signal,
@@ -42,6 +43,7 @@ import {
 import { ResultHistoryPanelComponent } from '../../shared/components/result-history-panel/result-history-panel.component';
 import { AIAnalysisPanelComponent } from '../../shared/components/ai-analysis-panel/ai-analysis-panel.component';
 import { ExecutionPlanComponent } from '../../shared/components/execution-plan/execution-plan.component';
+import { ConnectionContextChipComponent } from '../../shared/components/connection-context-chip/connection-context-chip.component';
 import type {
   QueryResult,
   ResultSet,
@@ -155,6 +157,7 @@ declare const monaco: {
     ResultHistoryPanelComponent,
     AIAnalysisPanelComponent,
     ExecutionPlanComponent,
+    ConnectionContextChipComponent,
   ],
   template: `
     <div class="query-container">
@@ -184,18 +187,12 @@ declare const monaco: {
         </button>
         <div class="toolbar-divider"></div>
 
-        <mat-form-field appearance="outline" class="database-select">
-          <mat-select
-            [(ngModel)]="selectedDatabase"
-            placeholder="Select Database"
-            aria-label="Select database"
-            (selectionChange)="onDatabaseChange($event.value)"
-          >
-            @for (db of connectionState.databases(); track db.name) {
-              <mat-option [value]="db.name">{{ db.name }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
+        <app-connection-context-chip
+          [connectionId]="tabConnectionId()"
+          [databaseName]="selectedDatabase"
+          (connectionChanged)="onConnectionChange($event)"
+          (databaseChanged)="onDatabaseChange($event)"
+        />
 
         <div class="toolbar-spacer"></div>
 
@@ -572,14 +569,6 @@ declare const monaco: {
 
       .toolbar-spacer {
         flex: 1;
-      }
-
-      .database-select {
-        width: 200px;
-
-        ::ng-deep .mat-mdc-form-field-subscript-wrapper {
-          display: none;
-        }
       }
 
       .query-main {
@@ -979,6 +968,11 @@ export class QueryComponent implements OnInit, OnDestroy {
    */
   tabId: string | null = null;
 
+  readonly tabConnectionId = computed(() => {
+    const tab = this.tabState.tabs().find(t => t.id === this.tabId);
+    return tab?.connectionId ?? this.connectionState.activeConnectionId();
+  });
+
   selectedDatabase: string | null = null;
   executing = signal(false);
   result = signal<QueryResult | null>(null);
@@ -1019,10 +1013,9 @@ export class QueryComponent implements OnInit, OnDestroy {
         const activeTab = this.tabState.activeTab();
         // Only act if this component's tab is now active
         if (activeTab?.type === 'query' && this.tabId && activeTab.id === this.tabId) {
-          // Update database selection
+          // Sync local database selection from tab state
           if (activeTab.databaseName) {
             this.selectedDatabase = activeTab.databaseName;
-            this.connectionState.selectDatabase(activeTab.databaseName);
           }
 
           // Update editor content when it's ready
@@ -1056,24 +1049,14 @@ export class QueryComponent implements OnInit, OnDestroy {
       }
     });
 
-    // Watch for external database selection changes (e.g. sidebar dropdown)
-    effect(() => {
-      const db = this.connectionState.selectedDatabase();
-      if (db && db !== this.selectedDatabase) {
-        this.selectedDatabase = db;
-        // Also update the tab's stored databaseName to prevent the active-tab
-        // effect from reverting the selection
-        if (this.tabId) {
-          this.tabState.updateTab(this.tabId, { databaseName: db });
-        }
-        this.cdr.markForCheck();
-      }
-    });
+    // Tabs own their own database selection — no global sync needed.
   }
 
   ngOnInit(): void {
     this.initMonaco();
-    this.selectedDatabase = this.connectionState.selectedDatabase();
+    // Initialize database from tab's own state, falling back to global
+    const tab = this.tabState.tabs().find(t => t.id === this.tabId);
+    this.selectedDatabase = tab?.databaseName ?? this.connectionState.selectedDatabase();
 
     // Listen for keyboard shortcuts
     document.addEventListener('keydown', this.handleKeydown);
@@ -1774,9 +1757,8 @@ export class QueryComponent implements OnInit, OnDestroy {
       sql = resolved;
     }
 
-    const connectionId = this.connectionState.activeConnectionId();
-    // Use tab's own database if selectedDatabase hasn't been synced yet (e.g. autoExecute race)
     const currentTab = this.tabState.tabs().find(t => t.id === this.tabId);
+    const connectionId = currentTab?.connectionId ?? this.connectionState.activeConnectionId();
     const database = this.selectedDatabase || currentTab?.databaseName;
 
     if (!connectionId) {
@@ -1857,12 +1839,19 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   onDatabaseChange(database: string): void {
-    this.connectionState.selectDatabase(database);
-    // Update the tab's stored databaseName so the active-tab effect
-    // doesn't revert the selection back to the old value
+    this.selectedDatabase = database;
     if (this.tabId) {
       this.tabState.updateTab(this.tabId, { databaseName: database });
     }
+  }
+
+  onConnectionChange(connectionId: string): void {
+    if (!this.tabId) return;
+    // Use the profile's configured default database, if any
+    const profile = this.connectionState.getProfile(connectionId);
+    const defaultDb = profile?.database ?? null;
+    this.selectedDatabase = defaultDb;
+    this.tabState.updateTab(this.tabId, { connectionId, databaseName: defaultDb ?? undefined });
   }
 
   // History panel methods
@@ -2327,7 +2316,8 @@ export class QueryComponent implements OnInit, OnDestroy {
 
     try {
       const engine = this.connectionState.activeProfile()?.engine;
-      const language = engine === 'mysql' ? 'mysql' : engine === 'postgresql' ? 'postgresql' : 'tsql';
+      const language =
+        engine === 'mysql' ? 'mysql' : engine === 'postgresql' ? 'postgresql' : 'tsql';
       const formatted = formatSQL(sql, {
         language,
         tabWidth: 2,
