@@ -681,14 +681,19 @@ export class ConnectionPoolManager extends BaseSingleton {
    */
   async closePool(profileId: string): Promise<void> {
     this.azureCache.delete(profileId);
-    const entry = this.pools.get(profileId);
-    if (entry) {
-      try {
-        await entry.pool.close();
-      } catch {
-        /* ignore */
+
+    // MSSQL pools may be keyed as "profileId" (on-prem, single pool) or
+    // "profileId:dbName" (Entra/Azure SQL per-database pools). Iterate so
+    // both shapes are cleaned up — matches the PG/MySQL handling below.
+    for (const [key, entry] of this.pools) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) {
+        try {
+          await entry.pool.close();
+        } catch {
+          /* ignore */
+        }
+        this.pools.delete(key);
       }
-      this.pools.delete(profileId);
     }
 
     // PG pools are keyed as "profileId:dbName", so close all pools for this profile
