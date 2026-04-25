@@ -180,28 +180,21 @@ export interface ConnectionDialogResult {
             <mat-label>Connection Timeout (seconds)</mat-label>
             <input matInput type="number" [(ngModel)]="formData.connectionTimeout" />
           </mat-form-field>
-          <mat-form-field
-            appearance="outline"
-            class="flex-1"
-            [class.required-field]="isEntraAuth() && !formData.database"
-          >
-            <mat-label>Default Database{{ isEntraAuth() ? ' *' : '' }}</mat-label>
+          <mat-form-field appearance="outline" class="flex-1">
+            <mat-label>Default Database</mat-label>
             <input
               matInput
               [(ngModel)]="formData.database"
-              [required]="isEntraAuth()"
               [placeholder]="
-                isEntraAuth()
-                  ? 'e.g. my-database'
-                  : formData.engine === 'postgresql'
-                    ? 'postgres'
-                    : formData.engine === 'mysql'
-                      ? 'mysql'
-                      : 'master'
+                formData.engine === 'postgresql'
+                  ? 'postgres'
+                  : formData.engine === 'mysql'
+                    ? 'mysql'
+                    : 'master'
               "
             />
             @if (isEntraAuth()) {
-              <mat-hint>Required — Azure SQL cannot connect without a target database</mat-hint>
+              <mat-hint>Leave blank to connect to master — most users need a specific DB.</mat-hint>
             }
           </mat-form-field>
         </div>
@@ -403,15 +396,6 @@ export interface ConnectionDialogResult {
         font-size: 13px;
         line-height: 1.4;
         border-radius: 2px;
-      }
-
-      .required-field ::ng-deep .mat-mdc-text-field-wrapper {
-        background: var(--warning-bg, rgba(255, 193, 7, 0.08));
-      }
-
-      .required-field ::ng-deep .mat-mdc-form-field-hint {
-        color: var(--status-warning, #f2a900);
-        font-weight: 500;
       }
 
       .flex-2 {
@@ -661,9 +645,6 @@ export class ConnectionDialogComponent {
     ) {
       return 'Fill in Username to continue.';
     }
-    if (this.isEntraAuth() && !this.formData.database) {
-      return 'Microsoft Entra ID requires a Default Database — Azure SQL cannot connect without one.';
-    }
     if (this.formData.sshEnabled && (!this.formData.sshHost || !this.formData.sshUsername)) {
       return 'Fill in SSH Host and Username to continue.';
     }
@@ -681,9 +662,6 @@ export class ConnectionDialogComponent {
     );
 
     if (!baseValid) return false;
-
-    // Azure SQL requires a target database (USE [db] not supported)
-    if (this.isEntraAuth() && !this.formData.database) return false;
 
     // Validate SSH fields if enabled
     if (this.formData.sshEnabled) {
@@ -728,15 +706,11 @@ export class ConnectionDialogComponent {
   }
 
   canTestConnection(): boolean {
-    const baseOk = !!(
+    return !!(
       this.formData.server &&
       this.formData.port &&
       (this.formData.authenticationType !== 'sql' || this.formData.username)
     );
-    if (!baseOk) return false;
-    // Azure SQL can't connect without a target database (no USE support).
-    if (this.isEntraAuth() && !this.formData.database) return false;
-    return true;
   }
 
   private buildSshTunnelConfig(): SshTunnelConfig | undefined {

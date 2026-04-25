@@ -550,11 +550,6 @@ export class ConnectionPoolManager extends BaseSingleton {
     const { effectiveProfile } = await this.withTunnel(profile);
 
     const targetDb = azureDb ?? effectiveProfile.database ?? 'master';
-    if (isEntraIdAuth(profile) && targetDb === 'master') {
-      log.warn(
-        'Entra ID connection targeting master — most Azure SQL users need a specific database'
-      );
-    }
     const config: SqlConfig = {
       ...(await buildMssqlConfig(
         effectiveProfile,
