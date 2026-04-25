@@ -619,16 +619,7 @@ export class ConnectionPoolManager extends BaseSingleton {
   async query<T>(profileId: string, sql: string, database?: string): Promise<IResult<T>> {
     const poolKey = await this.resolveMssqlPoolKey(profileId, database);
     const pool = await this.getPool(profileId, database);
-
-    // Azure SQL doesn't support USE [db] — getPool already targets the
-    // correct database via per-DB pool keying. On on-prem SQL Server we
-    // prepend USE to switch context within a shared pool. Keying off the
-    // engine edition (via resolveMssqlPoolKey) means SQL-auth-on-Azure works.
-    let finalSql = sql;
-    if (database && poolKey === profileId) {
-      const safeDb = database.replace(/\]/g, ']]');
-      finalSql = `USE [${safeDb}];\n${finalSql}`;
-    }
+    const finalSql = this.adaptSqlForPool(sql, poolKey, profileId, database);
 
     const entry = this.pools.get(poolKey);
     if (entry) entry.activeQueries++;
@@ -652,12 +643,7 @@ export class ConnectionPoolManager extends BaseSingleton {
   async batch(profileId: string, sql: string, database?: string): Promise<void> {
     const poolKey = await this.resolveMssqlPoolKey(profileId, database);
     const pool = await this.getPool(profileId, database);
-
-    let finalSql = sql;
-    if (database && poolKey === profileId) {
-      const safeDb = database.replace(/\]/g, ']]');
-      finalSql = `USE [${safeDb}];\n${finalSql}`;
-    }
+    const finalSql = this.adaptSqlForPool(sql, poolKey, profileId, database);
 
     const entry = this.pools.get(poolKey);
     if (entry) entry.activeQueries++;
@@ -670,6 +656,36 @@ export class ConnectionPoolManager extends BaseSingleton {
         entry.lastUsed = new Date();
       }
     }
+  }
+
+  /**
+   * Adjust the outgoing SQL to match the pool we're routing it to.
+   *
+   *  - On the on-prem path (poolKey === profileId), prepend `USE [db]` so
+   *    a shared pool can switch database context per-query.
+   *  - On the Azure path (poolKey === `${profileId}:${database}`), the pool
+   *    is already connected to the right DB AND Azure SQL rejects USE
+   *    outright. Strip any leading `USE [..];` the SQL generator embedded
+   *    (TsqlBuilder.listSchemas/listTables/etc. all do) so those metadata
+   *    queries actually run on Azure. The strip only touches a single
+   *    leading USE statement; mid-query USEs (uncommon) are left alone.
+   */
+  private adaptSqlForPool(
+    sql: string,
+    poolKey: string,
+    profileId: string,
+    database?: string
+  ): string {
+    if (!database) return sql;
+
+    if (poolKey === profileId) {
+      const safeDb = database.replace(/\]/g, ']]');
+      return `USE [${safeDb}];\n${sql}`;
+    }
+
+    // Azure per-DB pool: drop a single leading USE [..]; if present.
+    // Bracket content allows escaped `]]` so DB names with `]` survive.
+    return sql.replace(/^\s*USE\s+\[(?:[^\]]|\]\])*\]\s*;?\s*/i, '');
   }
 
   /**
