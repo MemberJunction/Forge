@@ -89,6 +89,53 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
+   * If the SSH tunnel for a profile has been evicted (e.g. ssh2 keepalive
+   * detected a dead bastion connection and fired 'close'), all DB pools that
+   * were tunneling through it are stale — even if their `.connected` flag
+   * still reports true, since the OS hasn't yet noticed the local socket is
+   * dead. Tear them down so the next get*Pool call rebuilds them on a fresh
+   * tunnel.
+   */
+  private async invalidateStalePoolsIfTunnelGone(profile: ConnectionProfile): Promise<void> {
+    if (!profile.sshTunnel?.enabled) return;
+    if (this.sshTunnelManager.hasTunnel(profile.id)) return;
+
+    log.info(`SSH tunnel for ${profile.id} is gone — discarding stale pools`);
+
+    const mssql = this.pools.get(profile.id);
+    if (mssql) {
+      try {
+        await mssql.pool.close();
+      } catch {
+        // pool may already be in a bad state — proceed with eviction
+      }
+      this.pools.delete(profile.id);
+    }
+
+    for (const [key, entry] of this.pgPools) {
+      if (key === profile.id || key.startsWith(`${profile.id}:`)) {
+        try {
+          await entry.pool.end();
+        } catch {
+          // see above
+        }
+        this.pgPools.delete(key);
+      }
+    }
+
+    for (const [key, entry] of this.mysqlPools) {
+      if (key === profile.id || key.startsWith(`${profile.id}:`)) {
+        try {
+          await entry.pool.end();
+        } catch {
+          // see above
+        }
+        this.mysqlPools.delete(key);
+      }
+    }
+  }
+
+  /**
    * Get the SQL dialect for a connection profile
    */
   getDialectForProfile(profileId: string): SQLDialect {
@@ -155,7 +202,11 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } finally {
       if (tunnelKey) {
-        await this.sshTunnelManager.closeTunnel(tunnelKey).catch(() => {});
+        try {
+          await this.sshTunnelManager.closeTunnel(tunnelKey);
+        } catch {
+          // best-effort cleanup of the temporary test tunnel
+        }
       }
     }
   }
@@ -265,7 +316,11 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } finally {
       if (testPool) {
-        await testPool.end().catch(() => {});
+        try {
+          await testPool.end();
+        } catch {
+          // best-effort cleanup of the temporary test pool
+        }
       }
     }
   }
@@ -279,6 +334,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   async getPgPool(profileId: string, database?: string): Promise<PgPool> {
     const profile = this.profileStore.getById(profileId);
     if (!profile) throw new Error('Connection profile not found');
+
+    await this.invalidateStalePoolsIfTunnelGone(profile);
 
     const dbName = database || profile.database || 'postgres';
     const poolKey = `${profileId}:${dbName}`;
@@ -364,7 +421,11 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } finally {
       if (testPool) {
-        await testPool.end().catch(() => {});
+        try {
+          await testPool.end();
+        } catch {
+          // best-effort cleanup of the temporary test pool
+        }
       }
     }
   }
@@ -378,6 +439,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   async getMySQLPool(profileId: string, database?: string): Promise<MySQLPool> {
     const profile = this.profileStore.getById(profileId);
     if (!profile) throw new Error('Connection profile not found');
+
+    await this.invalidateStalePoolsIfTunnelGone(profile);
 
     const dbName = database || profile.database || undefined;
     const poolKey = `${profileId}:${dbName ?? '__default__'}`;
@@ -433,6 +496,16 @@ export class ConnectionPoolManager extends BaseSingleton {
   async getPool(profileId: string): Promise<ConnectionPool> {
     log.debug(`Getting pool for profile: ${profileId}`);
 
+    const profile = this.profileStore.getById(profileId);
+    if (!profile) {
+      log.error(`Profile not found: ${profileId}`);
+      throw new Error('Connection profile not found');
+    }
+
+    // If the SSH tunnel died and got evicted, the cached pool is stale even if
+    // it still reports connected. Drop it before checking for reuse.
+    await this.invalidateStalePoolsIfTunnelGone(profile);
+
     // Check for existing connected pool
     const existing = this.pools.get(profileId);
     if (existing?.pool.connected) {
@@ -442,13 +515,6 @@ export class ConnectionPoolManager extends BaseSingleton {
     }
 
     log.debug(`Creating new pool for: ${profileId}`);
-
-    // Get profile and password
-    const profile = this.profileStore.getById(profileId);
-    if (!profile) {
-      log.error(`Profile not found: ${profileId}`);
-      throw new Error('Connection profile not found');
-    }
     log.debug(`Found profile: "${profile.name}" at ${profile.server}:${profile.port}`);
 
     const password = await this.profileStore.getPassword(profileId);
@@ -816,14 +882,14 @@ export class ConnectionPoolManager extends BaseSingleton {
         for (const [id, entry] of this.pools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            this.closePool(id).catch(() => {});
+            void this.closePool(id);
           }
         }
         // Also clean idle PG pools
         for (const [id, entry] of this.pgPools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            entry.pool.end().catch(() => {});
+            void entry.pool.end();
             this.pgPools.delete(id);
           }
         }
@@ -831,7 +897,7 @@ export class ConnectionPoolManager extends BaseSingleton {
         for (const [id, entry] of this.mysqlPools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            entry.pool.end().catch(() => {});
+            void entry.pool.end();
             this.mysqlPools.delete(id);
           }
         }

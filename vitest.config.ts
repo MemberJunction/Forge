@@ -25,17 +25,12 @@ export default defineConfig({
     hookTimeout: 30000,
 
     // Setup files
-    setupFiles: [
-      './packages/main/src/__tests__/setup.ts',
-    ],
+    setupFiles: ['./packages/main/src/__tests__/setup.ts'],
 
     // Coverage — scoped to packages that have tests
     coverage: {
       provider: 'v8',
-      include: [
-        'packages/main/src/**/*.ts',
-        'packages/shared/src/**/*.ts',
-      ],
+      include: ['packages/main/src/**/*.ts', 'packages/shared/src/**/*.ts'],
       exclude: [
         '**/*.spec.ts',
         '**/*.test.ts',
@@ -63,7 +58,8 @@ export default defineConfig({
     // Module resolution
     alias: {
       '@mj-forge/shared': new URL('./packages/shared/src', import.meta.url).pathname,
-      'keytar': new URL('./packages/main/src/__mocks__/keytar.ts', import.meta.url).pathname,
+      keytar: new URL('./packages/main/src/__mocks__/keytar.ts', import.meta.url).pathname,
+      ssh2: new URL('./packages/main/src/__mocks__/ssh2.ts', import.meta.url).pathname,
     },
 
     // Reporter

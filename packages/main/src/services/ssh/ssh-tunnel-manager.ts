@@ -62,12 +62,17 @@ export class SshTunnelManager extends BaseSingleton {
 
     const sshClient = new Client();
 
-    // Build auth config
+    // Build auth config.
+    // keepaliveInterval/keepaliveCountMax send SSH-level keepalives so ssh2 detects
+    // a silently-dropped TCP socket (NAT/firewall idle timeout, network change, laptop
+    // sleep) within ~90s instead of hanging forever on a dead session.
     const connectConfig: Parameters<Client['connect']>[0] = {
       host: sshConfig.host,
       port: sshConfig.port,
       username: sshConfig.username,
       readyTimeout: 15000,
+      keepaliveInterval: 30000,
+      keepaliveCountMax: 3,
     };
 
     if (sshConfig.authType === 'privateKey') {
@@ -107,8 +112,24 @@ export class SshTunnelManager extends BaseSingleton {
           settled = true;
           reject(new Error(message));
         }
-        this.closeTunnel(profileId).catch(() => {});
+        void this.closeTunnel(profileId);
       });
+
+      // 'close'/'end' fire when the SSH session terminates — either by us calling
+      // closeTunnel (in which case the map entry is already gone, so the call below
+      // is a no-op) or because the bastion dropped us / keepalives failed. In the
+      // latter case we must evict the dead tunnel so the next openTunnel call builds
+      // a fresh one instead of handing back the stale local port.
+      const handleUnexpectedClose = (reason: 'close' | 'end') => {
+        if (!settled) return;
+        if (!this.tunnels.has(profileId)) return;
+        log.warn(`SSH tunnel for ${profileId} ${reason}d unexpectedly — evicting`);
+        // closeTunnel never rejects (each step is wrapped in try/catch
+        // internally), so fire-and-forget is safe here.
+        void this.closeTunnel(profileId);
+      };
+      sshClient.on('close', () => handleUnexpectedClose('close'));
+      sshClient.on('end', () => handleUnexpectedClose('end'));
 
       sshClient.on('ready', () => {
         log.info(`SSH connection established for ${profileId}`);

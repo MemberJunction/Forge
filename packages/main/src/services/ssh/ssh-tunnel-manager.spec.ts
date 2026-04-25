@@ -1,0 +1,110 @@
+/**
+ * Tests for SshTunnelManager.
+ *
+ * `ssh2` is aliased to a mock in vitest.config.ts so the SSH client lifecycle
+ * can be exercised without a real bastion. We're verifying:
+ *
+ *   - keepalive params are passed through to ssh2 (proactive death detection)
+ *   - 'close' / 'end' on the SSH client evict the tunnel from the manager's
+ *     map (so a dead tunnel can't be handed back to the next caller)
+ *   - openTunnel after eviction creates a fresh tunnel rather than reusing
+ *     the dead one
+ *   - closeTunnel is idempotent
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+// Reach into the mock module directly for type-safe access to the test
+// helpers — the vitest alias redirects runtime `ssh2` imports inside the
+// manager, while this import resolves at compile time to the same file.
+import { __mockSshClients, __resetMockSsh } from '../../__mocks__/ssh2';
+import { SshTunnelManager } from './ssh-tunnel-manager';
+import type { SshTunnelConfig } from '@mj-forge/shared';
+
+const sshConfig: SshTunnelConfig = {
+  enabled: true,
+  host: 'bastion.example.com',
+  port: 22,
+  username: 'tunneluser',
+  authType: 'password',
+};
+
+describe('SshTunnelManager', () => {
+  let mgr: SshTunnelManager;
+
+  beforeEach(() => {
+    SshTunnelManager.resetInstance();
+    __resetMockSsh();
+    mgr = SshTunnelManager.getInstance();
+  });
+
+  afterEach(async () => {
+    await mgr.closeAll();
+  });
+
+  it('passes SSH keepalive params to ssh2 connect config', async () => {
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(__mockSshClients).toHaveLength(1);
+    const cfg = __mockSshClients[0].connectConfig;
+    expect(cfg?.keepaliveInterval).toBe(30000);
+    expect(cfg?.keepaliveCountMax).toBe(3);
+  });
+
+  it('evicts tunnel from map when sshClient emits close unexpectedly', async () => {
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(mgr.hasTunnel('p1')).toBe(true);
+
+    // Simulate the bastion dropping us / keepalive timing out
+    __mockSshClients[0].emit('close');
+    await new Promise(r => setImmediate(r));
+
+    expect(mgr.hasTunnel('p1')).toBe(false);
+  });
+
+  it('evicts tunnel from map when sshClient emits end unexpectedly', async () => {
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(mgr.hasTunnel('p1')).toBe(true);
+
+    __mockSshClients[0].emit('end');
+    await new Promise(r => setImmediate(r));
+
+    expect(mgr.hasTunnel('p1')).toBe(false);
+  });
+
+  it('creates a fresh tunnel after the previous one died', async () => {
+    const ep1 = await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+
+    __mockSshClients[0].emit('close');
+    await new Promise(r => setImmediate(r));
+    expect(mgr.hasTunnel('p1')).toBe(false);
+
+    const ep2 = await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(__mockSshClients).toHaveLength(2);
+    // A fresh real `net.createServer().listen(0)` allocates a different OS port
+    // than the previous closed one (in practice, with overwhelming probability).
+    expect(ep2.localPort).not.toBe(ep1.localPort);
+    expect(mgr.hasTunnel('p1')).toBe(true);
+  });
+
+  it('reuses a live tunnel for the same profile', async () => {
+    const ep1 = await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    const ep2 = await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(ep2.localPort).toBe(ep1.localPort);
+    expect(__mockSshClients).toHaveLength(1);
+  });
+
+  it('closeTunnel is idempotent', async () => {
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    await mgr.closeTunnel('p1');
+    await mgr.closeTunnel('p1');
+    expect(mgr.hasTunnel('p1')).toBe(false);
+  });
+
+  it('explicit closeTunnel does not re-trigger eviction via the close handler', async () => {
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    // closeTunnel deletes from the map first, then calls sshClient.end() which
+    // emits 'close'. The handler must short-circuit because the entry is gone.
+    await mgr.closeTunnel('p1');
+    await new Promise(r => setImmediate(r));
+    expect(mgr.hasTunnel('p1')).toBe(false);
+  });
+});
