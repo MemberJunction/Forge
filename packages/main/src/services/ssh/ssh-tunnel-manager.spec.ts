@@ -122,6 +122,48 @@ describe('SshTunnelManager', () => {
     expect(mgr.hasTunnel('p1')).toBe(false);
   });
 
+  it('deferred event from a dead client does not evict a freshly-reconnected tunnel', async () => {
+    // Open T1 with sshClient_A.
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(mgr.hasTunnel('p1')).toBe(true);
+    const clientA = __mockSshClients[0];
+
+    // T1 dies — first event evicts it from the map.
+    clientA.emit('close');
+    await new Promise(r => setImmediate(r));
+    expect(mgr.hasTunnel('p1')).toBe(false);
+
+    // Reconnect: T2 comes up with a different sshClient instance.
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(mgr.hasTunnel('p1')).toBe(true);
+    const clientB = __mockSshClients[1];
+    expect(clientB).not.toBe(clientA);
+
+    // Deferred 'end' from the OLD client A fires (e.g. the second leg of
+    // ssh2's teardown sequence, or a residual event from sshClient.end()).
+    // The old client's handler closure must NOT evict T2.
+    clientA.emit('end');
+    await new Promise(r => setImmediate(r));
+
+    expect(mgr.hasTunnel('p1')).toBe(true);
+  });
+
+  it('deferred error from a dead client does not evict a freshly-reconnected tunnel', async () => {
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    const clientA = __mockSshClients[0];
+    clientA.emit('close');
+    await new Promise(r => setImmediate(r));
+
+    await mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    expect(mgr.hasTunnel('p1')).toBe(true);
+
+    // Same race as above but via the 'error' handler path.
+    clientA.emit('error', new Error('residual SSH error'));
+    await new Promise(r => setImmediate(r));
+
+    expect(mgr.hasTunnel('p1')).toBe(true);
+  });
+
   it('does not insert a stale tunnel if close fires between ready and listen', async () => {
     // The narrow race the listen-callback race-guard covers: 'ready' has fired
     // (so the ready handler ran synchronously and called localServer.listen()),

@@ -105,38 +105,52 @@ export class SshTunnelManager extends BaseSingleton {
     return new Promise<TunnelEndpoint>((resolve, reject) => {
       let settled = false;
 
+      // Identity-check eviction: only call closeTunnel if the map entry is
+      // STILL this sshClient. A dying ssh2 client can emit several events as
+      // it tears down ('end' + 'close', plus deferred events from our own
+      // sshClient.end() inside closeTunnel). If a fresh tunnel for the same
+      // profile has been established between events from the old client,
+      // those deferred events would otherwise tear down the new tunnel.
+      const evictIfStillOurs = (reason: string) => {
+        const current = this.tunnels.get(profileId);
+        if (!current || current.sshClient !== sshClient) return;
+        log.warn(`SSH tunnel for ${profileId} ${reason} — evicting`);
+        // closeTunnel never rejects (each step is wrapped in try/catch
+        // internally), so fire-and-forget is safe here.
+        void this.closeTunnel(profileId);
+      };
+
       sshClient.on('error', err => {
         const message = this.friendlyError(err);
         log.error(`SSH error for ${profileId}: ${message}`);
         if (!settled) {
           settled = true;
           reject(new Error(message));
+          // Pre-settle: no map entry exists yet for this client, so this is
+          // a no-op against the map. Skip identity check.
+          void this.closeTunnel(profileId);
+          return;
         }
-        void this.closeTunnel(profileId);
+        evictIfStillOurs('errored');
       });
 
       // 'close'/'end' fire when the SSH session terminates — either by us calling
-      // closeTunnel (in which case the map entry is already gone, so the call below
-      // is a no-op) or because the bastion dropped us / keepalives failed.
+      // closeTunnel or because the bastion dropped us / keepalives failed.
       //
       // Pre-settle: ssh2 normally emits 'error' before 'close' during connection
       // setup, but we defensively reject here too in case it doesn't — otherwise
       // the openTunnel promise would hang forever.
       // Post-settle: evict the dead tunnel so the next openTunnel call builds a
-      // fresh one instead of handing back the stale local port.
+      // fresh one instead of handing back the stale local port. Identity-checked
+      // so a deferred event doesn't clobber a freshly-reconnected tunnel.
       const handleUnexpectedClose = (reason: 'close' | 'end') => {
         if (!settled) {
           settled = true;
           reject(new Error(`SSH connection ${reason}d before ready`));
-          // closeTunnel is a no-op pre-ready (no map entry yet) but harmless.
           void this.closeTunnel(profileId);
           return;
         }
-        if (!this.tunnels.has(profileId)) return;
-        log.warn(`SSH tunnel for ${profileId} ${reason}d unexpectedly — evicting`);
-        // closeTunnel never rejects (each step is wrapped in try/catch
-        // internally), so fire-and-forget is safe here.
-        void this.closeTunnel(profileId);
+        evictIfStillOurs(`${reason}d unexpectedly`);
       };
       sshClient.on('close', () => handleUnexpectedClose('close'));
       sshClient.on('end', () => handleUnexpectedClose('end'));
