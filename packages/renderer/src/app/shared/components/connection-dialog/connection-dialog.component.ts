@@ -712,10 +712,11 @@ export class ConnectionDialogComponent {
   }
 
   canTestConnection(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     return !!(
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
   }
 

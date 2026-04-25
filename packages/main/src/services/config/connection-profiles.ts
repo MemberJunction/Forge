@@ -36,19 +36,25 @@ export class ConnectionProfilesStore extends BaseSingleton {
   /**
    * Get all connection profiles.
    * Backfills `engine: 'mssql'` for profiles saved before multi-DB support
-   * and migrates the legacy `'azure-ad'` auth type to `'entra-id'` (the
-   * old `azure-ad` value never had a working backend, but profiles that
-   * happened to be saved with it would otherwise show a blank auth type).
+   * and migrates the legacy `'azure-ad'` auth type to `'entra-id'`.
+   * Migrated profiles are written back so the migration runs at most once
+   * per profile rather than on every read.
    */
   getAll(): ConnectionProfile[] {
     const profiles = this.store.get('profiles', []);
+    let mutated = false;
     for (const p of profiles) {
       if (!p.engine) {
         (p as ConnectionProfile).engine = 'mssql';
+        mutated = true;
       }
       if ((p.authenticationType as string) === 'azure-ad') {
         p.authenticationType = 'entra-id';
+        mutated = true;
       }
+    }
+    if (mutated) {
+      this.store.set('profiles', profiles);
     }
     return profiles;
   }

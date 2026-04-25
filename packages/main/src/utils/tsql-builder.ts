@@ -212,11 +212,15 @@ export class TsqlBuilder {
   }
 
   private static listDatabasesAzure(): string {
+    // Azure SQL doesn't expose sys.master_files server-wide. The closest
+    // we can get without per-database queries is the configured MaxSize
+    // via DATABASEPROPERTYEX — that's the *quota*, not actual usage,
+    // but it's still more informative than 0.
     return `
 SELECT
   d.name,
   d.database_id as databaseId,
-  CAST(0 AS BIGINT) as sizeBytes,
+  CAST(DATABASEPROPERTYEX(d.name, 'MaxSizeInBytes') AS BIGINT) as sizeBytes,
   d.state_desc as state,
   d.recovery_model_desc as recoveryModel,
   d.collation_name as collation,

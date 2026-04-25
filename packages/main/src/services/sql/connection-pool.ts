@@ -188,8 +188,9 @@ export class ConnectionPoolManager extends BaseSingleton {
       return false;
     }
 
-    // Use the pool directly here — calling this.query() would recurse,
-    // since query() awaits isAzureSQL() to decide whether to prepend USE.
+    // Use the base pool to probe (getPool without a database arg returns
+    // the profileId-keyed pool, and resolveMssqlPoolKey shortcuts on
+    // no-database so this doesn't recurse back into isAzureSQL).
     const pool = await this.getPool(profileId);
     const result = (await pool
       .request()
@@ -201,6 +202,19 @@ export class ConnectionPoolManager extends BaseSingleton {
     this.azureCache.set(profileId, isAzure);
     log.info(`Engine edition for ${profileId}: ${edition} (isAzure=${isAzure})`);
     return isAzure;
+  }
+
+  /**
+   * Compute the mssql pool key for (profileId, database). Used by getPool,
+   * query, and batch so they all agree on which pool entry to look up
+   * (preventing activeQueries-tracking drift). Per-DB keying is used only
+   * for Azure SQL (where USE [db] is unsupported); on-prem SQL Server uses
+   * a single base pool keyed at `profileId` with USE-switching at query time.
+   */
+  private async resolveMssqlPoolKey(profileId: string, database?: string): Promise<string> {
+    if (!database) return profileId;
+    const azure = await this.isAzureSQL(profileId);
+    return azure ? `${profileId}:${database}` : profileId;
   }
 
   /**
@@ -529,9 +543,11 @@ export class ConnectionPoolManager extends BaseSingleton {
     }
 
     // Azure SQL Database requires per-database pools (USE [db] is not supported).
-    // On-prem SQL Server uses a single pool per profile.
-    const azureDb = isEntraIdAuth(profile) && database ? database : undefined;
-    const poolKey = azureDb ? `${profileId}:${azureDb}` : profileId;
+    // On-prem SQL Server uses a single base pool keyed at profileId with
+    // USE-switching at query time. resolveMssqlPoolKey is the single source
+    // of truth — query()/batch() use it too, so activeQueries tracking
+    // always points at the right entry.
+    const poolKey = await this.resolveMssqlPoolKey(profileId, database);
 
     log.debug(`Getting pool: key=${poolKey}`);
 
@@ -553,7 +569,10 @@ export class ConnectionPoolManager extends BaseSingleton {
 
     const { effectiveProfile } = await this.withTunnel(profile);
 
-    const targetDb = azureDb ?? effectiveProfile.database ?? 'master';
+    // Per-DB pool key has the form 'profileId:database'; base pool key is
+    // just profileId and connects to the profile's default database.
+    const targetDb =
+      poolKey === profileId ? effectiveProfile.database || 'master' : (database as string);
     const config: SqlConfig = {
       ...(await buildMssqlConfig(
         effectiveProfile,
@@ -598,20 +617,19 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Execute a query on a connection
    */
   async query<T>(profileId: string, sql: string, database?: string): Promise<IResult<T>> {
+    const poolKey = await this.resolveMssqlPoolKey(profileId, database);
     const pool = await this.getPool(profileId, database);
-    const azure = await this.isAzureSQL(profileId);
 
     // Azure SQL doesn't support USE [db] — getPool already targets the
     // correct database via per-DB pool keying. On on-prem SQL Server we
     // prepend USE to switch context within a shared pool. Keying off the
-    // engine edition (not auth type) means SQL-auth-on-Azure works too.
+    // engine edition (via resolveMssqlPoolKey) means SQL-auth-on-Azure works.
     let finalSql = sql;
-    if (database && !azure) {
+    if (database && poolKey === profileId) {
       const safeDb = database.replace(/\]/g, ']]');
       finalSql = `USE [${safeDb}];\n${finalSql}`;
     }
 
-    const poolKey = azure && database ? `${profileId}:${database}` : profileId;
     const entry = this.pools.get(poolKey);
     if (entry) entry.activeQueries++;
 
@@ -632,16 +650,15 @@ export class ConnectionPoolManager extends BaseSingleton {
    * (Azure has no USE support to fall back on).
    */
   async batch(profileId: string, sql: string, database?: string): Promise<void> {
+    const poolKey = await this.resolveMssqlPoolKey(profileId, database);
     const pool = await this.getPool(profileId, database);
-    const azure = await this.isAzureSQL(profileId);
 
     let finalSql = sql;
-    if (database && !azure) {
+    if (database && poolKey === profileId) {
       const safeDb = database.replace(/\]/g, ']]');
       finalSql = `USE [${safeDb}];\n${finalSql}`;
     }
 
-    const poolKey = azure && database ? `${profileId}:${database}` : profileId;
     const entry = this.pools.get(poolKey);
     if (entry) entry.activeQueries++;
 
@@ -776,11 +793,20 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Check if a connection is active
    */
   isConnected(profileId: string): boolean {
-    const mssqlEntry = this.pools.get(profileId);
-    if (mssqlEntry?.pool.connected) return true;
-    const pgEntry = this.pgPools.get(profileId);
-    if (pgEntry != null) return true;
-    // MySQL pools: check if any pool for this profile exists
+    // MSSQL pools may be keyed as profileId (on-prem base) or
+    // 'profileId:dbName' (Azure per-DB). Either counts as connected.
+    for (const [key, entry] of this.pools) {
+      if ((key === profileId || key.startsWith(`${profileId}:`)) && entry.pool.connected) {
+        return true;
+      }
+    }
+    // PG pools are keyed as 'profileId:dbName' too — match the same pattern.
+    for (const [key, entry] of this.pgPools) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) {
+        if (entry != null) return true;
+      }
+    }
+    // MySQL pools: any pool for this profile counts.
     for (const key of this.mysqlPools.keys()) {
       if (key === profileId || key.startsWith(`${profileId}:`)) return true;
     }
