@@ -626,9 +626,15 @@ export class ConnectionDialogComponent {
     this.dialogRef.close();
   }
 
+  /**
+   * True when the form must collect a username/password from the user.
+   * Non-mssql engines always need them. On mssql, only "sql" auth uses
+   * form credentials — "windows" uses the OS principal, "entra-id" uses
+   * MSAL via the system browser.
+   */
   needsUsernamePassword(): boolean {
     if (this.formData.engine !== 'mssql') return true;
-    return this.formData.authenticationType !== 'entra-id';
+    return this.formData.authenticationType === 'sql';
   }
 
   isEntraAuth(): boolean {
