@@ -21,8 +21,15 @@ export interface MockSshClient extends EventEmitter {
 
 export const __mockSshClients: MockSshClient[] = [];
 
+// When true (default), the mock fires 'ready' on the next tick after connect().
+// Tests that exercise the establishment-failure path can flip this to false.
+export const __mockSshState = {
+  autoReady: true,
+};
+
 export const __resetMockSsh = (): void => {
   __mockSshClients.length = 0;
+  __mockSshState.autoReady = true;
 };
 
 export class Client extends EventEmitter implements MockSshClient {
@@ -36,8 +43,10 @@ export class Client extends EventEmitter implements MockSshClient {
 
   connect(cfg: Record<string, unknown>): void {
     this.connectConfig = cfg;
-    // Mimic real ssh2 by firing 'ready' on the next tick.
-    setImmediate(() => this.emit('ready'));
+    if (__mockSshState.autoReady) {
+      // Mimic real ssh2 by firing 'ready' on the next tick.
+      setImmediate(() => this.emit('ready'));
+    }
   }
 
   end(): void {

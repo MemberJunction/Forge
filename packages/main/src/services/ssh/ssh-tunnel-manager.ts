@@ -117,11 +117,21 @@ export class SshTunnelManager extends BaseSingleton {
 
       // 'close'/'end' fire when the SSH session terminates — either by us calling
       // closeTunnel (in which case the map entry is already gone, so the call below
-      // is a no-op) or because the bastion dropped us / keepalives failed. In the
-      // latter case we must evict the dead tunnel so the next openTunnel call builds
-      // a fresh one instead of handing back the stale local port.
+      // is a no-op) or because the bastion dropped us / keepalives failed.
+      //
+      // Pre-settle: ssh2 normally emits 'error' before 'close' during connection
+      // setup, but we defensively reject here too in case it doesn't — otherwise
+      // the openTunnel promise would hang forever.
+      // Post-settle: evict the dead tunnel so the next openTunnel call builds a
+      // fresh one instead of handing back the stale local port.
       const handleUnexpectedClose = (reason: 'close' | 'end') => {
-        if (!settled) return;
+        if (!settled) {
+          settled = true;
+          reject(new Error(`SSH connection ${reason}d before ready`));
+          // closeTunnel is a no-op pre-ready (no map entry yet) but harmless.
+          void this.closeTunnel(profileId);
+          return;
+        }
         if (!this.tunnels.has(profileId)) return;
         log.warn(`SSH tunnel for ${profileId} ${reason}d unexpectedly — evicting`);
         // closeTunnel never rejects (each step is wrapped in try/catch

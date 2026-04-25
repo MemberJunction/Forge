@@ -88,6 +88,10 @@ export class ConnectionPoolManager extends BaseSingleton {
     };
   }
 
+  private errMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+  }
+
   /**
    * If the SSH tunnel for a profile has been evicted (e.g. ssh2 keepalive
    * detected a dead bastion connection and fired 'close'), all DB pools that
@@ -100,38 +104,47 @@ export class ConnectionPoolManager extends BaseSingleton {
     if (!profile.sshTunnel?.enabled) return;
     if (this.sshTunnelManager.hasTunnel(profile.id)) return;
 
+    // The "no tunnel for this profile" condition is also true on the very
+    // first connection — we don't want to log "tunnel is gone" then. Collect
+    // affected pools first; only proceed (and log) if there's something to
+    // actually invalidate.
+    const mssql = this.pools.get(profile.id);
+    const pgEntries = [...this.pgPools.entries()].filter(
+      ([key]) => key === profile.id || key.startsWith(`${profile.id}:`)
+    );
+    const mysqlEntries = [...this.mysqlPools.entries()].filter(
+      ([key]) => key === profile.id || key.startsWith(`${profile.id}:`)
+    );
+
+    if (!mssql && pgEntries.length === 0 && mysqlEntries.length === 0) return;
+
     log.info(`SSH tunnel for ${profile.id} is gone — discarding stale pools`);
 
-    const mssql = this.pools.get(profile.id);
     if (mssql) {
       try {
         await mssql.pool.close();
-      } catch {
-        // pool may already be in a bad state — proceed with eviction
+      } catch (err) {
+        log.warn(`Failed to close stale mssql pool: ${this.errMessage(err)}`);
       }
       this.pools.delete(profile.id);
     }
 
-    for (const [key, entry] of this.pgPools) {
-      if (key === profile.id || key.startsWith(`${profile.id}:`)) {
-        try {
-          await entry.pool.end();
-        } catch {
-          // see above
-        }
-        this.pgPools.delete(key);
+    for (const [key, entry] of pgEntries) {
+      try {
+        await entry.pool.end();
+      } catch (err) {
+        log.warn(`Failed to close stale pg pool ${key}: ${this.errMessage(err)}`);
       }
+      this.pgPools.delete(key);
     }
 
-    for (const [key, entry] of this.mysqlPools) {
-      if (key === profile.id || key.startsWith(`${profile.id}:`)) {
-        try {
-          await entry.pool.end();
-        } catch {
-          // see above
-        }
-        this.mysqlPools.delete(key);
+    for (const [key, entry] of mysqlEntries) {
+      try {
+        await entry.pool.end();
+      } catch (err) {
+        log.warn(`Failed to close stale mysql pool ${key}: ${this.errMessage(err)}`);
       }
+      this.mysqlPools.delete(key);
     }
   }
 
@@ -204,8 +217,8 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (tunnelKey) {
         try {
           await this.sshTunnelManager.closeTunnel(tunnelKey);
-        } catch {
-          // best-effort cleanup of the temporary test tunnel
+        } catch (err) {
+          log.warn(`Failed to close test tunnel ${tunnelKey}: ${this.errMessage(err)}`);
         }
       }
     }
@@ -318,8 +331,8 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (testPool) {
         try {
           await testPool.end();
-        } catch {
-          // best-effort cleanup of the temporary test pool
+        } catch (err) {
+          log.warn(`Failed to close test pg pool: ${this.errMessage(err)}`);
         }
       }
     }
@@ -423,8 +436,8 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (testPool) {
         try {
           await testPool.end();
-        } catch {
-          // best-effort cleanup of the temporary test pool
+        } catch (err) {
+          log.warn(`Failed to close test mysql pool: ${this.errMessage(err)}`);
         }
       }
     }
@@ -882,22 +895,33 @@ export class ConnectionPoolManager extends BaseSingleton {
         for (const [id, entry] of this.pools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
+            // closePool wraps every step in try/catch internally — it cannot
+            // reject — so `void` is safe here. For the direct pg/mysql end()
+            // calls below, we attach a .catch handler because those CAN reject
+            // (e.g. on a stale pool) and an unhandled rejection in this
+            // setInterval callback would crash the Electron main process.
             void this.closePool(id);
           }
         }
-        // Also clean idle PG pools
         for (const [id, entry] of this.pgPools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            void entry.pool.end();
+            entry.pool
+              .end()
+              .catch(err =>
+                log.warn(`Failed to close idle pg pool ${id}: ${this.errMessage(err)}`)
+              );
             this.pgPools.delete(id);
           }
         }
-        // Also clean idle MySQL pools
         for (const [id, entry] of this.mysqlPools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            void entry.pool.end();
+            entry.pool
+              .end()
+              .catch(err =>
+                log.warn(`Failed to close idle mysql pool ${id}: ${this.errMessage(err)}`)
+              );
             this.mysqlPools.delete(id);
           }
         }

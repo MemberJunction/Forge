@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 // Reach into the mock module directly for type-safe access to the test
 // helpers — the vitest alias redirects runtime `ssh2` imports inside the
 // manager, while this import resolves at compile time to the same file.
-import { __mockSshClients, __resetMockSsh } from '../../__mocks__/ssh2';
+import { __mockSshClients, __mockSshState, __resetMockSsh } from '../../__mocks__/ssh2';
 import { SshTunnelManager } from './ssh-tunnel-manager';
 import type { SshTunnelConfig } from '@mj-forge/shared';
 
@@ -105,6 +105,20 @@ describe('SshTunnelManager', () => {
     // emits 'close'. The handler must short-circuit because the entry is gone.
     await mgr.closeTunnel('p1');
     await new Promise(r => setImmediate(r));
+    expect(mgr.hasTunnel('p1')).toBe(false);
+  });
+
+  it('rejects openTunnel if sshClient closes before ready', async () => {
+    // Suppress the mock's auto-'ready' so we can fire 'close' during the
+    // establishment phase — the defensive guard in handleUnexpectedClose
+    // must reject the promise rather than letting it hang.
+    __mockSshState.autoReady = false;
+    const promise = mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+    // Wait for connect() to register the mock client.
+    await new Promise(r => setImmediate(r));
+    __mockSshClients[0].emit('close');
+
+    await expect(promise).rejects.toThrow(/closed before ready/);
     expect(mgr.hasTunnel('p1')).toBe(false);
   });
 });
