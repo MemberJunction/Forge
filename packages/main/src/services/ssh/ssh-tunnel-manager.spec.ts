@@ -121,4 +121,37 @@ describe('SshTunnelManager', () => {
     await expect(promise).rejects.toThrow(/closed before ready/);
     expect(mgr.hasTunnel('p1')).toBe(false);
   });
+
+  it('does not insert a stale tunnel if close fires between ready and listen', async () => {
+    // The narrow race the listen-callback race-guard covers: 'ready' has fired
+    // (so the ready handler ran synchronously and called localServer.listen()),
+    // but the OS port-bind callback has not yet executed. If 'close'/'end' fires
+    // in this window, the listen callback would otherwise unconditionally
+    // insert a stale entry that can never be auto-evicted (those events won't
+    // fire again on this client).
+    //
+    // Disable auto-ready so we can fire 'ready' and 'close' synchronously
+    // back-to-back, with the OS listen callback provably still pending.
+    __mockSshState.autoReady = false;
+    const promise = mgr.openTunnel('p1', sshConfig, 'db.internal', 1433, { sshPassword: 'pw' });
+
+    // Wait for connect() to register the mock client.
+    await new Promise(r => setImmediate(r));
+
+    // Fire 'ready' synchronously: the ready handler creates localServer and
+    // calls listen() — the listen callback is scheduled but has NOT yet run.
+    __mockSshClients[0].emit('ready');
+
+    // Trigger the race: fire 'close' before the listen callback can execute.
+    __mockSshClients[0].emit('close');
+
+    await expect(promise).rejects.toThrow(/closed before ready/);
+
+    // Allow the now-orphaned listen callback to fire. With the guard it sees
+    // settled=true, closes the local server, and returns without inserting.
+    // Without the guard, it would insert a stale tunnel here.
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(mgr.hasTunnel('p1')).toBe(false);
+  });
 });

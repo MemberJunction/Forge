@@ -168,6 +168,21 @@ export class SshTunnelManager extends BaseSingleton {
 
         // Listen on a random port
         localServer.listen(0, '127.0.0.1', () => {
+          // Race guard: if close/end/error fired between 'ready' and the
+          // listen callback running, settled is already true and the promise
+          // is already rejected. Adding the entry to the map now would orphan
+          // a dead tunnel that can never be auto-evicted (those events won't
+          // fire again on this client). Tear down the local server and bail.
+          if (settled) {
+            try {
+              localServer.close();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.warn(`Failed to close orphaned local server for ${profileId}: ${msg}`);
+            }
+            return;
+          }
+
           const addr = localServer.address() as net.AddressInfo;
           const localPort = addr.port;
 
@@ -176,10 +191,8 @@ export class SshTunnelManager extends BaseSingleton {
             `Tunnel active for ${profileId}: 127.0.0.1:${localPort} → ${targetHost}:${targetPort}`
           );
 
-          if (!settled) {
-            settled = true;
-            resolve({ localHost: '127.0.0.1', localPort });
-          }
+          settled = true;
+          resolve({ localHost: '127.0.0.1', localPort });
         });
       });
 
