@@ -188,10 +188,14 @@ export class ConnectionPoolManager extends BaseSingleton {
       return false;
     }
 
-    const result = await this.query<{ edition: number }>(
-      profileId,
-      `SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS edition`
-    );
+    // Use the pool directly here — calling this.query() would recurse,
+    // since query() awaits isAzureSQL() to decide whether to prepend USE.
+    const pool = await this.getPool(profileId);
+    const result = (await pool
+      .request()
+      .batch(`SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS edition`)) as IResult<{
+      edition: number;
+    }>;
     const edition = result.recordset[0]?.edition ?? 0;
     const isAzure = edition === 5 || edition === 6;
     this.azureCache.set(profileId, isAzure);
@@ -595,19 +599,19 @@ export class ConnectionPoolManager extends BaseSingleton {
    */
   async query<T>(profileId: string, sql: string, database?: string): Promise<IResult<T>> {
     const pool = await this.getPool(profileId, database);
-    const profile = this.profileStore.getById(profileId);
+    const azure = await this.isAzureSQL(profileId);
 
-    // For Azure SQL, getPool already targets the correct database.
-    // For on-prem SQL Server, prepend USE [database] to switch context.
-    const usePrefix = database && profile && !isEntraIdAuth(profile);
+    // Azure SQL doesn't support USE [db] — getPool already targets the
+    // correct database via per-DB pool keying. On on-prem SQL Server we
+    // prepend USE to switch context within a shared pool. Keying off the
+    // engine edition (not auth type) means SQL-auth-on-Azure works too.
     let finalSql = sql;
-    if (usePrefix) {
+    if (database && !azure) {
       const safeDb = database.replace(/\]/g, ']]');
       finalSql = `USE [${safeDb}];\n${finalSql}`;
     }
 
-    const poolKey =
-      profile && isEntraIdAuth(profile) && database ? `${profileId}:${database}` : profileId;
+    const poolKey = azure && database ? `${profileId}:${database}` : profileId;
     const entry = this.pools.get(poolKey);
     if (entry) entry.activeQueries++;
 
@@ -622,18 +626,27 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
-   * Execute a batch of statements (for DDL operations)
+   * Execute a batch of statements (for DDL operations).
+   * If `database` is provided, routes via the same per-DB pool path the
+   * `query` method uses, so DDL on Azure SQL targets the right database
+   * (Azure has no USE support to fall back on).
    */
-  async batch(profileId: string, sql: string): Promise<void> {
-    const pool = await this.getPool(profileId);
-    const entry = this.pools.get(profileId);
+  async batch(profileId: string, sql: string, database?: string): Promise<void> {
+    const pool = await this.getPool(profileId, database);
+    const azure = await this.isAzureSQL(profileId);
 
-    if (entry) {
-      entry.activeQueries++;
+    let finalSql = sql;
+    if (database && !azure) {
+      const safeDb = database.replace(/\]/g, ']]');
+      finalSql = `USE [${safeDb}];\n${finalSql}`;
     }
 
+    const poolKey = azure && database ? `${profileId}:${database}` : profileId;
+    const entry = this.pools.get(poolKey);
+    if (entry) entry.activeQueries++;
+
     try {
-      await pool.request().batch(sql);
+      await pool.request().batch(finalSql);
     } finally {
       if (entry) {
         entry.activeQueries--;
@@ -672,7 +685,7 @@ export class ConnectionPoolManager extends BaseSingleton {
     }
 
     // Default: SQL Server
-    await this.batch(profileId, sql);
+    await this.batch(profileId, sql, database);
   }
 
   /**

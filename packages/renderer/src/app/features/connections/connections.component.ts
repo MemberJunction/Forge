@@ -517,20 +517,32 @@ export class ConnectionsComponent {
     this.router.navigate(['/']);
   }
 
+  /**
+   * Mirrors connection-dialog.component.ts: form needs username/password
+   * only for "sql" auth on mssql, or for any non-mssql engine. Windows
+   * auth uses the OS principal; Entra ID uses MSAL via the system browser.
+   */
+  needsUsernamePassword(): boolean {
+    if (this.formData.engine !== 'mssql') return true;
+    return this.formData.authenticationType === 'sql';
+  }
+
   isValid(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     return !!(
       this.formData.name &&
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
   }
 
   canTestConnection(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     return !!(
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
   }
 

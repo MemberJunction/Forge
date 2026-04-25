@@ -275,14 +275,18 @@ function closeServer(server: http.Server): Promise<void> {
  */
 function waitForRedirect(server: http.Server, expectedNonce: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
+    let settled = false;
     const timeout = setTimeout(() => {
+      // Mark settled so a late redirect from the browser shows the
+      // failure page (instead of a misleading success page) — the
+      // outer promise has already rejected at this point.
+      settled = true;
       reject(new Error(`Entra ID login timed out after ${LOGIN_TIMEOUT_MS / 1000}s`));
     }, LOGIN_TIMEOUT_MS);
 
-    let settled = false;
     server.on('request', (req, res) => {
       if (settled) {
-        respond(res, 404, '');
+        respond(res, 408, failurePage('Sign-in timed out. Please try again.'));
         return;
       }
       if (!req.url) {

@@ -76,10 +76,11 @@ export class QueryExecutor extends BaseSingleton {
       const batches = this.splitBatches(request.sql);
 
       // Build USE prefix for database context.
-      // Azure SQL Database doesn't support USE — getPool already targets the right database.
+      // Azure SQL Database doesn't support USE — getPool already targets
+      // the right database. Key off the actual server edition rather than
+      // auth type so SQL-auth-on-Azure also skips the USE.
       let usePrefix = '';
-      const profile = this.poolManager.getProfileForId(request.connectionId);
-      const skipUse = profile?.authenticationType === 'entra-id';
+      const skipUse = await this.poolManager.isAzureSQL(request.connectionId);
       if (request.database && !skipUse) {
         const safeDb = request.database.replace(/\]/g, ']]');
         usePrefix = `USE [${safeDb}];\n`;
