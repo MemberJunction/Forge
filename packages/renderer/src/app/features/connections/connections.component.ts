@@ -568,6 +568,7 @@ export class ConnectionsComponent {
   private resetForm(): void {
     this.formData = {
       name: '',
+      engine: 'mssql',
       server: '',
       port: 1433,
       authenticationType: 'sql',
