@@ -118,10 +118,16 @@ describe('MSSQLDialect', () => {
   });
 
   describe('metadata queries', () => {
-    it('generates listDatabases SQL', () => {
-      const sql = dialect.listDatabasesSQL();
+    it('generates listDatabases SQL for on-prem (with msdb backup history)', () => {
+      const sql = dialect.listDatabasesSQL(false);
       expect(sql).toContain('sys.databases');
       expect(sql).toContain('msdb.dbo.backupset');
+    });
+
+    it('generates listDatabases SQL for Azure SQL (no msdb references)', () => {
+      const sql = dialect.listDatabasesSQL(true);
+      expect(sql).toContain('sys.databases');
+      expect(sql).not.toContain('msdb.dbo.backupset');
     });
 
     it('generates listSchemas SQL', () => {

@@ -112,7 +112,7 @@ import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
               <mat-select [(ngModel)]="formData.authenticationType">
                 <mat-option value="sql">SQL Server Authentication</mat-option>
                 <mat-option value="windows">Windows Authentication</mat-option>
-                <mat-option value="azure-ad">Azure AD Authentication</mat-option>
+                <mat-option value="entra-id">Microsoft Entra ID</mat-option>
               </mat-select>
             </mat-form-field>
 
@@ -381,10 +381,10 @@ export class ConnectionsComponent {
   formData: Partial<ConnectionProfile> & { password?: string } = {
     name: '',
     engine: 'mssql',
-    server: 'localhost',
+    server: '',
     port: 1433,
     authenticationType: 'sql',
-    username: 'sa',
+    username: '',
     password: '',
     encrypt: true,
     trustServerCertificate: true,
@@ -556,10 +556,10 @@ export class ConnectionsComponent {
   private resetForm(): void {
     this.formData = {
       name: '',
-      server: 'localhost',
+      server: '',
       port: 1433,
       authenticationType: 'sql',
-      username: 'sa',
+      username: '',
       password: '',
       encrypt: true,
       trustServerCertificate: true,

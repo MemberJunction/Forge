@@ -229,7 +229,8 @@ export class ToolRegistry extends BaseSingleton {
       async (_args, connectionId) => {
         if (!connectionId) throw new Error('No active connection');
         const dialect = getDialect(this.getEngine(connectionId));
-        const sql = dialect.listDatabasesSQL();
+        const isAzure = await ConnectionPoolManager.getInstance().isAzureSQL(connectionId);
+        const sql = dialect.listDatabasesSQL(isAzure);
         return this.queryAny(connectionId, sql);
       }
     );

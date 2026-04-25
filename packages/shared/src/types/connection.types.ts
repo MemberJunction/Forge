@@ -3,7 +3,7 @@
  */
 
 export type DatabaseEngine = 'mssql' | 'postgresql' | 'mysql';
-export type AuthenticationType = 'sql' | 'windows' | 'azure-ad';
+export type AuthenticationType = 'sql' | 'windows' | 'entra-id';
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 /** Default ports for each database engine */
@@ -55,6 +55,9 @@ export interface ConnectionProfile {
   dockerContainerId?: string;
   volumeMappings?: VolumeMapping[];
   sshTunnel?: SshTunnelConfig;
+  azureTenantId?: string; // Entra ID tenant (directory) ID — pins login to a specific tenant
+  azureClientId?: string; // Entra ID application (client) ID — override the default well-known client
+  azureHomeAccountId?: string; // MSAL homeAccountId — binds silent refresh to the specific account this profile signs in as
   mysqlCollation?: string; // e.g. 'utf8mb4_0900_ai_ci'
   createdAt?: string;
   updatedAt?: string;

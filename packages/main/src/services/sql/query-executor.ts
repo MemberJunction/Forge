@@ -64,7 +64,7 @@ export class QueryExecutor extends BaseSingleton {
         return await this.executeMySQL(request, activeQuery, queryId, startTime);
       }
 
-      const pool = await this.poolManager.getPool(request.connectionId);
+      const pool = await this.poolManager.getPool(request.connectionId, request.database);
 
       // Check if cancelled before executing
       if (activeQuery.cancelled) {
@@ -75,9 +75,12 @@ export class QueryExecutor extends BaseSingleton {
       // Each batch between GO statements must be sent as a separate batch() call.
       const batches = this.splitBatches(request.sql);
 
-      // Build USE prefix for database context
+      // Build USE prefix for database context.
+      // Azure SQL Database doesn't support USE — getPool already targets the right database.
       let usePrefix = '';
-      if (request.database) {
+      const profile = this.poolManager.getProfileForId(request.connectionId);
+      const skipUse = profile?.authenticationType === 'entra-id';
+      if (request.database && !skipUse) {
         const safeDb = request.database.replace(/\]/g, ']]');
         usePrefix = `USE [${safeDb}];\n`;
       }

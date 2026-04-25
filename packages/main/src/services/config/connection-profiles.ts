@@ -122,6 +122,25 @@ export class ConnectionProfilesStore extends BaseSingleton {
   }
 
   /**
+   * Persist the MSAL homeAccountId bound to an Entra profile. Narrow update
+   * to avoid racing with concurrent saves that might overwrite other fields.
+   * Returns true if the profile existed and was updated.
+   */
+  async setAzureHomeAccountId(id: string, homeAccountId: string): Promise<boolean> {
+    const profiles = this.getAll();
+    const index = profiles.findIndex(p => p.id === id);
+    if (index === -1) return false;
+    profiles[index] = {
+      ...profiles[index],
+      azureHomeAccountId: homeAccountId,
+      updatedAt: new Date().toISOString(),
+    };
+    this.store.set('profiles', profiles);
+    log.info(`Bound Entra account ${homeAccountId} to profile ${id}`);
+    return true;
+  }
+
+  /**
    * Delete a connection profile
    */
   async delete(id: string): Promise<boolean> {
