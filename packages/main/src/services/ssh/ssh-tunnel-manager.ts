@@ -62,12 +62,17 @@ export class SshTunnelManager extends BaseSingleton {
 
     const sshClient = new Client();
 
-    // Build auth config
+    // Build auth config.
+    // keepaliveInterval/keepaliveCountMax send SSH-level keepalives so ssh2 detects
+    // a silently-dropped TCP socket (NAT/firewall idle timeout, network change, laptop
+    // sleep) within ~90s instead of hanging forever on a dead session.
     const connectConfig: Parameters<Client['connect']>[0] = {
       host: sshConfig.host,
       port: sshConfig.port,
       username: sshConfig.username,
       readyTimeout: 15000,
+      keepaliveInterval: 30000,
+      keepaliveCountMax: 3,
     };
 
     if (sshConfig.authType === 'privateKey') {
@@ -100,15 +105,55 @@ export class SshTunnelManager extends BaseSingleton {
     return new Promise<TunnelEndpoint>((resolve, reject) => {
       let settled = false;
 
+      // Identity-check eviction: only call closeTunnel if the map entry is
+      // STILL this sshClient. A dying ssh2 client can emit several events as
+      // it tears down ('end' + 'close', plus deferred events from our own
+      // sshClient.end() inside closeTunnel). If a fresh tunnel for the same
+      // profile has been established between events from the old client,
+      // those deferred events would otherwise tear down the new tunnel.
+      const evictIfStillOurs = (reason: string) => {
+        const current = this.tunnels.get(profileId);
+        if (!current || current.sshClient !== sshClient) return;
+        log.warn(`SSH tunnel for ${profileId} ${reason} — evicting`);
+        // closeTunnel never rejects (each step is wrapped in try/catch
+        // internally), so fire-and-forget is safe here.
+        void this.closeTunnel(profileId);
+      };
+
       sshClient.on('error', err => {
         const message = this.friendlyError(err);
         log.error(`SSH error for ${profileId}: ${message}`);
         if (!settled) {
           settled = true;
           reject(new Error(message));
+          // Pre-settle: no map entry exists yet for this client, so this is
+          // a no-op against the map. Skip identity check.
+          void this.closeTunnel(profileId);
+          return;
         }
-        this.closeTunnel(profileId).catch(() => {});
+        evictIfStillOurs('errored');
       });
+
+      // 'close'/'end' fire when the SSH session terminates — either by us calling
+      // closeTunnel or because the bastion dropped us / keepalives failed.
+      //
+      // Pre-settle: ssh2 normally emits 'error' before 'close' during connection
+      // setup, but we defensively reject here too in case it doesn't — otherwise
+      // the openTunnel promise would hang forever.
+      // Post-settle: evict the dead tunnel so the next openTunnel call builds a
+      // fresh one instead of handing back the stale local port. Identity-checked
+      // so a deferred event doesn't clobber a freshly-reconnected tunnel.
+      const handleUnexpectedClose = (reason: 'close' | 'end') => {
+        if (!settled) {
+          settled = true;
+          reject(new Error(`SSH connection ${reason}d before ready`));
+          void this.closeTunnel(profileId);
+          return;
+        }
+        evictIfStillOurs(`${reason}d unexpectedly`);
+      };
+      sshClient.on('close', () => handleUnexpectedClose('close'));
+      sshClient.on('end', () => handleUnexpectedClose('end'));
 
       sshClient.on('ready', () => {
         log.info(`SSH connection established for ${profileId}`);
@@ -137,6 +182,21 @@ export class SshTunnelManager extends BaseSingleton {
 
         // Listen on a random port
         localServer.listen(0, '127.0.0.1', () => {
+          // Race guard: if close/end/error fired between 'ready' and the
+          // listen callback running, settled is already true and the promise
+          // is already rejected. Adding the entry to the map now would orphan
+          // a dead tunnel that can never be auto-evicted (those events won't
+          // fire again on this client). Tear down the local server and bail.
+          if (settled) {
+            try {
+              localServer.close();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.warn(`Failed to close orphaned local server for ${profileId}: ${msg}`);
+            }
+            return;
+          }
+
           const addr = localServer.address() as net.AddressInfo;
           const localPort = addr.port;
 
@@ -145,10 +205,8 @@ export class SshTunnelManager extends BaseSingleton {
             `Tunnel active for ${profileId}: 127.0.0.1:${localPort} → ${targetHost}:${targetPort}`
           );
 
-          if (!settled) {
-            settled = true;
-            resolve({ localHost: '127.0.0.1', localPort });
-          }
+          settled = true;
+          resolve({ localHost: '127.0.0.1', localPort });
         });
       });
 
@@ -166,16 +224,22 @@ export class SshTunnelManager extends BaseSingleton {
     log.info(`Closing SSH tunnel for ${profileId}`);
     this.tunnels.delete(profileId);
 
+    // Both calls are synchronous and don't normally throw, but we still wrap
+    // them so closeTunnel never rejects — callers (closePool, the void call
+    // sites in our own event handlers) rely on this to avoid unhandled
+    // rejection crashes under Node's default behaviour.
     try {
       tunnel.localServer.close();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to close local server for ${profileId}: ${msg}`);
     }
 
     try {
       tunnel.sshClient.end();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to end ssh client for ${profileId}: ${msg}`);
     }
   }
 

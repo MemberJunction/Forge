@@ -160,6 +160,66 @@ export class ConnectionPoolManager extends BaseSingleton {
     };
   }
 
+  private errMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+  }
+
+  /**
+   * If the SSH tunnel for a profile has been evicted (e.g. ssh2 keepalive
+   * detected a dead bastion connection and fired 'close'), all DB pools that
+   * were tunneling through it are stale — even if their `.connected` flag
+   * still reports true, since the OS hasn't yet noticed the local socket is
+   * dead. Tear them down so the next get*Pool call rebuilds them on a fresh
+   * tunnel.
+   */
+  private async invalidateStalePoolsIfTunnelGone(profile: ConnectionProfile): Promise<void> {
+    if (!profile.sshTunnel?.enabled) return;
+    if (this.sshTunnelManager.hasTunnel(profile.id)) return;
+
+    // The "no tunnel for this profile" condition is also true on the very
+    // first connection — we don't want to log "tunnel is gone" then. Collect
+    // affected pools first; only proceed (and log) if there's something to
+    // actually invalidate.
+    const mssql = this.pools.get(profile.id);
+    const pgEntries = [...this.pgPools.entries()].filter(
+      ([key]) => key === profile.id || key.startsWith(`${profile.id}:`)
+    );
+    const mysqlEntries = [...this.mysqlPools.entries()].filter(
+      ([key]) => key === profile.id || key.startsWith(`${profile.id}:`)
+    );
+
+    if (!mssql && pgEntries.length === 0 && mysqlEntries.length === 0) return;
+
+    log.info(`SSH tunnel for ${profile.id} is gone — discarding stale pools`);
+
+    if (mssql) {
+      try {
+        await mssql.pool.close();
+      } catch (err) {
+        log.warn(`Failed to close stale mssql pool: ${this.errMessage(err)}`);
+      }
+      this.pools.delete(profile.id);
+    }
+
+    for (const [key, entry] of pgEntries) {
+      try {
+        await entry.pool.end();
+      } catch (err) {
+        log.warn(`Failed to close stale pg pool ${key}: ${this.errMessage(err)}`);
+      }
+      this.pgPools.delete(key);
+    }
+
+    for (const [key, entry] of mysqlEntries) {
+      try {
+        await entry.pool.end();
+      } catch (err) {
+        log.warn(`Failed to close stale mysql pool ${key}: ${this.errMessage(err)}`);
+      }
+      this.mysqlPools.delete(key);
+    }
+  }
+
   /**
    * Get the SQL dialect for a connection profile
    */
@@ -277,7 +337,11 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } finally {
       if (tunnelKey) {
-        await this.sshTunnelManager.closeTunnel(tunnelKey).catch(() => {});
+        try {
+          await this.sshTunnelManager.closeTunnel(tunnelKey);
+        } catch (err) {
+          log.warn(`Failed to close test tunnel ${tunnelKey}: ${this.errMessage(err)}`);
+        }
       }
     }
   }
@@ -379,7 +443,11 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } finally {
       if (testPool) {
-        await testPool.end().catch(() => {});
+        try {
+          await testPool.end();
+        } catch (err) {
+          log.warn(`Failed to close test pg pool: ${this.errMessage(err)}`);
+        }
       }
     }
   }
@@ -393,6 +461,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   async getPgPool(profileId: string, database?: string): Promise<PgPool> {
     const profile = this.profileStore.getById(profileId);
     if (!profile) throw new Error('Connection profile not found');
+
+    await this.invalidateStalePoolsIfTunnelGone(profile);
 
     const dbName = database || profile.database || 'postgres';
     const poolKey = `${profileId}:${dbName}`;
@@ -478,7 +548,11 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } finally {
       if (testPool) {
-        await testPool.end().catch(() => {});
+        try {
+          await testPool.end();
+        } catch (err) {
+          log.warn(`Failed to close test mysql pool: ${this.errMessage(err)}`);
+        }
       }
     }
   }
@@ -492,6 +566,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   async getMySQLPool(profileId: string, database?: string): Promise<MySQLPool> {
     const profile = this.profileStore.getById(profileId);
     if (!profile) throw new Error('Connection profile not found');
+
+    await this.invalidateStalePoolsIfTunnelGone(profile);
 
     const dbName = database || profile.database || undefined;
     const poolKey = `${profileId}:${dbName ?? '__default__'}`;
@@ -550,6 +626,10 @@ export class ConnectionPoolManager extends BaseSingleton {
       log.error(`Profile not found: ${profileId}`);
       throw new Error('Connection profile not found');
     }
+
+    // If the SSH tunnel died and got evicted, the cached pool is stale even if
+    // it still reports connected. Drop it before checking for reuse.
+    await this.invalidateStalePoolsIfTunnelGone(profile);
 
     // Azure SQL Database requires per-database pools (USE [db] is not supported).
     // On-prem SQL Server uses a single base pool keyed at profileId with
@@ -735,6 +815,11 @@ export class ConnectionPoolManager extends BaseSingleton {
    * and its associated SSH tunnel if any.
    */
   async closePool(profileId: string): Promise<void> {
+    // Each step is wrapped in try/catch so closePool never rejects, regardless
+    // of what individual pool/tunnel close calls do. Callers (cleanup timer,
+    // closeAll, IPC disconnect) rely on this — fire-and-forget at the cleanup
+    // timer would crash the Electron main process under Node 20's
+    // unhandled-rejection default if any step here propagated a rejection.
     this.azureCache.delete(profileId);
 
     // MSSQL pools may be keyed as "profileId" (on-prem, single pool) or
@@ -744,41 +829,42 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (key === profileId || key.startsWith(`${profileId}:`)) {
         try {
           await entry.pool.close();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close mssql pool ${key}: ${this.errMessage(err)}`);
         }
         this.pools.delete(key);
       }
     }
 
-    // PG pools are keyed as "profileId:dbName", so close all pools for this profile
     for (const [key, pgEntry] of this.pgPools) {
       if (key === profileId || key.startsWith(`${profileId}:`)) {
         try {
           await pgEntry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close pg pool ${key}: ${this.errMessage(err)}`);
         }
         this.pgPools.delete(key);
       }
     }
 
-    // MySQL pools are keyed as "profileId:dbName", same pattern as PG
     for (const [key, mysqlEntry] of this.mysqlPools) {
       if (key === profileId || key.startsWith(`${profileId}:`)) {
         try {
           await mysqlEntry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close mysql pool ${key}: ${this.errMessage(err)}`);
         }
         this.mysqlPools.delete(key);
       }
     }
 
     // Close SSH tunnel for this profile
-    await this.sshTunnelManager.closeTunnel(profileId);
+    try {
+      await this.sshTunnelManager.closeTunnel(profileId);
+    } catch (err) {
+      log.warn(`Failed to close SSH tunnel for ${profileId}: ${this.errMessage(err)}`);
+    }
 
-    // Clear cached Entra ID credential
     // Azure credential cache is keyed by server config, not profileId.
     // We keep it so reconnecting reuses the cached token without a browser popup.
   }
@@ -793,8 +879,8 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (entry) {
         try {
           await entry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close pg pool ${id} during shutdown: ${this.errMessage(err)}`);
         }
         this.pgPools.delete(id);
       }
@@ -804,14 +890,18 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (entry) {
         try {
           await entry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close mysql pool ${id} during shutdown: ${this.errMessage(err)}`);
         }
         this.mysqlPools.delete(id);
       }
     });
     await Promise.all([...mssqlCloses, ...pgCloses, ...mysqlCloses]);
-    await this.sshTunnelManager.closeAll();
+    try {
+      await this.sshTunnelManager.closeAll();
+    } catch (err) {
+      log.warn(`Failed to close all SSH tunnels during shutdown: ${this.errMessage(err)}`);
+    }
   }
 
   /**
@@ -980,22 +1070,33 @@ export class ConnectionPoolManager extends BaseSingleton {
         for (const [id, entry] of this.pools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            this.closePool(id).catch(() => {});
+            // closePool wraps every step in try/catch internally — it cannot
+            // reject — so `void` is safe here. For the direct pg/mysql end()
+            // calls below, we attach a .catch handler because those CAN reject
+            // (e.g. on a stale pool) and an unhandled rejection in this
+            // setInterval callback would crash the Electron main process.
+            void this.closePool(id);
           }
         }
-        // Also clean idle PG pools
         for (const [id, entry] of this.pgPools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            entry.pool.end().catch(() => {});
+            entry.pool
+              .end()
+              .catch(err =>
+                log.warn(`Failed to close idle pg pool ${id}: ${this.errMessage(err)}`)
+              );
             this.pgPools.delete(id);
           }
         }
-        // Also clean idle MySQL pools
         for (const [id, entry] of this.mysqlPools) {
           const idleMs = now.getTime() - entry.lastUsed.getTime();
           if (idleMs > 600000 && entry.activeQueries === 0) {
-            entry.pool.end().catch(() => {});
+            entry.pool
+              .end()
+              .catch(err =>
+                log.warn(`Failed to close idle mysql pool ${id}: ${this.errMessage(err)}`)
+              );
             this.mysqlPools.delete(id);
           }
         }
