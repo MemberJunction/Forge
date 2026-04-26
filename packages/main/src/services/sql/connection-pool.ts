@@ -46,6 +46,15 @@ async function buildMssqlConfig(
   };
 
   if (profile.authenticationType === 'entra-id') {
+    // Known v1 limitation: the access token is embedded statically into
+    // the mssql config below. Azure AD tokens expire after 60–90 minutes,
+    // and node-mssql/tedious has no callback for token refresh on
+    // 'azure-active-directory-access-token'. Active connections keep
+    // working past expiry, but new connections spawned by pool growth
+    // (or after the 30s idle timeout) will fail auth. Workaround for
+    // users: disconnect and reconnect; silent refresh from Keychain
+    // makes that one click. Future fix: track expiry per pool and
+    // recycle proactively, or invalidate on auth error and reconnect.
     log.info(
       `Acquiring Entra ID token (tenant=${profile.azureTenantId || 'organizations'}, boundAccount=${profile.azureHomeAccountId ?? '<none>'})...`
     );
