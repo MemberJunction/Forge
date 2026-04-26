@@ -112,7 +112,7 @@ import type { ConnectionProfile, AuthenticationType } from '@mj-forge/shared';
               <mat-select [(ngModel)]="formData.authenticationType">
                 <mat-option value="sql">SQL Server Authentication</mat-option>
                 <mat-option value="windows">Windows Authentication</mat-option>
-                <mat-option value="azure-ad">Azure AD Authentication</mat-option>
+                <mat-option value="entra-id">Microsoft Entra ID</mat-option>
               </mat-select>
             </mat-form-field>
 
@@ -381,10 +381,10 @@ export class ConnectionsComponent {
   formData: Partial<ConnectionProfile> & { password?: string } = {
     name: '',
     engine: 'mssql',
-    server: 'localhost',
+    server: '',
     port: 1433,
     authenticationType: 'sql',
-    username: 'sa',
+    username: '',
     password: '',
     encrypt: true,
     trustServerCertificate: true,
@@ -517,20 +517,32 @@ export class ConnectionsComponent {
     this.router.navigate(['/']);
   }
 
+  /**
+   * Mirrors connection-dialog.component.ts: form needs username/password
+   * only for "sql" auth on mssql, or for any non-mssql engine. Windows
+   * auth uses the OS principal; Entra ID uses MSAL via the system browser.
+   */
+  needsUsernamePassword(): boolean {
+    if (this.formData.engine !== 'mssql') return true;
+    return this.formData.authenticationType === 'sql';
+  }
+
   isValid(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     return !!(
       this.formData.name &&
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
   }
 
   canTestConnection(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     return !!(
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
   }
 
@@ -556,10 +568,11 @@ export class ConnectionsComponent {
   private resetForm(): void {
     this.formData = {
       name: '',
-      server: 'localhost',
+      engine: 'mssql',
+      server: '',
       port: 1433,
       authenticationType: 'sql',
-      username: 'sa',
+      username: '',
       password: '',
       encrypt: true,
       trustServerCertificate: true,

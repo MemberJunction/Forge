@@ -24,11 +24,21 @@ export interface QuerySettings {
   executeScope: ExecuteScope;
 }
 
+/**
+ * Format used by the inline "Copy selected" button on the results grid.
+ * - tsv: tab-separated; pastes natively into Excel / Google Sheets.
+ * - csv: comma-separated, RFC 4180 quoted; better for sharing as a file.
+ * - json: array of objects keyed by column name; best for code consumers.
+ */
+export type CopyFormat = 'tsv' | 'csv' | 'json';
+
 export interface GridSettings {
   rowHeight: number;
   showRowNumbers: boolean;
   alternatingRowColors: boolean;
   animateRows: boolean;
+  copyFormat: CopyFormat;
+  copyIncludeHeaders: boolean; // ignored for json
 }
 
 export interface AppSettings {
@@ -61,5 +71,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showRowNumbers: true,
     alternatingRowColors: true,
     animateRows: false,
+    copyFormat: 'tsv',
+    copyIncludeHeaders: true,
   },
 };

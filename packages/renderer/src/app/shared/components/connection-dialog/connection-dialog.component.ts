@@ -116,12 +116,12 @@ export interface ConnectionDialogResult {
             <mat-select [(ngModel)]="formData.authenticationType">
               <mat-option value="sql">SQL Server Authentication</mat-option>
               <mat-option value="windows">Windows Authentication</mat-option>
-              <mat-option value="azure-ad">Azure AD Authentication</mat-option>
+              <mat-option value="entra-id">Microsoft Entra ID</mat-option>
             </mat-select>
           </mat-form-field>
         }
 
-        @if (formData.authenticationType === 'sql' || formData.engine !== 'mssql') {
+        @if (needsUsernamePassword()) {
           <div class="form-row">
             <mat-form-field appearance="outline" class="flex-1">
               <mat-label>Username</mat-label>
@@ -132,6 +132,10 @@ export interface ConnectionDialogResult {
               <input matInput type="password" [(ngModel)]="formData.password" />
             </mat-form-field>
           </div>
+        }
+
+        @if (formData.authenticationType === 'entra-id') {
+          <p class="auth-hint">Signs in via Microsoft login window. Supports MFA.</p>
         }
 
         <mat-divider />
@@ -189,6 +193,9 @@ export interface ConnectionDialogResult {
                     : 'master'
               "
             />
+            @if (isEntraAuth()) {
+              <mat-hint>Leave blank to connect to master — most users need a specific DB.</mat-hint>
+            }
           </mat-form-field>
         </div>
 
@@ -263,6 +270,10 @@ export interface ConnectionDialogResult {
           }
         }
       </mat-dialog-content>
+
+      @if (validationHint(); as hint) {
+        <p class="validation-hint">{{ hint }}</p>
+      }
 
       <mat-dialog-actions align="start">
         <button
@@ -360,6 +371,31 @@ export interface ConnectionDialogResult {
 
       .flex-1 {
         flex: 1;
+      }
+
+      .auth-hint {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin: -4px 0 12px;
+        line-height: 1.4;
+      }
+
+      .auth-hint code {
+        background: var(--bg-tertiary);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 11px;
+      }
+
+      .validation-hint {
+        margin: 12px 24px 0;
+        padding: 10px 12px;
+        background: var(--warning-bg, rgba(255, 193, 7, 0.12));
+        border-left: 3px solid var(--status-warning, #f2a900);
+        color: var(--text-primary);
+        font-size: 13px;
+        line-height: 1.4;
+        border-radius: 2px;
       }
 
       .flex-2 {
@@ -469,10 +505,10 @@ export class ConnectionDialogComponent {
   } = {
     name: '',
     engine: 'mssql',
-    server: 'localhost',
+    server: '',
     port: 1433,
     authenticationType: 'sql',
-    username: 'sa',
+    username: '',
     password: '',
     encrypt: true,
     trustServerCertificate: true,
@@ -590,12 +626,45 @@ export class ConnectionDialogComponent {
     this.dialogRef.close();
   }
 
+  /**
+   * True when the form must collect a username/password from the user.
+   * Non-mssql engines always need them. On mssql, only "sql" auth uses
+   * form credentials — "windows" uses the OS principal, "entra-id" uses
+   * MSAL via the system browser.
+   */
+  needsUsernamePassword(): boolean {
+    if (this.formData.engine !== 'mssql') return true;
+    return this.formData.authenticationType === 'sql';
+  }
+
+  isEntraAuth(): boolean {
+    return this.formData.authenticationType === 'entra-id';
+  }
+
+  validationHint(): string {
+    if (!this.formData.server) return 'Fill in the Server to continue.';
+    if (!this.formData.port) return 'Fill in the Port to continue.';
+    if (
+      this.formData.engine === 'mssql' &&
+      this.formData.authenticationType === 'sql' &&
+      !this.formData.username
+    ) {
+      return 'Fill in Username to continue.';
+    }
+    if (this.formData.sshEnabled && (!this.formData.sshHost || !this.formData.sshUsername)) {
+      return 'Fill in SSH Host and Username to continue.';
+    }
+    if (!this.formData.name) return 'Give this connection a name to save.';
+    return '';
+  }
+
   isValid(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     const baseValid = !!(
       this.formData.name &&
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
 
     if (!baseValid) return false;
@@ -643,10 +712,11 @@ export class ConnectionDialogComponent {
   }
 
   canTestConnection(): boolean {
+    const needsCreds = this.needsUsernamePassword();
     return !!(
       this.formData.server &&
       this.formData.port &&
-      (this.formData.authenticationType !== 'sql' || this.formData.username)
+      (!needsCreds || this.formData.username)
     );
   }
 

@@ -35,15 +35,26 @@ export class ConnectionProfilesStore extends BaseSingleton {
 
   /**
    * Get all connection profiles.
-   * Backfills `engine: 'mssql'` for profiles saved before multi-DB support.
+   * Backfills `engine: 'mssql'` for profiles saved before multi-DB support
+   * and migrates the legacy `'azure-ad'` auth type to `'entra-id'`.
+   * Migrated profiles are written back so the migration runs at most once
+   * per profile rather than on every read.
    */
   getAll(): ConnectionProfile[] {
     const profiles = this.store.get('profiles', []);
-    // Backfill engine for legacy profiles
+    let mutated = false;
     for (const p of profiles) {
       if (!p.engine) {
         (p as ConnectionProfile).engine = 'mssql';
+        mutated = true;
       }
+      if ((p.authenticationType as string) === 'azure-ad') {
+        p.authenticationType = 'entra-id';
+        mutated = true;
+      }
+    }
+    if (mutated) {
+      this.store.set('profiles', profiles);
     }
     return profiles;
   }
@@ -119,6 +130,25 @@ export class ConnectionProfilesStore extends BaseSingleton {
 
     log.info(`Profile saved: ${profile.id}`);
     return profile;
+  }
+
+  /**
+   * Persist the MSAL homeAccountId bound to an Entra profile. Narrow update
+   * to avoid racing with concurrent saves that might overwrite other fields.
+   * Returns true if the profile existed and was updated.
+   */
+  async setAzureHomeAccountId(id: string, homeAccountId: string): Promise<boolean> {
+    const profiles = this.getAll();
+    const index = profiles.findIndex(p => p.id === id);
+    if (index === -1) return false;
+    profiles[index] = {
+      ...profiles[index],
+      azureHomeAccountId: homeAccountId,
+      updatedAt: new Date().toISOString(),
+    };
+    this.store.set('profiles', profiles);
+    log.info(`Bound Entra account ${homeAccountId} to profile ${id}`);
+    return true;
   }
 
   /**

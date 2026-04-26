@@ -71,7 +71,7 @@ export class PgDialect extends SQLDialect {
 
   // ── Metadata queries ─────────────────────────────────────────
 
-  listDatabasesSQL(): string {
+  listDatabasesSQL(_isAzure?: boolean): string {
     return `
 SELECT
   d.datname AS name,

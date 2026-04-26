@@ -714,10 +714,61 @@ pre {
   @include light-dialog-overrides;
 }
 
-// Icon buttons
+// Material Icons need line-height:1 so the glyph box matches the em-square.
+// Without this, inherited line-height (typically 1.5) makes the box taller
+// than the font, dropping the glyph below center.
+mat-icon {
+  line-height: 1 !important;
+}
+
+// Icon buttons.
+//
+// Centering Material Icons (font-based) inside a custom-sized icon button
+// is fiddly: the button has padding, the icon has its own font-metric
+// baseline that's not the visual center, and component-level overrides
+// (e.g., .small-btn setting width: 28px) compete with Material's defaults.
+// Brute-force fix: absolutely position the <mat-icon> dead-center via
+// top:50% / left:50% / translate(-50%, -50%). This bypasses flex/grid/
+// text-rendering entirely. Material's persistent-ripple, focus-indicator,
+// touch-target are already position:absolute so they're unaffected.
 .mat-mdc-icon-button {
   --mdc-icon-button-icon-color: var(--text-secondary);
   --mdc-icon-button-disabled-icon-color: var(--text-muted);
+
+  position: relative !important;
+
+  > mat-icon,
+  > .mat-icon {
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    margin: 0 !important;
+  }
+
+  // Material's default state-layer color is too dark against our dark
+  // surfaces — it ends up looking like a solid disc. Override the
+  // persistent-ripple element directly so hover/focus/pressed states
+  // render as a soft wash that works on both light and dark themes.
+  .mat-mdc-button-persistent-ripple::before {
+    background-color: var(--text-primary);
+  }
+  &:hover .mat-mdc-button-persistent-ripple::before {
+    opacity: 0.06;
+  }
+  &:focus-visible .mat-mdc-button-persistent-ripple::before {
+    opacity: 0.1;
+  }
+  &:active .mat-mdc-button-persistent-ripple::before {
+    opacity: 0.14;
+  }
+  // Click ripple
+  --mat-mdc-button-ripple-color: rgba(255, 255, 255, 0.12);
+
+  // Hovered icon should pop (darker grey → primary text)
+  &:hover {
+    --mdc-icon-button-icon-color: var(--text-primary);
+  }
 }
 
 // ---- Tab Group Overrides ----

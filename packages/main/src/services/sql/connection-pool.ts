@@ -8,6 +8,7 @@ import { ConnectionPool, config as SqlConfig, IResult } from 'mssql';
 import { Pool as PgPool } from 'pg';
 import mysql from 'mysql2/promise';
 import type { Pool as MySQLPool } from 'mysql2/promise';
+import { acquireTokenInteractive } from '../azure/entra-auth';
 import type { ConnectionProfile, TestConnectionResult, DatabaseEngine } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
@@ -16,6 +17,75 @@ import { SshTunnelManager, type SshCredentials } from '../ssh/ssh-tunnel-manager
 import { getDialect, type SQLDialect } from './dialect';
 
 const log = createLogger('PoolManager');
+
+/**
+ * Build the mssql config for a given profile and password.
+ * Entra ID runs MSAL via loopback + system browser, pinned to the profile's
+ * bound account (profile.azureHomeAccountId) so multi-account users don't
+ * cross-contaminate profiles. onAccountBound is invoked with the resolved
+ * homeAccountId whenever it changes from what the profile already had, so
+ * the caller can persist it.
+ */
+async function buildMssqlConfig(
+  profile: ConnectionProfile,
+  password: string,
+  database: string,
+  timeouts: { connectionMs: number; requestMs: number },
+  onAccountBound?: (homeAccountId: string) => Promise<void>
+): Promise<SqlConfig> {
+  const base: SqlConfig = {
+    server: profile.server,
+    port: profile.port,
+    database,
+    options: {
+      encrypt: profile.encrypt,
+      trustServerCertificate: profile.trustServerCertificate,
+    },
+    connectionTimeout: timeouts.connectionMs,
+    requestTimeout: timeouts.requestMs,
+  };
+
+  if (profile.authenticationType === 'entra-id') {
+    // Known v1 limitation: the access token is embedded statically into
+    // the mssql config below. Azure AD tokens expire after 60–90 minutes,
+    // and node-mssql/tedious has no callback for token refresh on
+    // 'azure-active-directory-access-token'. Active connections keep
+    // working past expiry, but new connections spawned by pool growth
+    // (or after the 30s idle timeout) will fail auth. Workaround for
+    // users: disconnect and reconnect; silent refresh from Keychain
+    // makes that one click. Future fix: track expiry per pool and
+    // recycle proactively, or invalidate on auth error and reconnect.
+    log.info(
+      `Acquiring Entra ID token (tenant=${profile.azureTenantId || 'organizations'}, boundAccount=${profile.azureHomeAccountId ?? '<none>'})...`
+    );
+    const { accessToken, homeAccountId } = await acquireTokenInteractive({
+      tenantId: profile.azureTenantId,
+      clientId: profile.azureClientId,
+      homeAccountId: profile.azureHomeAccountId,
+    });
+    log.info(`Entra ID token acquired (length: ${accessToken.length})`);
+    if (onAccountBound && homeAccountId !== profile.azureHomeAccountId) {
+      await onAccountBound(homeAccountId);
+    }
+    return {
+      ...base,
+      authentication: {
+        type: 'azure-active-directory-access-token' as const,
+        options: { token: accessToken },
+      },
+    } as SqlConfig;
+  }
+
+  return {
+    ...base,
+    user: profile.username,
+    password,
+  };
+}
+
+function isEntraIdAuth(profile: ConnectionProfile): boolean {
+  return profile.authenticationType === 'entra-id';
+}
 
 interface PoolEntry {
   pool: ConnectionPool;
@@ -42,6 +112,8 @@ export class ConnectionPoolManager extends BaseSingleton {
   private pools: Map<string, PoolEntry> = new Map();
   private pgPools: Map<string, PgPoolEntry> = new Map();
   private mysqlPools: Map<string, MySQLPoolEntry> = new Map();
+  // Cache: profileId → isAzureSQL. Cleared on disconnect.
+  private azureCache: Map<string, boolean> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
   private profileStore: ConnectionProfilesStore;
   private sshTunnelManager: SshTunnelManager;
@@ -164,6 +236,56 @@ export class ConnectionPoolManager extends BaseSingleton {
     return profile?.engine || 'mssql';
   }
 
+  getProfileForId(profileId: string): ConnectionProfile | undefined {
+    return this.profileStore.getById(profileId);
+  }
+
+  /**
+   * Returns true when the connection is to Azure SQL Database (or Synapse).
+   * Probes SERVERPROPERTY('EngineEdition') once per profile and caches the
+   * result. Edition 5 = Azure SQL Database; 6 = Azure SQL Data Warehouse;
+   * 8 = Azure SQL Managed Instance — we treat 5/6 as "Azure" since they
+   * lack msdb. Managed Instance (8) HAS msdb, so it's treated as on-prem.
+   * Non-mssql engines always return false.
+   */
+  async isAzureSQL(profileId: string): Promise<boolean> {
+    const cached = this.azureCache.get(profileId);
+    if (cached !== undefined) return cached;
+
+    if (this.getEngineForProfile(profileId) !== 'mssql') {
+      this.azureCache.set(profileId, false);
+      return false;
+    }
+
+    // Use the base pool to probe (getPool without a database arg returns
+    // the profileId-keyed pool, and resolveMssqlPoolKey shortcuts on
+    // no-database so this doesn't recurse back into isAzureSQL).
+    const pool = await this.getPool(profileId);
+    const result = (await pool
+      .request()
+      .batch(`SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS edition`)) as IResult<{
+      edition: number;
+    }>;
+    const edition = result.recordset[0]?.edition ?? 0;
+    const isAzure = edition === 5 || edition === 6;
+    this.azureCache.set(profileId, isAzure);
+    log.info(`Engine edition for ${profileId}: ${edition} (isAzure=${isAzure})`);
+    return isAzure;
+  }
+
+  /**
+   * Compute the mssql pool key for (profileId, database). Used by getPool,
+   * query, and batch so they all agree on which pool entry to look up
+   * (preventing activeQueries-tracking drift). Per-DB keying is used only
+   * for Azure SQL (where USE [db] is unsupported); on-prem SQL Server uses
+   * a single base pool keyed at `profileId` with USE-switching at query time.
+   */
+  private async resolveMssqlPoolKey(profileId: string, database?: string): Promise<string> {
+    if (!database) return profileId;
+    const azure = await this.isAzureSQL(profileId);
+    return azure ? `${profileId}:${database}` : profileId;
+  }
+
   /**
    * Test a connection without creating a persistent pool.
    * Routes to the correct engine-specific test method.
@@ -231,22 +353,14 @@ export class ConnectionPoolManager extends BaseSingleton {
     profile: ConnectionProfile,
     password: string
   ): Promise<TestConnectionResult> {
-    const config: SqlConfig = {
-      server: profile.server,
-      port: profile.port,
-      user: profile.username,
-      password,
-      database: 'master',
-      options: {
-        encrypt: profile.encrypt,
-        trustServerCertificate: profile.trustServerCertificate,
-      },
-      connectionTimeout: profile.connectionTimeout * 1000,
-      requestTimeout: 10000,
-    };
+    const testDb = profile.database || 'master';
+    const config = await buildMssqlConfig(profile, password, testDb, {
+      connectionMs: profile.connectionTimeout * 1000,
+      requestMs: 10000,
+    });
 
     log.debug(
-      `Config: encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}`
+      `Config: encrypt=${config.options?.encrypt}, trustCert=${config.options?.trustServerCertificate}, auth=${profile.authenticationType}`
     );
 
     let pool: ConnectionPool | null = null;
@@ -506,9 +620,7 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Get or create a SQL Server connection pool for a profile.
    * Opens an SSH tunnel first if the profile has one configured.
    */
-  async getPool(profileId: string): Promise<ConnectionPool> {
-    log.debug(`Getting pool for profile: ${profileId}`);
-
+  async getPool(profileId: string, database?: string): Promise<ConnectionPool> {
     const profile = this.profileStore.getById(profileId);
     if (!profile) {
       log.error(`Profile not found: ${profileId}`);
@@ -519,40 +631,52 @@ export class ConnectionPoolManager extends BaseSingleton {
     // it still reports connected. Drop it before checking for reuse.
     await this.invalidateStalePoolsIfTunnelGone(profile);
 
-    // Check for existing connected pool
-    const existing = this.pools.get(profileId);
+    // Azure SQL Database requires per-database pools (USE [db] is not supported).
+    // On-prem SQL Server uses a single base pool keyed at profileId with
+    // USE-switching at query time. resolveMssqlPoolKey is the single source
+    // of truth — query()/batch() use it too, so activeQueries tracking
+    // always points at the right entry.
+    const poolKey = await this.resolveMssqlPoolKey(profileId, database);
+
+    log.debug(`Getting pool: key=${poolKey}`);
+
+    const existing = this.pools.get(poolKey);
     if (existing?.pool.connected) {
-      log.debug(`Reusing existing pool for: ${profileId}`);
+      log.debug(`Reusing existing pool: ${poolKey}`);
       existing.lastUsed = new Date();
       return existing.pool;
     }
 
-    log.debug(`Creating new pool for: ${profileId}`);
-    log.debug(`Found profile: "${profile.name}" at ${profile.server}:${profile.port}`);
+    log.debug(`Creating new pool: ${poolKey}`);
 
-    const password = await this.profileStore.getPassword(profileId);
-    if (!password) {
+    const needsPassword = !isEntraIdAuth(profile);
+    const password = needsPassword ? await this.profileStore.getPassword(profileId) : '';
+    if (needsPassword && !password) {
       log.error(`Password not found in keychain for: ${profileId}`);
       throw new Error('Connection password not found in Keychain');
     }
-    log.debug('Password retrieved from keychain');
 
-    // Open SSH tunnel if configured
     const { effectiveProfile } = await this.withTunnel(profile);
 
-    // Create new pool
+    // Per-DB pool key has the form 'profileId:database'; base pool key is
+    // just profileId and connects to the profile's default database.
+    const targetDb =
+      poolKey === profileId ? effectiveProfile.database || 'master' : (database as string);
     const config: SqlConfig = {
-      server: effectiveProfile.server,
-      port: effectiveProfile.port,
-      user: effectiveProfile.username,
-      password,
-      database: effectiveProfile.database || 'master',
-      options: {
-        encrypt: effectiveProfile.encrypt,
-        trustServerCertificate: effectiveProfile.trustServerCertificate,
-      },
-      connectionTimeout: effectiveProfile.connectionTimeout * 1000,
-      requestTimeout: (effectiveProfile.requestTimeout || 30) * 1000,
+      ...(await buildMssqlConfig(
+        effectiveProfile,
+        password || '',
+        targetDb,
+        {
+          connectionMs: effectiveProfile.connectionTimeout * 1000,
+          requestMs: (effectiveProfile.requestTimeout || 30) * 1000,
+        },
+        async homeAccountId => {
+          const ok = await this.profileStore.setAzureHomeAccountId(profileId, homeAccountId);
+          if (!ok)
+            log.warn(`Failed to persist Entra account binding: profile ${profileId} not found`);
+        }
+      )),
       pool: {
         max: 10,
         min: 0,
@@ -561,15 +685,14 @@ export class ConnectionPoolManager extends BaseSingleton {
     };
 
     log.debug(
-      `Pool config: server=${config.server}:${config.port}, db=${config.database}, encrypt=${config.options?.encrypt}`
+      `Pool config: server=${config.server}:${config.port}, db=${targetDb}, auth=${effectiveProfile.authenticationType}`
     );
 
     const pool = new ConnectionPool(config);
-    log.info(`Connecting to ${effectiveProfile.server}:${effectiveProfile.port}...`);
     await pool.connect();
-    log.info(`Connected to ${profile.name}`);
+    log.info(`Connected to ${profile.name} (db: ${targetDb})`);
 
-    this.pools.set(profileId, {
+    this.pools.set(poolKey, {
       pool,
       profileId,
       lastUsed: new Date(),
@@ -583,25 +706,15 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Execute a query on a connection
    */
   async query<T>(profileId: string, sql: string, database?: string): Promise<IResult<T>> {
-    const pool = await this.getPool(profileId);
-    const entry = this.pools.get(profileId);
+    const poolKey = await this.resolveMssqlPoolKey(profileId, database);
+    const pool = await this.getPool(profileId, database);
+    const finalSql = this.adaptSqlForPool(sql, poolKey, profileId, database);
 
-    if (entry) {
-      entry.activeQueries++;
-    }
+    const entry = this.pools.get(poolKey);
+    if (entry) entry.activeQueries++;
 
     try {
-      const request = pool.request();
-
-      // Prepend USE [database] and execute as batch (raw T-SQL).
-      // batch() is needed because query() uses sp_executesql which doesn't support USE.
-      let finalSql = sql;
-      if (database) {
-        const safeDb = database.replace(/\]/g, ']]');
-        finalSql = `USE [${safeDb}];\n${finalSql}`;
-      }
-
-      return (await request.batch(finalSql)) as IResult<T>;
+      return (await pool.request().batch(finalSql)) as IResult<T>;
     } finally {
       if (entry) {
         entry.activeQueries--;
@@ -611,24 +724,57 @@ export class ConnectionPoolManager extends BaseSingleton {
   }
 
   /**
-   * Execute a batch of statements (for DDL operations)
+   * Execute a batch of statements (for DDL operations).
+   * If `database` is provided, routes via the same per-DB pool path the
+   * `query` method uses, so DDL on Azure SQL targets the right database
+   * (Azure has no USE support to fall back on).
    */
-  async batch(profileId: string, sql: string): Promise<void> {
-    const pool = await this.getPool(profileId);
-    const entry = this.pools.get(profileId);
+  async batch(profileId: string, sql: string, database?: string): Promise<void> {
+    const poolKey = await this.resolveMssqlPoolKey(profileId, database);
+    const pool = await this.getPool(profileId, database);
+    const finalSql = this.adaptSqlForPool(sql, poolKey, profileId, database);
 
-    if (entry) {
-      entry.activeQueries++;
-    }
+    const entry = this.pools.get(poolKey);
+    if (entry) entry.activeQueries++;
 
     try {
-      await pool.request().batch(sql);
+      await pool.request().batch(finalSql);
     } finally {
       if (entry) {
         entry.activeQueries--;
         entry.lastUsed = new Date();
       }
     }
+  }
+
+  /**
+   * Adjust the outgoing SQL to match the pool we're routing it to.
+   *
+   *  - On the on-prem path (poolKey === profileId), prepend `USE [db]` so
+   *    a shared pool can switch database context per-query.
+   *  - On the Azure path (poolKey === `${profileId}:${database}`), the pool
+   *    is already connected to the right DB AND Azure SQL rejects USE
+   *    outright. Strip any leading `USE [..];` the SQL generator embedded
+   *    (TsqlBuilder.listSchemas/listTables/etc. all do) so those metadata
+   *    queries actually run on Azure. The strip only touches a single
+   *    leading USE statement; mid-query USEs (uncommon) are left alone.
+   */
+  private adaptSqlForPool(
+    sql: string,
+    poolKey: string,
+    profileId: string,
+    database?: string
+  ): string {
+    if (!database) return sql;
+
+    if (poolKey === profileId) {
+      const safeDb = database.replace(/\]/g, ']]');
+      return `USE [${safeDb}];\n${sql}`;
+    }
+
+    // Azure per-DB pool: drop a single leading USE [..]; if present.
+    // Bracket content allows escaped `]]` so DB names with `]` survive.
+    return sql.replace(/^\s*USE\s+\[(?:[^\]]|\]\])*\]\s*;?\s*/i, '');
   }
 
   /**
@@ -661,7 +807,7 @@ export class ConnectionPoolManager extends BaseSingleton {
     }
 
     // Default: SQL Server
-    await this.batch(profileId, sql);
+    await this.batch(profileId, sql, database);
   }
 
   /**
@@ -674,14 +820,20 @@ export class ConnectionPoolManager extends BaseSingleton {
     // closeAll, IPC disconnect) rely on this — fire-and-forget at the cleanup
     // timer would crash the Electron main process under Node 20's
     // unhandled-rejection default if any step here propagated a rejection.
-    const entry = this.pools.get(profileId);
-    if (entry) {
-      try {
-        await entry.pool.close();
-      } catch (err) {
-        log.warn(`Failed to close mssql pool for ${profileId}: ${this.errMessage(err)}`);
+    this.azureCache.delete(profileId);
+
+    // MSSQL pools may be keyed as "profileId" (on-prem, single pool) or
+    // "profileId:dbName" (Entra/Azure SQL per-database pools). Iterate so
+    // both shapes are cleaned up — matches the PG/MySQL handling below.
+    for (const [key, entry] of this.pools) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) {
+        try {
+          await entry.pool.close();
+        } catch (err) {
+          log.warn(`Failed to close mssql pool ${key}: ${this.errMessage(err)}`);
+        }
+        this.pools.delete(key);
       }
-      this.pools.delete(profileId);
     }
 
     for (const [key, pgEntry] of this.pgPools) {
@@ -706,11 +858,15 @@ export class ConnectionPoolManager extends BaseSingleton {
       }
     }
 
+    // Close SSH tunnel for this profile
     try {
       await this.sshTunnelManager.closeTunnel(profileId);
     } catch (err) {
       log.warn(`Failed to close SSH tunnel for ${profileId}: ${this.errMessage(err)}`);
     }
+
+    // Azure credential cache is keyed by server config, not profileId.
+    // We keep it so reconnecting reuses the cached token without a browser popup.
   }
 
   /**
@@ -752,11 +908,20 @@ export class ConnectionPoolManager extends BaseSingleton {
    * Check if a connection is active
    */
   isConnected(profileId: string): boolean {
-    const mssqlEntry = this.pools.get(profileId);
-    if (mssqlEntry?.pool.connected) return true;
-    const pgEntry = this.pgPools.get(profileId);
-    if (pgEntry != null) return true;
-    // MySQL pools: check if any pool for this profile exists
+    // MSSQL pools may be keyed as profileId (on-prem base) or
+    // 'profileId:dbName' (Azure per-DB). Either counts as connected.
+    for (const [key, entry] of this.pools) {
+      if ((key === profileId || key.startsWith(`${profileId}:`)) && entry.pool.connected) {
+        return true;
+      }
+    }
+    // PG pools are keyed as 'profileId:dbName' too — match the same pattern.
+    for (const [key, entry] of this.pgPools) {
+      if (key === profileId || key.startsWith(`${profileId}:`)) {
+        if (entry != null) return true;
+      }
+    }
+    // MySQL pools: any pool for this profile counts.
     for (const key of this.mysqlPools.keys()) {
       if (key === profileId || key.startsWith(`${profileId}:`)) return true;
     }

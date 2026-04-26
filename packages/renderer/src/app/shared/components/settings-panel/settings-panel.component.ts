@@ -287,6 +287,40 @@ import type { ThemePreference } from '@mj-forge/shared';
                 (change)="updateGridSetting('alternatingRowColors', $event.checked)"
               />
             </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>Copy Format</label>
+                <span class="setting-description">
+                  Format used by the inline Copy button (Ctrl+C). The Export menu always offers the
+                  full set.
+                </span>
+              </div>
+              <mat-form-field appearance="outline" class="select-input">
+                <mat-select
+                  [value]="settings().grid.copyFormat"
+                  (selectionChange)="updateGridSetting('copyFormat', $event.value)"
+                >
+                  <mat-option value="tsv">TSV (tab-separated, pastes into Excel)</mat-option>
+                  <mat-option value="csv">CSV (comma-separated)</mat-option>
+                  <mat-option value="json">JSON</mat-option>
+                </mat-select>
+              </mat-form-field>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>Include Headers When Copying</label>
+                <span class="setting-description">
+                  Prepend column names as the first row (TSV / CSV only).
+                </span>
+              </div>
+              <mat-slide-toggle
+                [checked]="settings().grid.copyIncludeHeaders"
+                [disabled]="settings().grid.copyFormat === 'json'"
+                (change)="updateGridSetting('copyIncludeHeaders', $event.checked)"
+              />
+            </div>
           </section>
 
           <!-- AI Integration Section -->
@@ -610,6 +644,10 @@ import type { ThemePreference } from '@mj-forge/shared';
 
       .scope-select {
         width: 180px;
+      }
+
+      .select-input {
+        width: 280px;
       }
 
       ::ng-deep .mat-mdc-form-field-subscript-wrapper {
