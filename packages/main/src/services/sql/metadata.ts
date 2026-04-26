@@ -116,7 +116,8 @@ export class MetadataService extends BaseSingleton {
     }
 
     const dialect = this.getDialect(connectionId);
-    const sql = dialect.listDatabasesSQL();
+    const isAzure = await this.poolManager.isAzureSQL(connectionId);
+    const sql = dialect.listDatabasesSQL(isAzure);
     const rows = await this.queryAny<DatabaseInfo>(connectionId, sql);
 
     const databases = rows.map(row => ({

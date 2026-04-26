@@ -32,6 +32,7 @@ import {
 import type { ResultSet, ColumnMetadata } from '@mj-forge/shared';
 import { NotificationService } from '../../../core/services/notification.service';
 import { IpcService } from '../../../core/services/ipc.service';
+import { SettingsService } from '../../../core/services/settings.service';
 import { Subscription, firstValueFrom } from 'rxjs';
 
 interface ColumnStats {
@@ -142,9 +143,12 @@ interface FkPreviewData {
               <mat-icon>content_paste</mat-icon>
               <span>Copy as JSON</span>
             </button>
-            <button mat-menu-item (click)="copySelectedToClipboard(true)">
+            <button
+              mat-menu-item
+              (click)="copySelectedToClipboard({ format: 'tsv', includeHeaders: true })"
+            >
               <mat-icon>table_chart</mat-icon>
-              <span>Copy with Headers</span>
+              <span>Copy as TSV with Headers</span>
             </button>
           </mat-menu>
         </div>
@@ -1161,6 +1165,7 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
 
   private readonly notification = inject(NotificationService);
   private readonly ipc = inject(IpcService);
+  private readonly settings = inject(SettingsService);
   private gridApi: GridApi | null = null;
   private fkSubscription: Subscription | null = null;
 
@@ -1419,56 +1424,117 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
     }
   }
 
-  copySelectedToClipboard(includeHeaders = false): void {
+  /**
+   * Copy rows to clipboard using the format chosen in Settings → Results Grid.
+   * If `formatOverride` is supplied (from menu items like "Copy as JSON" /
+   * "Copy with Headers"), it wins over the user setting for this one call.
+   * Selection rules:
+   *   - Some rows selected → copy those rows.
+   *   - No rows selected → copy ALL displayed rows (Craig's request — pressing
+   *     the button with no selection should never silently copy nothing).
+   */
+  copySelectedToClipboard(formatOverride?: {
+    format?: 'tsv' | 'csv' | 'json';
+    includeHeaders?: boolean;
+  }): void {
     if (!this.gridApi) return;
 
-    const selectedRows = this.gridApi.getSelectedRows();
+    const settings = this.settings.gridSettings();
+    const format = formatOverride?.format ?? settings.copyFormat;
+    const includeHeaders = formatOverride?.includeHeaders ?? settings.copyIncludeHeaders;
 
-    if (selectedRows.length === 0) {
-      // If no rows selected, copy focused cell
-      const focusedCell = this.gridApi.getFocusedCell();
-      if (focusedCell) {
-        const rowNode = this.gridApi.getDisplayedRowAtIndex(focusedCell.rowIndex);
-        if (rowNode && rowNode.data) {
-          const colId = focusedCell.column.getColId();
-          const value = rowNode.data[colId];
-          navigator.clipboard.writeText(this.formatValueForClipboard(value));
-          this.notification.info('Cell copied to clipboard');
-        }
+    const selectedRows = this.gridApi.getSelectedRows();
+    let rows: Record<string, unknown>[];
+    let scopeLabel: string;
+    if (selectedRows.length > 0) {
+      rows = selectedRows;
+      scopeLabel = `${selectedRows.length} row${selectedRows.length > 1 ? 's' : ''}`;
+    } else {
+      rows = this.collectAllDisplayedRows();
+      if (rows.length === 0) {
+        this.notification.info('No rows to copy');
+        return;
       }
-      return;
+      scopeLabel = `all ${rows.length} row${rows.length > 1 ? 's' : ''}`;
     }
 
-    // Get visible columns (excluding row number column)
     const columns = this.gridApi.getAllDisplayedColumns().filter(col => {
       const colId = col.getColId();
       return colId !== 'rowNumber' && colId !== 'ag-Grid-SelectionColumn';
     });
+    const colMeta = columns.map(col => ({
+      id: col.getColId(),
+      header: col.getColDef().headerName || col.getColId(),
+    }));
 
-    const lines: string[] = [];
-
-    // Add headers if requested
-    if (includeHeaders) {
-      const headers = columns.map(col => col.getColDef().headerName || col.getColId());
-      lines.push(headers.join('\t'));
+    let text: string;
+    if (format === 'json') {
+      text = this.buildJsonClipboard(rows, colMeta);
+    } else if (format === 'csv') {
+      text = this.buildDelimitedClipboard(rows, colMeta, ',', includeHeaders);
+    } else {
+      text = this.buildDelimitedClipboard(rows, colMeta, '\t', includeHeaders);
     }
 
-    // Add data rows
-    for (const row of selectedRows) {
-      const values = columns.map(col => {
-        const colId = col.getColId();
-        const value = row[colId];
-        return this.formatValueForClipboard(value);
-      });
-      lines.push(values.join('\t'));
-    }
-
-    const text = lines.join('\n');
     navigator.clipboard.writeText(text);
+    this.notification.info(`Copied ${scopeLabel} to clipboard (${format.toUpperCase()})`);
+  }
 
-    this.notification.info(
-      `Copied ${selectedRows.length} row${selectedRows.length > 1 ? 's' : ''} to clipboard`
-    );
+  private collectAllDisplayedRows(): Record<string, unknown>[] {
+    if (!this.gridApi) return [];
+    const out: Record<string, unknown>[] = [];
+    const total = this.gridApi.getDisplayedRowCount();
+    for (let i = 0; i < total; i++) {
+      const node = this.gridApi.getDisplayedRowAtIndex(i);
+      if (node?.data) out.push(node.data);
+    }
+    return out;
+  }
+
+  private buildJsonClipboard(
+    rows: Record<string, unknown>[],
+    colMeta: { id: string; header: string }[]
+  ): string {
+    const projected = rows.map(row => {
+      const obj: Record<string, unknown> = {};
+      for (const col of colMeta) obj[col.header] = row[col.id] ?? null;
+      return obj;
+    });
+    return JSON.stringify(projected, null, 2);
+  }
+
+  private buildDelimitedClipboard(
+    rows: Record<string, unknown>[],
+    colMeta: { id: string; header: string }[],
+    delimiter: ',' | '\t',
+    includeHeaders: boolean
+  ): string {
+    const isCsv = delimiter === ',';
+    const lines: string[] = [];
+    if (includeHeaders) {
+      lines.push(colMeta.map(c => this.encodeDelimitedValue(c.header, isCsv)).join(delimiter));
+    }
+    for (const row of rows) {
+      lines.push(
+        colMeta
+          .map(c => this.encodeDelimitedValue(this.formatValueForClipboard(row[c.id]), isCsv))
+          .join(delimiter)
+      );
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * RFC 4180 quoting for CSV; for TSV we strip embedded tabs/newlines so the
+   * row structure stays intact when pasted into Excel/Sheets.
+   */
+  private encodeDelimitedValue(value: string, isCsv: boolean): string {
+    if (isCsv) {
+      const needsQuotes = /[",\n\r]/.test(value);
+      if (!needsQuotes) return value;
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value.replace(/[\t\r\n]+/g, ' ');
   }
 
   private formatValueForClipboard(value: unknown): string {

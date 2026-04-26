@@ -68,7 +68,11 @@ export abstract class SQLDialect {
 
   // ── Metadata queries ────────────────────────────────────────
 
-  abstract listDatabasesSQL(): string;
+  /**
+   * `isAzure` is consulted only by MSSQLDialect — Azure SQL Database lacks
+   * msdb.dbo.backupset, so the query must be split. PG/MySQL ignore the flag.
+   */
+  abstract listDatabasesSQL(isAzure?: boolean): string;
   abstract listSchemasSQL(database: string): string;
   abstract listTablesSQL(database: string, schema?: string): string;
   abstract listViewsSQL(database: string, schema?: string): string;

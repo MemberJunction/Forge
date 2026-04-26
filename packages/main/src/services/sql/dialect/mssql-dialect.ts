@@ -6,7 +6,11 @@
  * interface ensures callers never see T-SQL specifics.
  */
 
-import type { CreateDatabaseOptions, RenameDatabaseOptions, DeleteDatabaseOptions } from '@mj-forge/shared';
+import type {
+  CreateDatabaseOptions,
+  RenameDatabaseOptions,
+  DeleteDatabaseOptions,
+} from '@mj-forge/shared';
 import { SQLDialect } from './sql-dialect';
 import { TsqlBuilder } from '../../../utils/tsql-builder';
 
@@ -46,8 +50,8 @@ export class MSSQLDialect extends SQLDialect {
 
   // ── Metadata queries ─────────────────────────────────────────
 
-  listDatabasesSQL(): string {
-    return TsqlBuilder.listDatabases();
+  listDatabasesSQL(isAzure = false): string {
+    return TsqlBuilder.listDatabases(isAzure);
   }
 
   listSchemasSQL(database: string): string {

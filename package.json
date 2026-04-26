@@ -38,6 +38,7 @@
   },
   "main": "packages/main/dist/index.js",
   "dependencies": {
+    "@azure/msal-node": "^5.1.2",
     "@memberjunction/sqlglot-ts": "^5.23.0",
     "devicon": "^2.17.0",
     "dockerode": "^4.0.2",

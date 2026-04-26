@@ -60,7 +60,7 @@ export class MySQLDialect extends SQLDialect {
 
   // ── Metadata queries ─────────────────────────────────────────
 
-  listDatabasesSQL(): string {
+  listDatabasesSQL(_isAzure?: boolean): string {
     return `
 SELECT
   s.SCHEMA_NAME AS name,

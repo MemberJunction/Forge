@@ -201,9 +201,39 @@ export class TsqlBuilder {
   }
 
   /**
-   * Generate query to list databases
+   * Generate query to list databases. Caller passes `isAzure=true` for Azure
+   * SQL Database / Synapse — those engines have no msdb.dbo.backupset, and
+   * SQL Server validates cross-database references at parse time, so a
+   * CASE WHEN guard would not actually skip them. We split into two queries
+   * instead.
    */
-  static listDatabases(): string {
+  static listDatabases(isAzure = false): string {
+    return isAzure ? this.listDatabasesAzure() : this.listDatabasesOnPrem();
+  }
+
+  private static listDatabasesAzure(): string {
+    // Azure SQL doesn't expose sys.master_files server-wide. The closest
+    // we can get without per-database queries is the configured MaxSize
+    // via DATABASEPROPERTYEX — that's the *quota*, not actual usage,
+    // but it's still more informative than 0.
+    return `
+SELECT
+  d.name,
+  d.database_id as databaseId,
+  CAST(DATABASEPROPERTYEX(d.name, 'MaxSizeInBytes') AS BIGINT) as sizeBytes,
+  d.state_desc as state,
+  d.recovery_model_desc as recoveryModel,
+  d.collation_name as collation,
+  d.compatibility_level as compatibilityLevel,
+  CASE WHEN d.database_id <= 4 THEN 1 ELSE 0 END as isSystemDb,
+  d.create_date as createdAt,
+  CAST(NULL AS DATETIME) as lastBackupDate,
+  CAST(NULL AS DATETIME) as lastLogBackupDate
+FROM sys.databases d
+ORDER BY d.name;`;
+  }
+
+  private static listDatabasesOnPrem(): string {
     return `
 SELECT
   d.name,
