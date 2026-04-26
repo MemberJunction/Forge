@@ -669,42 +669,48 @@ export class ConnectionPoolManager extends BaseSingleton {
    * and its associated SSH tunnel if any.
    */
   async closePool(profileId: string): Promise<void> {
+    // Each step is wrapped in try/catch so closePool never rejects, regardless
+    // of what individual pool/tunnel close calls do. Callers (cleanup timer,
+    // closeAll, IPC disconnect) rely on this — fire-and-forget at the cleanup
+    // timer would crash the Electron main process under Node 20's
+    // unhandled-rejection default if any step here propagated a rejection.
     const entry = this.pools.get(profileId);
     if (entry) {
       try {
         await entry.pool.close();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        log.warn(`Failed to close mssql pool for ${profileId}: ${this.errMessage(err)}`);
       }
       this.pools.delete(profileId);
     }
 
-    // PG pools are keyed as "profileId:dbName", so close all pools for this profile
     for (const [key, pgEntry] of this.pgPools) {
       if (key === profileId || key.startsWith(`${profileId}:`)) {
         try {
           await pgEntry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close pg pool ${key}: ${this.errMessage(err)}`);
         }
         this.pgPools.delete(key);
       }
     }
 
-    // MySQL pools are keyed as "profileId:dbName", same pattern as PG
     for (const [key, mysqlEntry] of this.mysqlPools) {
       if (key === profileId || key.startsWith(`${profileId}:`)) {
         try {
           await mysqlEntry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close mysql pool ${key}: ${this.errMessage(err)}`);
         }
         this.mysqlPools.delete(key);
       }
     }
 
-    // Close SSH tunnel for this profile
-    await this.sshTunnelManager.closeTunnel(profileId);
+    try {
+      await this.sshTunnelManager.closeTunnel(profileId);
+    } catch (err) {
+      log.warn(`Failed to close SSH tunnel for ${profileId}: ${this.errMessage(err)}`);
+    }
   }
 
   /**
@@ -717,8 +723,8 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (entry) {
         try {
           await entry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close pg pool ${id} during shutdown: ${this.errMessage(err)}`);
         }
         this.pgPools.delete(id);
       }
@@ -728,14 +734,18 @@ export class ConnectionPoolManager extends BaseSingleton {
       if (entry) {
         try {
           await entry.pool.end();
-        } catch {
-          /* ignore */
+        } catch (err) {
+          log.warn(`Failed to close mysql pool ${id} during shutdown: ${this.errMessage(err)}`);
         }
         this.mysqlPools.delete(id);
       }
     });
     await Promise.all([...mssqlCloses, ...pgCloses, ...mysqlCloses]);
-    await this.sshTunnelManager.closeAll();
+    try {
+      await this.sshTunnelManager.closeAll();
+    } catch (err) {
+      log.warn(`Failed to close all SSH tunnels during shutdown: ${this.errMessage(err)}`);
+    }
   }
 
   /**

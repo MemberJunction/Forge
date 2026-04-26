@@ -224,16 +224,22 @@ export class SshTunnelManager extends BaseSingleton {
     log.info(`Closing SSH tunnel for ${profileId}`);
     this.tunnels.delete(profileId);
 
+    // Both calls are synchronous and don't normally throw, but we still wrap
+    // them so closeTunnel never rejects — callers (closePool, the void call
+    // sites in our own event handlers) rely on this to avoid unhandled
+    // rejection crashes under Node's default behaviour.
     try {
       tunnel.localServer.close();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to close local server for ${profileId}: ${msg}`);
     }
 
     try {
       tunnel.sshClient.end();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to end ssh client for ${profileId}: ${msg}`);
     }
   }
 
