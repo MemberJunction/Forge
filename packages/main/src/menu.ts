@@ -377,7 +377,7 @@ export function createMenu(): void {
         {
           label: 'MJ Forge Documentation',
           click: async () => {
-            await shell.openExternal('https://github.com/MemberJunction/mj-forge');
+            await shell.openExternal('https://github.com/MemberJunction/Forge/wiki');
           },
         },
         {
@@ -392,7 +392,7 @@ export function createMenu(): void {
         {
           label: 'Report Issue...',
           click: async () => {
-            await shell.openExternal('https://github.com/MemberJunction/mj-forge/issues');
+            await shell.openExternal('https://github.com/MemberJunction/Forge/issues');
           },
         },
         { type: 'separator' },

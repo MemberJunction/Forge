@@ -684,11 +684,11 @@ export class WelcomeComponent implements OnInit {
 
   openDocs(event: Event): void {
     event.preventDefault();
-    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge/wiki').subscribe();
+    this.ipc.openExternal('https://github.com/MemberJunction/Forge/wiki').subscribe();
   }
 
   openGitHub(event: Event): void {
     event.preventDefault();
-    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge').subscribe();
+    this.ipc.openExternal('https://github.com/MemberJunction/Forge').subscribe();
   }
 }
