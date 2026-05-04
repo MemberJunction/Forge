@@ -231,7 +231,10 @@ _The welcome screen — Quick Actions for new connection, recent connection, Doc
 
 _The AI assistant chains `list_tables` → `describe_table` → `execute_query` tool calls and synthesizes a grounded answer about feature flags, alongside the query editor and results grid._
 
-<!-- TODO: additional shots — multi-engine sidebar, ERD, visual execution plan, object explorer expanded -->
+![New Connection dialog — engine picker showing SQL Server, PostgreSQL, and MySQL](docs/screenshots/connection-dialog-light.png#gh-light-mode-only)
+![New Connection dialog — engine picker showing SQL Server, PostgreSQL, and MySQL](docs/screenshots/connection-dialog-dark.png#gh-dark-mode-only)
+
+_One connection dialog, three engines. Pick SQL Server, PostgreSQL, or MySQL — the rest of the form (auth methods, defaults, options) adapts to the engine you choose._
 
 ---
 
