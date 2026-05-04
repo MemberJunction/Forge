@@ -438,7 +438,7 @@ export class StatusBarComponent implements OnInit, OnDestroy {
     if (!status.isRunning) return 'Docker not running';
     const running = this.runningContainers();
     const total = this.containers().length;
-    if (total === 0) return 'No SQL Server containers';
+    if (total === 0) return 'No database containers';
     return `Docker: ${running}/${total} containers running`;
   });
 
