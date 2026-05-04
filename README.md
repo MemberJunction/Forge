@@ -221,16 +221,12 @@ All downloads available on the **[Releases page](https://github.com/MemberJuncti
 
 ## Screenshots
 
-![AI Assistant — agentic tool calling against a real database](docs/screenshots/ai-assistant-dark.png)
+![AI Assistant — agentic tool calling against a real database](docs/screenshots/ai-assistant-light.png#gh-light-mode-only)
+![AI Assistant — agentic tool calling against a real database](docs/screenshots/ai-assistant-dark.png#gh-dark-mode-only)
 
 _The AI assistant chains `list_tables` → `describe_table` → `execute_query` tool calls and synthesizes a grounded answer about feature flags, alongside the query editor and results grid._
 
-<!--
-  TODO before merge: capture light-mode pair as ai-assistant-light.png and switch to:
-  ![alt](docs/screenshots/ai-assistant-light.png#gh-light-mode-only)
-  ![alt](docs/screenshots/ai-assistant-dark.png#gh-dark-mode-only)
-  Additional shots planned: multi-engine sidebar, ERD, visual execution plan, object explorer expanded.
--->
+<!-- TODO: additional shots — multi-engine sidebar, ERD, visual execution plan, object explorer expanded -->
 
 ---
 
