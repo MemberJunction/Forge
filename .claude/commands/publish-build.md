@@ -3,6 +3,7 @@ Build, tag, and publish a new release of MJ Forge to GitHub with CI-built instal
 ## Inputs
 
 Ask the user:
+
 1. **Version number** (e.g. `0.4.0`) — or suggest the next patch/minor based on current version in `package.json`
 2. **Release notes** — or offer to auto-generate from commits since the last tag
 
@@ -50,6 +51,28 @@ Ask the user:
 - Download the arm64 DMG: `gh release download v{VERSION} --repo MemberJunction/Forge --pattern "*arm64.dmg" --dir ~/Downloads`
 - Inform the user the DMG is ready at `~/Downloads/` for manual testing
 - Remind: right-click → Open to bypass Gatekeeper (app is not yet notarized)
+
+### 8. Update the wiki
+
+The user-facing docs at https://github.com/MemberJunction/Forge/wiki must reflect what shipped. Invoke the **wiki-author** skill (`.claude/skills/wiki-author/SKILL.md`) — it handles the clone-write-commit-push workflow, including the wiki's `master` (not `main`) default branch and the team-of-authors + dedicated wiki-editor pattern.
+
+Two things must happen on every release:
+
+**A. Refresh `Release-Notes.md`.** Summarise v{VERSION} highlights — feature additions, behaviour changes, and UX shifts the user will notice. Pull from `git log v{PREVIOUS}..v{VERSION} --no-merges` and merged PR titles. Keep it short; the page points readers at the full GitHub Releases for everything else.
+
+**B. Audit content pages for drift.** Walk the changes since the last tag and update any wiki page whose feature surface moved. Common drift sources:
+
+- New AI tools, providers, or models → `AI-Assistant-Setup.md`, `Using-the-AI-Assistant.md`
+- New menu items or keyboard shortcuts (especially anything added to `packages/main/src/menu.ts` or `shortcuts-dialog.component.ts`) → `Keyboard-Shortcuts.md` and the relevant feature page
+- New connection options or auth flows → the relevant `Connecting-to-X.md` / `SSH-Tunneling.md` / `Azure-Entra-ID.md`
+- Object Explorer, ERD, Execution Plan, Backup/Restore, Snippet Library behaviour → the corresponding feature page
+- New settings → `Settings.md` (and potentially the affected feature page)
+
+For a **patch release with no UX changes**, the audit may yield only the `Release-Notes.md` edit — that's fine, push it as a single-page commit. For **minor or major releases**, expect 3–5 content pages to need updates.
+
+**Screenshots:** the wiki pins image URLs to a specific release tag (e.g. `https://raw.githubusercontent.com/MemberJunction/Forge/v{PREVIOUS}/docs/screenshots/<name>.png`) for stability. If the UI shifted in this release, re-capture the affected screenshots (the wiki-author skill describes the playwright-cli flow against a Docker SQL Server) and update the tag in the URL to v{VERSION}. If the UI did not shift, leave the older tag as-is — pinning to v{VERSION} every release just to update the tag is churn.
+
+**Commit message:** `docs(wiki): update for v{VERSION}` (conventional commit). Push directly to wiki `master` after a `git diff --stat` review — wikis don't support PRs, so the push _is_ the publish. The user has standing authorization for wiki pushes during a release run; you don't need to re-confirm each one.
 
 ## Troubleshooting
 
