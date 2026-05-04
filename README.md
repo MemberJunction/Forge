@@ -189,10 +189,10 @@ The AI has access to these tools — each one is schema-aware and engine-aware:
 
 ### macOS
 
-| Chip                  | Installer                                                               | Portable                                                        |
-| --------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Apple Silicon (M1–M4) | [MJ Forge.dmg](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
-| Intel                 | [MJ Forge.dmg](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
+| Chip          | Installer                                                               | Portable                                                        |
+| ------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Apple Silicon | [MJ Forge.dmg](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
+| Intel         | [MJ Forge.dmg](https://github.com/MemberJunction/Forge/releases/latest) | [.zip](https://github.com/MemberJunction/Forge/releases/latest) |
 
 ### Windows
 
