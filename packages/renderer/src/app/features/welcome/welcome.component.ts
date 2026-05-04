@@ -27,7 +27,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         <div class="logo-section">
           <mat-icon class="app-logo">storage</mat-icon>
           <h1>MJ Forge</h1>
-          <p class="tagline">SQL Server Management for macOS</p>
+          <p class="tagline">Multi-engine SQL IDE for macOS &amp; Windows</p>
         </div>
       </div>
 
@@ -36,27 +36,59 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         <section class="quick-actions">
           <h2>Quick Actions</h2>
           <div class="action-cards">
-            <mat-card class="action-card" tabindex="0" role="button" aria-label="New Connection" (click)="newConnection()" (keydown.enter)="newConnection()" (keydown.space)="newConnection(); $event.preventDefault()">
+            <mat-card
+              class="action-card"
+              tabindex="0"
+              role="button"
+              aria-label="New Connection"
+              (click)="newConnection()"
+              (keydown.enter)="newConnection()"
+              (keydown.space)="newConnection(); $event.preventDefault()"
+            >
               <mat-icon>add_circle</mat-icon>
               <h3>New Connection</h3>
-              <p>Connect to a SQL Server instance</p>
+              <p>Connect to a database</p>
             </mat-card>
 
             @if (connectionState.hasProfiles()) {
-              <mat-card class="action-card" tabindex="0" role="button" aria-label="Recent Connection" (click)="reconnect()" (keydown.enter)="reconnect()" (keydown.space)="reconnect(); $event.preventDefault()">
+              <mat-card
+                class="action-card"
+                tabindex="0"
+                role="button"
+                aria-label="Recent Connection"
+                (click)="reconnect()"
+                (keydown.enter)="reconnect()"
+                (keydown.space)="reconnect(); $event.preventDefault()"
+              >
                 <mat-icon>refresh</mat-icon>
                 <h3>Recent Connection</h3>
                 <p>{{ recentConnectionName }}</p>
               </mat-card>
             }
 
-            <mat-card class="action-card" tabindex="0" role="button" aria-label="Docker Containers" (click)="openDockerSection()" (keydown.enter)="openDockerSection()" (keydown.space)="openDockerSection(); $event.preventDefault()">
+            <mat-card
+              class="action-card"
+              tabindex="0"
+              role="button"
+              aria-label="Docker Containers"
+              (click)="openDockerSection()"
+              (keydown.enter)="openDockerSection()"
+              (keydown.space)="openDockerSection(); $event.preventDefault()"
+            >
               <mat-icon>sailing</mat-icon>
               <h3>Docker Containers</h3>
               <p>{{ dockerStatusText }}</p>
             </mat-card>
 
-            <mat-card class="action-card tour-card" tabindex="0" role="button" aria-label="Take a Tour" (click)="startTour()" (keydown.enter)="startTour()" (keydown.space)="startTour(); $event.preventDefault()">
+            <mat-card
+              class="action-card tour-card"
+              tabindex="0"
+              role="button"
+              aria-label="Take a Tour"
+              (click)="startTour()"
+              (keydown.enter)="startTour()"
+              (keydown.space)="startTour(); $event.preventDefault()"
+            >
               <mat-icon>explore</mat-icon>
               <h3>Take a Tour</h3>
               <p>Learn the basics of MJ Forge</p>
@@ -70,7 +102,15 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             <h2>Recent Connections</h2>
             <div class="connection-list">
               @for (profile of connectionState.profiles().slice(0, 5); track profile.id) {
-                <div class="connection-item" tabindex="0" role="button" [attr.aria-label]="'Connect to ' + profile.name" (click)="quickConnect(profile)" (keydown.enter)="quickConnect(profile)" (keydown.space)="quickConnect(profile); $event.preventDefault()">
+                <div
+                  class="connection-item"
+                  tabindex="0"
+                  role="button"
+                  [attr.aria-label]="'Connect to ' + profile.name"
+                  (click)="quickConnect(profile)"
+                  (keydown.enter)="quickConnect(profile)"
+                  (keydown.space)="quickConnect(profile); $event.preventDefault()"
+                >
                   <mat-icon>dns</mat-icon>
                   <div class="connection-info">
                     <span class="connection-name">{{ profile.name }}</span>
@@ -86,7 +126,7 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         <!-- Docker Containers -->
         @if (dockerStatus?.isAvailable && sqlContainers.length > 0) {
           <section class="docker-section" #dockerSection>
-            <h2>SQL Server Containers</h2>
+            <h2>Database Containers</h2>
             <div class="container-list">
               @for (container of sqlContainers; track container.id) {
                 <div class="container-item">
@@ -119,7 +159,10 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
               </div>
               <div class="ai-promo-content">
                 <h3>Enable AI Features</h3>
-                <p>Supercharge your workflow with AI-powered autocomplete, chat assistant, and query analysis.</p>
+                <p>
+                  Supercharge your workflow with AI-powered autocomplete, chat assistant, and query
+                  analysis.
+                </p>
               </div>
               <div class="ai-promo-actions">
                 <button mat-flat-button color="primary" (click)="openAISetup()">Set Up AI</button>
@@ -136,12 +179,8 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
                 <span class="ai-chip" (click)="openChat()">
                   <mat-icon>chat</mat-icon> Chat Assistant
                 </span>
-                <span class="ai-chip">
-                  <mat-icon>code</mat-icon> Smart Autocomplete
-                </span>
-                <span class="ai-chip">
-                  <mat-icon>analytics</mat-icon> Result Analysis
-                </span>
+                <span class="ai-chip"> <mat-icon>code</mat-icon> Smart Autocomplete </span>
+                <span class="ai-chip"> <mat-icon>analytics</mat-icon> Result Analysis </span>
               </div>
             </div>
           }
@@ -154,10 +193,10 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             <div class="tip">
               <mat-icon>lightbulb</mat-icon>
               <div>
-                <h4>Connect to SQL Server</h4>
+                <h4>Connect to a Database</h4>
                 <p>
-                  MJ Forge connects to SQL Server instances via TCP/IP. Make sure your server has
-                  TCP/IP enabled and is accessible from your Mac.
+                  MJ Forge speaks SQL Server, PostgreSQL, and MySQL. Make sure your server is
+                  reachable over the network — directly or through an SSH tunnel.
                 </p>
               </div>
             </div>
@@ -166,8 +205,8 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
               <div>
                 <h4>Use Docker for Local Development</h4>
                 <p>
-                  Running SQL Server in Docker is the easiest way to develop locally on macOS. MJ
-                  Forge can detect and manage your SQL Server containers.
+                  Running databases in Docker is the easiest way to develop locally. MJ Forge
+                  detects SQL Server, PostgreSQL, and MySQL containers automatically.
                 </p>
               </div>
             </div>
@@ -397,7 +436,11 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
         align-items: center;
         gap: var(--spacing-md);
         padding: var(--spacing-lg);
-        background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--bg-secondary)), var(--bg-secondary));
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--accent) 12%, var(--bg-secondary)),
+          var(--bg-secondary)
+        );
         border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-primary));
         border-radius: var(--radius-md);
       }
@@ -539,7 +582,7 @@ export class WelcomeComponent implements OnInit {
   get dockerStatusText(): string {
     if (!this.dockerStatus) return 'Checking...';
     if (!this.dockerStatus.isAvailable) return 'Docker not available';
-    if (this.sqlContainers.length === 0) return 'No SQL Server containers';
+    if (this.sqlContainers.length === 0) return 'No database containers';
     const running = this.sqlContainers.filter(c => c.state === 'running').length;
     return `${running}/${this.sqlContainers.length} running`;
   }
@@ -641,11 +684,11 @@ export class WelcomeComponent implements OnInit {
 
   openDocs(event: Event): void {
     event.preventDefault();
-    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge/wiki').subscribe();
+    this.ipc.openExternal('https://github.com/MemberJunction/Forge/wiki').subscribe();
   }
 
   openGitHub(event: Event): void {
     event.preventDefault();
-    this.ipc.openExternal('https://github.com/MemberJunction/mj-forge').subscribe();
+    this.ipc.openExternal('https://github.com/MemberJunction/Forge').subscribe();
   }
 }
