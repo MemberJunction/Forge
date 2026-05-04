@@ -221,6 +221,11 @@ All downloads available on the **[Releases page](https://github.com/MemberJuncti
 
 ## Screenshots
 
+![Home screen — Quick Actions, Recent Connections, AI features promo](docs/screenshots/home-screen-light.png#gh-light-mode-only)
+![Home screen — Quick Actions, Recent Connections, AI features promo](docs/screenshots/home-screen-dark.png#gh-dark-mode-only)
+
+_The welcome screen — Quick Actions for new connection, recent connection, Docker container detection, and a guided tour, plus an at-a-glance promo for the AI features._
+
 ![AI Assistant — agentic tool calling against a real database](docs/screenshots/ai-assistant-light.png#gh-light-mode-only)
 ![AI Assistant — agentic tool calling against a real database](docs/screenshots/ai-assistant-dark.png#gh-dark-mode-only)
 
