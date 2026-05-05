@@ -21,7 +21,9 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { renderReportBody, STYLES, SCRIPT } from './render-html.mjs';
+import Docker from 'dockerode';
+
+import { renderReportBody, STYLES, SCRIPT, FONT_LINKS } from './render-html.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
@@ -80,6 +82,19 @@ function makeSuite(file) {
 
 const sseClients = new Set();
 
+// ---- infrastructure (Docker) ----
+
+const docker = new Docker();
+const INFRA_HISTORY = 30; // 30 samples × 2s = 60s sparkline window
+const INFRA_POLL_MS = 2000;
+
+const infra = {
+  containers: new Map(), // Map<id, ContainerStat>
+  lastPolledAt: 0,
+  lastError: null,
+};
+let infraTimer = null;
+
 // ---- main ----
 
 await main();
@@ -89,6 +104,8 @@ async function main() {
   state.git = await getGit();
 
   await ensureHarnessUp();
+
+  startInfrastructurePolling();
 
   const unitProc = spawnVitest('unit', []);
   const intProc = spawnVitest('integration', ['--config', 'vitest.integration.config.ts']);
@@ -112,6 +129,7 @@ async function main() {
 
   const stop = () => {
     console.log('\n▶ Stopping vitest watchers (Docker harness stays up)…');
+    if (infraTimer) clearInterval(infraTimer);
     unitProc.kill('SIGTERM');
     intProc.kill('SIGTERM');
     server.close();
@@ -319,6 +337,122 @@ function recomputeTierTotals(tier) {
   tier.durationMs = dur;
 }
 
+// ---- Docker polling ----
+
+const ROLE_ORDER = ['bastion', 'postgres-private', 'postgres', 'mssql', 'mysql'];
+
+function classifyContainer(name) {
+  // Map container name → engine kind + display role.
+  const stripped = name.replace(/^\//, '').replace(/^forge-test-/, '');
+  if (stripped === 'bastion')           return { engine: 'bastion',          role: 'SSH bastion' };
+  if (stripped === 'postgres-private')  return { engine: 'postgres-private', role: 'tunneled pg' };
+  if (stripped === 'postgres')          return { engine: 'postgres',         role: 'PostgreSQL 16' };
+  if (stripped === 'mssql')             return { engine: 'mssql',            role: 'SQL Server 2022' };
+  if (stripped === 'mysql')             return { engine: 'mysql',            role: 'MySQL 8' };
+  return { engine: 'other', role: stripped };
+}
+
+function computeCpuPct(stats) {
+  const cpu = stats?.cpu_stats?.cpu_usage?.total_usage ?? 0;
+  const pre = stats?.precpu_stats?.cpu_usage?.total_usage ?? 0;
+  const sys = stats?.cpu_stats?.system_cpu_usage ?? 0;
+  const preSys = stats?.precpu_stats?.system_cpu_usage ?? 0;
+  const cores = stats?.cpu_stats?.online_cpus ?? 1;
+  const cpuDelta = cpu - pre;
+  const sysDelta = sys - preSys;
+  if (cpuDelta > 0 && sysDelta > 0) {
+    return (cpuDelta / sysDelta) * cores * 100;
+  }
+  return 0;
+}
+
+async function pollDockerOnce() {
+  let list;
+  try {
+    list = await docker.listContainers({ all: true });
+  } catch (err) {
+    infra.lastError = `docker daemon unreachable: ${err?.message ?? err}`;
+    scheduleBroadcast();
+    return;
+  }
+  infra.lastError = null;
+
+  const ours = list.filter((info) => (info.Names ?? []).some((n) => n.includes('/forge-test-')));
+  const seen = new Set();
+
+  for (const info of ours) {
+    const id = info.Id;
+    seen.add(id);
+    const name = (info.Names?.[0] ?? '').replace(/^\//, '');
+    const { engine, role } = classifyContainer(name);
+    const state = info.State; // 'running' | 'exited' | …
+    const status = info.Status; // human-readable
+
+    let cpuPct = 0;
+    let memBytes = 0;
+    let memLimit = 0;
+
+    if (state === 'running') {
+      try {
+        const stats = await docker.getContainer(id).stats({ stream: false });
+        cpuPct = computeCpuPct(stats);
+        memBytes = stats?.memory_stats?.usage ?? 0;
+        memLimit = stats?.memory_stats?.limit ?? 0;
+      } catch {
+        // Container could have stopped between list + stats. Leave zeros.
+      }
+    }
+
+    const prior = infra.containers.get(id);
+    const history = prior?.history ?? [];
+    history.push(Number.isFinite(cpuPct) ? cpuPct : 0);
+    while (history.length > INFRA_HISTORY) history.shift();
+
+    infra.containers.set(id, {
+      id,
+      name,
+      engine,
+      role,
+      state,
+      status,
+      cpuPct,
+      memBytes,
+      memLimit,
+      memPct: memLimit > 0 ? (memBytes / memLimit) * 100 : 0,
+      history,
+    });
+  }
+
+  // Drop containers that vanished (compose down, manual rm, etc.)
+  for (const id of Array.from(infra.containers.keys())) {
+    if (!seen.has(id)) infra.containers.delete(id);
+  }
+
+  infra.lastPolledAt = Date.now();
+  scheduleBroadcast();
+}
+
+function startInfrastructurePolling() {
+  pollDockerOnce().catch((err) => console.error('[infra] poll error:', err));
+  infraTimer = setInterval(() => {
+    pollDockerOnce().catch((err) => console.error('[infra] poll error:', err));
+  }, INFRA_POLL_MS);
+}
+
+function serializeInfrastructure() {
+  const containers = Array.from(infra.containers.values()).sort((a, b) => {
+    const ai = ROLE_ORDER.indexOf(a.engine);
+    const bi = ROLE_ORDER.indexOf(b.engine);
+    if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    return a.name.localeCompare(b.name);
+  });
+  return {
+    lastPolledAt: infra.lastPolledAt,
+    error: infra.lastError,
+    containers,
+  };
+}
+
 // ---- vitest watch supervision ----
 
 function spawnVitest(tier, extraArgs) {
@@ -411,60 +545,40 @@ function serializeState() {
     durationMs += t.durationMs ?? 0;
   }
 
-  return { startedAt: state.startedAt, durationMs, git: state.git, totals, tiers };
+  return {
+    startedAt: state.startedAt,
+    durationMs,
+    git: state.git,
+    totals,
+    tiers,
+    infrastructure: serializeInfrastructure(),
+  };
 }
 
 // ---- dashboard HTML ----
 
 function renderDashboardHtml() {
-  const dirtyMark = state.git.dirty ? ' <span class="dirty">·dirty</span>' : '';
+  const dirtyMark = state.git.dirty ? '<span class="value dirty">·dirty</span>' : '';
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MJ Forge — live regression dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-${STYLES}
-.live-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-md);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status-success);
-  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
-  animation: livePulse 2s infinite;
-}
-.live-dot.disconnected {
-  background: var(--status-error);
-  animation: none;
-  box-shadow: none;
-}
-@keyframes livePulse {
-  0%   { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); }
-  70%  { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-}
-</style>
+<title>MJ Forge · Live Telemetry</title>
+${FONT_LINKS}
+<style>${STYLES}</style>
 </head>
 <body>
 <main>
   <header class="header">
-    <h1><span class="accent">MJ Forge</span> live regression dashboard</h1>
-    <div class="subtitle">
-      ${escapeHtml(state.git.branch)}@${escapeHtml(state.git.commit)}${dirtyMark}
-      &nbsp;·&nbsp; <span id="now"></span>
+    <h1><span class="accent">MJ Forge</span> Telemetry</h1>
+    <div class="header-meta">
+      <span class="label">Repo</span>
+      <span class="value">${escapeHtml(state.git.branch)}@${escapeHtml(state.git.commit)} ${dirtyMark}</span>
+      <span class="label">Bind</span>
+      <span class="value">${escapeHtml(HOST)}:${PORT}</span>
+      <span class="label">UTC</span>
+      <span class="value" id="now">--:--:--</span>
     </div>
   </header>
 
@@ -478,7 +592,7 @@ ${STYLES}
   </div>
 
   <footer class="footer">
-    Live server on port <span class="mono">${PORT}</span> (binding ${HOST})
+    Live server · port <span class="mono">${PORT}</span>
   </footer>
 </main>
 <script>
@@ -495,7 +609,8 @@ function setStatus(text, connected) {
 }
 
 function tickClock() {
-  nowEl.textContent = new Date().toISOString().replace('T', ' ').replace(/\\..+$/, ' UTC');
+  const d = new Date();
+  nowEl.textContent = d.toISOString().replace('T', ' ').replace(/\\..+$/, '');
 }
 tickClock();
 setInterval(tickClock, 1000);
