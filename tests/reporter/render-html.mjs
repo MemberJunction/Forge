@@ -43,14 +43,6 @@ function fmtBytesMiB(bytes) {
   return (bytes / (1024 * 1024)).toFixed(0);
 }
 
-function fmtRelative(ts) {
-  if (!ts) return '—';
-  const delta = Math.max(0, Date.now() - ts);
-  if (delta < 1500) return 'now';
-  if (delta < 60_000) return `${Math.round(delta / 1000)}s ago`;
-  return `${Math.round(delta / 60_000)}m ago`;
-}
-
 // Synopsis: short business-language paragraph derived from the run summary.
 function buildSynopsis(report) {
   const totals = report.totals;
@@ -178,21 +170,51 @@ export function renderInfrastructure(infra) {
   if (!infra.containers || infra.containers.length === 0) {
     return `
       <section class="infra">
-        <div class="section-label"><span>Infrastructure</span></div>
+        <div class="section-label">
+          <span>Infrastructure</span>
+          ${renderResetButton()}
+        </div>
         <div class="infra-empty">Awaiting Docker — run <span class="mono">npm run test:harness:up</span></div>
       </section>
     `;
   }
   const cards = infra.containers.map(renderInfraCard).join('');
-  const polled = infra.lastPolledAt
-    ? `<span class="meta-readout">polled ${escapeHtml(fmtRelative(infra.lastPolledAt))}</span>`
-    : '';
+  const intervalSec = Math.round((infra.pollIntervalMs ?? 2000) / 1000);
+  const polled = `<span class="meta-readout">polled every ${intervalSec}s</span>`;
   return `
     <section class="infra">
-      <div class="section-label"><span>Infrastructure</span>${polled}</div>
+      <div class="section-label">
+        <span>Infrastructure</span>
+        ${polled}
+        ${renderResetButton()}
+      </div>
       <div class="infra-grid">${cards}</div>
     </section>
   `;
+}
+
+function renderResetButton() {
+  return `<button type="button" class="ctrl-btn ctrl-reset" data-action="harness-reset" title="Tear all containers down and bring them back up"><span class="material-symbols-outlined ctrl-icon">restart_alt</span><span class="ctrl-label">Reset</span></button>`;
+}
+
+function renderRunButton(action, payload, label = 'Run') {
+  const dataAttrs = Object.entries(payload)
+    .map(([k, v]) => `data-${k}="${escapeHtml(String(v))}"`)
+    .join(' ');
+  return `<button type="button" class="ctrl-btn ctrl-run" data-action="${escapeHtml(action)}" ${dataAttrs} title="Re-run via the live harness"><span class="material-symbols-outlined ctrl-icon">play_arrow</span><span class="ctrl-label">${escapeHtml(label)}</span></button>`;
+}
+
+// Map of engine kind → devicon class. Brand icons on cards make each container
+// instantly identifiable at a glance.
+const ENGINE_DEVICON = {
+  mssql:              'devicon-microsoftsqlserver-plain',
+  postgres:           'devicon-postgresql-plain',
+  'postgres-private': 'devicon-postgresql-plain',
+  mysql:              'devicon-mysql-plain',
+  bastion:            'devicon-linux-plain',
+};
+function deviconClass(engine) {
+  return ENGINE_DEVICON[engine] ?? 'devicon-docker-plain';
 }
 
 function renderInfraCard(c) {
@@ -204,10 +226,13 @@ function renderInfraCard(c) {
   return `
     <article class="infra-card" data-id="${escapeHtml(c.name)}" data-engine="${escapeHtml(c.engine)}" data-state="${escapeHtml(c.state)}">
       <div class="infra-top">
+        <i class="brand-icon ${escapeHtml(deviconClass(c.engine))}" aria-hidden="true"></i>
+        <div class="infra-id">
+          <span class="infra-name">${escapeHtml(c.name)}</span>
+          <span class="infra-role">${escapeHtml(c.role)}</span>
+        </div>
         <span class="infra-state-dot" title="${escapeHtml(stateLabel)}"></span>
-        <span class="infra-name">${escapeHtml(c.name)}</span>
       </div>
-      <div class="infra-role">${escapeHtml(c.role)}</div>
       <div class="infra-cpu">
         <div class="infra-cpu-num">${cpu.toFixed(1)}<span class="unit">%</span></div>
         ${renderSparkline(c.history)}
@@ -277,6 +302,9 @@ function renderSuite(report, tier, suite) {
   const skipNote = skipped > 0 ? `<span class="suite-summary text-muted"> · ${skipped} skipped</span>` : '';
   const runBadge = running ? `<span class="badge badge-running">RUN</span>` : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
+  const runButton = tier.key
+    ? renderRunButton('run-suite', { tier: tier.key, file: suite.name }, 'Run')
+    : '';
   // Stable data-id so the dashboard's open-state preserver can re-open this
   // suite after a body refresh.
   const id = `suite:${tier.label}:${suite.name}`;
@@ -287,6 +315,7 @@ function renderSuite(report, tier, suite) {
         <span class="suite-name mono">${escapeHtml(suite.name)}</span>
         ${summary}${skipNote}
         <span class="suite-duration mono text-muted">${fmtDuration(suite.durationMs)}</span>
+        ${runButton}
         <button type="button" class="copy-btn" data-copy-payload="${payload}" title="Copy a token-efficient summary of this suite for pasting into an LLM">Copy for LLM</button>
       </summary>
       <ul class="test-list">
@@ -298,11 +327,13 @@ function renderSuite(report, tier, suite) {
 
 function renderTier(report, tier) {
   if (tier.status === 'pending') {
+    const runButton = tier.key ? renderRunButton('run-tier', { tier: tier.key }, 'Run') : '';
     return `
       <section class="tier tier-pending">
         <div class="tier-header">
           <h2>${escapeHtml(tier.label)}</h2>
           <span class="badge badge-pending">PENDING</span>
+          ${runButton}
         </div>
         <p class="tier-note">${escapeHtml(tier.note ?? '')}</p>
       </section>
@@ -320,6 +351,7 @@ function renderTier(report, tier) {
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`
       : '';
   const id = `tier:${tier.label}`;
+  const runButton = tier.key ? renderRunButton('run-tier', { tier: tier.key }, 'Run') : '';
   return `
     <details class="tier ${running ? 'is-running' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
@@ -331,6 +363,7 @@ function renderTier(report, tier) {
           ${t.skipped > 0 ? `<span class="text-muted"> · ${t.skipped} skipped</span>` : ''}
         </span>
         <span class="tier-duration mono">${fmtDuration(tier.durationMs)}</span>
+        ${runButton}
         <button type="button" class="copy-btn" data-copy-payload="${payload}" title="Copy a token-efficient summary of this tier for pasting into an LLM">Copy for LLM</button>
       </summary>
       ${currentTest}
@@ -382,6 +415,8 @@ const FONT_LINKS = `
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400..700,0..1,-25..200" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/devicon.min.css" rel="stylesheet">
 `;
 
 const STYLES = /* css */ `
@@ -727,9 +762,29 @@ pre {
 }
 
 .infra-top {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+/* Brand icon — devicon glyph, sized prominently */
+.infra-card .brand-icon {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--engine, var(--ink-secondary));
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+}
+/* Devicon ships its own colors per .devicon-X-plain selector — override
+   so we tint by our engine variable for visual coherence. */
+.infra-card [class^="devicon-"]::before { color: inherit; }
+
+.infra-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .infra-state-dot {
@@ -749,7 +804,6 @@ pre {
 }
 
 .infra-name {
-  flex: 1;
   font-size: 12px;
   font-weight: 600;
   color: var(--ink-primary);
@@ -764,7 +818,6 @@ pre {
   color: var(--ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  margin-top: -4px;
 }
 
 .infra-cpu {
@@ -1070,30 +1123,150 @@ pre {
   50%      { opacity: 0.5; }
 }
 
-/* COPY BUTTON ────────────────────────────────────────── */
+/* CONTROL BUTTONS ────────────────────────────────────── */
+
+/* Copy-for-LLM — secondary, ghost-treatment so it doesn't compete with Run */
 .copy-btn {
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 10px;
+  font-weight: 500;
   padding: 4px 10px;
   background: transparent;
   color: var(--ink-secondary);
   border: 1px solid var(--line);
   cursor: pointer;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  transition: all 0.12s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
 }
 .copy-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--ink-primary);
+  border-color: var(--ink-secondary);
 }
 .copy-btn.copied {
   color: var(--pass);
   border-color: var(--pass);
 }
 .copy-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* Material Symbols Outlined — base setup */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Run / Reset — primary controls. Real instrument-panel buttons. */
+.ctrl-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition:
+    background 0.18s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.18s ease,
+    transform 0.08s ease;
+}
+.ctrl-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ctrl-btn .ctrl-label { display: inline-block; }
+.ctrl-btn .ctrl-icon { font-size: 16px; }
+
+/* Run — solid amber, primary action. Material play_arrow icon. */
+.ctrl-run {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 5px 12px 5px 8px;
+  background: var(--accent);
+  color: var(--bg-deep);
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.ctrl-run:hover {
+  background: #ffce7a;
+  border-color: #ffce7a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 18px rgba(255, 184, 77, 0.55);
+}
+.ctrl-run:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.30),
+    0 0 0 transparent;
+}
+
+/* Reset — secondary, ghost with warn-tinted hover */
+.ctrl-reset {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 5px 11px 5px 8px;
+  background: transparent;
+  color: var(--ink-muted);
+  border-color: var(--line);
+}
+.ctrl-reset .ctrl-icon { font-size: 14px; transition: transform 0.5s ease; }
+.ctrl-reset:hover {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(240, 185, 74, 0.10);
+  box-shadow: 0 0 10px rgba(240, 185, 74, 0.28);
+}
+.ctrl-reset:hover .ctrl-icon { transform: rotate(360deg); }
+.ctrl-reset:active { transform: translateY(1px); }
+
+/* Busy state — replaces the icon with a spinning ring + pulses the button */
+.ctrl-btn.is-busy {
+  cursor: progress;
+  animation: ctrlPulse 1.4s ease-in-out infinite;
+}
+.ctrl-btn.is-busy .ctrl-icon { display: none; }
+.ctrl-btn.is-busy::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 1.6px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ctrlSpin 0.9s linear infinite;
+}
+.ctrl-btn[disabled] { pointer-events: none; }
+.ctrl-btn.is-error {
+  color: var(--fail);
+  border-color: var(--fail);
+  background: rgba(255, 94, 94, 0.10);
+  box-shadow: none;
+  animation: none;
+}
+.ctrl-run.is-error { background: rgba(255, 94, 94, 0.18); }
+@keyframes ctrlSpin  { to { transform: rotate(360deg); } }
+@keyframes ctrlPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
 
 /* FOOTER ─────────────────────────────────────────────── */
 .footer {

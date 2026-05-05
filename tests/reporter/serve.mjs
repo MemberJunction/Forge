@@ -179,8 +179,172 @@ function handleRequest(req, res) {
   if (req.method === 'POST' && req.url === '/_event') {
     return handleEventPost(req, res);
   }
+  if (req.method === 'POST' && req.url === '/control/run-tier') {
+    return handleControlRunTier(req, res);
+  }
+  if (req.method === 'POST' && req.url === '/control/run-suite') {
+    return handleControlRunSuite(req, res);
+  }
+  if (req.method === 'POST' && req.url === '/control/harness-reset') {
+    return handleControlHarnessReset(req, res);
+  }
   res.writeHead(404);
   res.end('Not found');
+}
+
+// ---- control endpoints ----
+//
+// Trust model: the dashboard binds 0.0.0.0 on purpose so it's reachable over
+// LAN / Tailscale, and controls are intentionally available to remote viewers
+// — anyone who can see the dashboard can also re-run a suite or reset the
+// harness. File-based control inputs are validated to prevent arbitrary path
+// or command execution; only known tier keys and spec-file paths are allowed.
+
+const ALLOWED_TIER_KEYS = new Set(['unit', 'integration', 'e2e']);
+const SPEC_FILE_RE = /\.(?:spec|test)\.ts$/;
+
+async function readJsonBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function ack(res, payload) {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(payload));
+}
+
+function badRequest(res, message) {
+  res.writeHead(400, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ ok: false, error: message }));
+}
+
+function isAllowedSpecPath(file) {
+  if (typeof file !== 'string' || file.length === 0) return false;
+  if (file.includes('..')) return false;
+  if (!SPEC_FILE_RE.test(file)) return false;
+  return /^(?:tests|packages)\//.test(file);
+}
+
+async function listSpecsUnder(...subdirs) {
+  // Recursively walk one or more directories under REPO_ROOT and return all
+  // files whose name matches *.{spec,test}.ts. Excludes node_modules / dist.
+  const out = [];
+  const stack = subdirs.map((d) => join(REPO_ROOT, d));
+  let guard = 5000; // bounded loop — never traverse more than 5000 dirs
+  const fs = await import('node:fs/promises');
+  while (stack.length && guard-- > 0) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.turbo') continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.isFile() && SPEC_FILE_RE.test(entry.name)) out.push(full);
+    }
+  }
+  if (guard <= 0) console.warn('[control] listSpecsUnder hit traversal cap');
+  return out;
+}
+
+async function touchFiles(absPaths) {
+  const fs = await import('node:fs/promises');
+  const now = new Date();
+  let touched = 0;
+  for (const p of absPaths) {
+    try {
+      await fs.utimes(p, now, now);
+      touched += 1;
+    } catch (err) {
+      console.warn(`[control] failed to touch ${p}: ${err?.message ?? err}`);
+    }
+  }
+  return touched;
+}
+
+async function handleControlRunTier(req, res) {
+  const body = await readJsonBody(req);
+  if (body === null) return badRequest(res, 'invalid json');
+  const tier = body?.tier;
+  if (!ALLOWED_TIER_KEYS.has(tier)) return badRequest(res, 'unknown tier');
+
+  if (tier === 'e2e') {
+    spawnOneShotE2E();
+    return ack(res, { ok: true, tier, action: 'one-shot playwright spawned' });
+  }
+
+  // unit / integration: trigger the existing watcher by touching every spec
+  // file in the tier. The watcher batches the changes into a single rerun.
+  const dirs = tier === 'unit'
+    ? ['packages/main/src', 'packages/shared/src']
+    : ['tests/integration'];
+  const files = await listSpecsUnder(...dirs);
+  const touched = await touchFiles(files);
+  return ack(res, { ok: true, tier, touched });
+}
+
+async function handleControlRunSuite(req, res) {
+  const body = await readJsonBody(req);
+  if (body === null) return badRequest(res, 'invalid json');
+  const tier = body?.tier;
+  const file = body?.file;
+  if (!ALLOWED_TIER_KEYS.has(tier)) return badRequest(res, 'unknown tier');
+  if (!isAllowedSpecPath(file)) return badRequest(res, 'invalid file path');
+
+  const abs = join(REPO_ROOT, file);
+
+  if (tier === 'e2e') {
+    spawnOneShotE2E([abs]);
+    return ack(res, { ok: true, tier, action: 'one-shot playwright spawned for ' + file });
+  }
+
+  const touched = await touchFiles([abs]);
+  if (touched === 0) return badRequest(res, 'file not found');
+  return ack(res, { ok: true, tier, touched });
+}
+
+async function handleControlHarnessReset(_req, res) {
+  // Send the response immediately; the actual down/up runs in the background
+  // and surfaces via the next infrastructure poll.
+  ack(res, { ok: true, action: 'reset started' });
+  console.log('▶ Harness reset requested via dashboard control');
+  resetHarness().catch((err) => {
+    console.error('[control] harness reset failed:', err);
+    infra.lastError = `reset failed: ${err?.message ?? err}`;
+    broadcastInfra();
+  });
+}
+
+async function resetHarness() {
+  await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'down', '-v']);
+  await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
+  await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
+  // Bump infra immediately so the dashboard reflects the fresh containers.
+  await pollDockerOnce();
+}
+
+function spawnOneShotE2E(files = []) {
+  const args = ['playwright', 'test', ...files];
+  console.log(`▶ spawning one-shot e2e: npx ${args.join(' ')}`);
+  spawn('npx', args, {
+    stdio: 'inherit',
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      FORGE_LIVE_REPORTER_URL: REPORTER_URL,
+      FORGE_LIVE_REPORTER_TIER: 'e2e',
+    },
+  });
 }
 
 function pushTo(res, event, data) {
@@ -466,6 +630,7 @@ function serializeInfrastructure() {
   });
   return {
     lastPolledAt: infra.lastPolledAt,
+    pollIntervalMs: INFRA_POLL_MS,
     error: infra.lastError,
     containers,
   };
@@ -522,6 +687,7 @@ function serializeState() {
     const t = state.tiers[key];
     if (t.status === 'initializing' && t.suites.size === 0) {
       tiers.push({
+        key, // signals "runnable" to the dashboard so it shows Run buttons even on the pending row
         label: t.label,
         status: 'pending',
         runState: t.runState,
@@ -530,6 +696,7 @@ function serializeState() {
       continue;
     }
     tiers.push({
+      key,
       label: t.label,
       status: t.status,
       runState: t.runState,
@@ -548,7 +715,7 @@ function serializeState() {
         })),
     });
   }
-  // Phase 5 placeholder.
+  // Phase 5 placeholder — no key, so no Run button.
   tiers.push({ label: 'Visual regression', status: 'pending', note: 'Phase 5 — not yet implemented.' });
 
   // Aggregate totals across active tiers.
@@ -674,12 +841,26 @@ async function refreshBody() {
 // remounting caused. The card skeleton matches what renderInfraCard emits
 // server-side; new containers get a skeleton appended, departed ones removed.
 
+const ENGINE_DEVICON_MAP = {
+  mssql:              'devicon-microsoftsqlserver-plain',
+  postgres:           'devicon-postgresql-plain',
+  'postgres-private': 'devicon-postgresql-plain',
+  mysql:              'devicon-mysql-plain',
+  bastion:            'devicon-linux-plain',
+};
+function deviconFor(engine) {
+  return ENGINE_DEVICON_MAP[engine] || 'devicon-docker-plain';
+}
+
 const INFRA_CARD_SKELETON =
   '<div class="infra-top">' +
+    '<i class="brand-icon" aria-hidden="true"></i>' +
+    '<div class="infra-id">' +
+      '<span class="infra-name"></span>' +
+      '<span class="infra-role"></span>' +
+    '</div>' +
     '<span class="infra-state-dot"></span>' +
-    '<span class="infra-name"></span>' +
   '</div>' +
-  '<div class="infra-role"></div>' +
   '<div class="infra-cpu">' +
     '<div class="infra-cpu-num">0.0<span class="unit">%</span></div>' +
     '<svg class="infra-spark" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>' +
@@ -714,14 +895,6 @@ function sparkPaths(history) {
 function setText(node, sel, value) {
   const el = node.querySelector(sel);
   if (el && el.textContent !== String(value)) el.textContent = String(value);
-}
-
-function fmtRel(ts) {
-  if (!ts) return '—';
-  const delta = Math.max(0, Date.now() - ts);
-  if (delta < 1500) return 'now';
-  if (delta < 60000) return Math.round(delta / 1000) + 's ago';
-  return Math.round(delta / 60000) + 'm ago';
 }
 
 function ensureInfraScaffold() {
@@ -761,6 +934,13 @@ function applyInfra(payload) {
     if (card.dataset.engine !== c.engine) card.dataset.engine = c.engine;
     if (card.dataset.state !== c.state) card.dataset.state = c.state;
 
+    // Brand icon — set the devicon class based on engine
+    const brand = card.querySelector('.brand-icon');
+    if (brand) {
+      const wantClass = 'brand-icon ' + deviconFor(c.engine);
+      if (brand.className !== wantClass) brand.className = wantClass;
+    }
+
     setText(card, '.infra-name', c.name);
     setText(card, '.infra-role', c.role);
     const cpuEl = card.querySelector('.infra-cpu-num');
@@ -782,9 +962,12 @@ function applyInfra(payload) {
   for (const card of Array.from(grid.children)) {
     if (!seen.has(card.dataset.id)) card.remove();
   }
-  // Update polled-time readout
+  // Polled-time readout — show the static interval, not a live-changing timestamp
   const meta = infraHost.querySelector('.meta-readout');
-  if (meta) meta.textContent = 'polled ' + fmtRel(payload.lastPolledAt);
+  if (meta && payload.pollIntervalMs) {
+    const sec = Math.round(payload.pollIntervalMs / 1000);
+    meta.textContent = 'polled every ' + sec + 's';
+  }
 }
 
 function connect() {
@@ -802,6 +985,77 @@ function connect() {
   };
 }
 connect();
+
+// ---- Control buttons (Run / Reset) ----
+//
+// Buttons emit a POST to the matching /control/* endpoint. The server
+// triggers vitest watcher reruns by touching files (so the existing live
+// reporter pipeline updates the dashboard normally), spawns a one-shot
+// Playwright run for E2E, or runs docker-compose down -v then up for the
+// harness reset. Per Craig's call: controls are remote-accessible; no
+// localhost gate.
+
+async function dispatchControl(btn) {
+  const action = btn.dataset.action;
+  if (!action) return;
+  if (action === 'harness-reset' && !window.confirm('Reset harness — bring all containers down (with volumes) and back up?')) {
+    return;
+  }
+  const labelEl = btn.querySelector('.ctrl-label');
+  const original = labelEl ? labelEl.textContent : btn.textContent;
+  const setLabel = (text) => {
+    if (labelEl) labelEl.textContent = text;
+    else btn.textContent = text;
+  };
+  btn.disabled = true;
+  btn.classList.add('is-busy');
+  btn.classList.remove('is-error');
+  setLabel('starting');
+  let payload = {};
+  if (action === 'run-tier')  payload = { tier: btn.dataset.tier };
+  if (action === 'run-suite') payload = { tier: btn.dataset.tier, file: btn.dataset.file };
+  try {
+    const resp = await fetch('/control/' + action, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error('control failed: ' + resp.status + ' ' + txt);
+    }
+    setLabel('queued');
+    setTimeout(() => {
+      setLabel(original);
+      btn.classList.remove('is-busy');
+      btn.disabled = false;
+    }, 1500);
+  } catch (err) {
+    console.error('[control] ' + action, err);
+    btn.classList.remove('is-busy');
+    btn.classList.add('is-error');
+    setLabel('failed');
+    setTimeout(() => {
+      setLabel(original);
+      btn.classList.remove('is-error');
+      btn.disabled = false;
+    }, 1800);
+  }
+}
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('.ctrl-btn');
+  if (!btn) return;
+  event.preventDefault();
+  event.stopPropagation();
+  dispatchControl(btn);
+});
+
+// Same belt-and-suspenders mousedown stop as the copy button — keeps the
+// surrounding <details> from toggling when you click a Run/Reset button.
+document.addEventListener('mousedown', (event) => {
+  if (event.target.closest('.ctrl-btn')) event.stopPropagation();
+}, true);
 </script>
 </body>
 </html>`;
