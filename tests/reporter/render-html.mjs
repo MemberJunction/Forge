@@ -165,7 +165,7 @@ function renderHero(report) {
 
 // ---- Infrastructure (Docker container) panel ----
 
-function renderInfrastructure(infra) {
+export function renderInfrastructure(infra) {
   if (!infra) return '';
   if (infra.error) {
     return `
@@ -202,7 +202,7 @@ function renderInfraCard(c) {
   const memPct = Number.isFinite(c.memPct) ? c.memPct : 0;
   const stateLabel = (c.state || 'unknown').toUpperCase();
   return `
-    <article class="infra-card" data-engine="${escapeHtml(c.engine)}" data-state="${escapeHtml(c.state)}">
+    <article class="infra-card" data-id="${escapeHtml(c.name)}" data-engine="${escapeHtml(c.engine)}" data-state="${escapeHtml(c.state)}">
       <div class="infra-top">
         <span class="infra-state-dot" title="${escapeHtml(stateLabel)}"></span>
         <span class="infra-name">${escapeHtml(c.name)}</span>
@@ -277,8 +277,11 @@ function renderSuite(report, tier, suite) {
   const skipNote = skipped > 0 ? `<span class="suite-summary text-muted"> · ${skipped} skipped</span>` : '';
   const runBadge = running ? `<span class="badge badge-running">RUN</span>` : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
+  // Stable data-id so the dashboard's open-state preserver can re-open this
+  // suite after a body refresh.
+  const id = `suite:${tier.label}:${suite.name}`;
   return `
-    <details class="suite ${running ? 'is-running' : ''}" ${isOpen ? 'open' : ''}>
+    <details class="suite ${running ? 'is-running' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
         ${runBadge}
         <span class="suite-name mono">${escapeHtml(suite.name)}</span>
@@ -316,8 +319,9 @@ function renderTier(report, tier) {
     running && tier.currentTest
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`
       : '';
+  const id = `tier:${tier.label}`;
   return `
-    <details class="tier ${running ? 'is-running' : ''}" ${isOpen ? 'open' : ''}>
+    <details class="tier ${running ? 'is-running' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
         ${runBadge}
         <h2>${escapeHtml(tier.label)}</h2>
@@ -720,9 +724,7 @@ pre {
   gap: var(--space-3);
   font-family: var(--font-mono);
   overflow: hidden;
-  animation: fadeIn 0.4s ease both;
 }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .infra-top {
   display: flex;
@@ -1106,6 +1108,56 @@ pre {
   text-align: center;
 }
 
+/* LIGHT THEME ────────────────────────────────────────── */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-base: #faf8f1;
+    --bg-surface: #f1eee2;
+    --bg-elevated: #ffffff;
+    --bg-deep: #ece8d9;
+
+    --line: #d6d1bf;
+    --line-soft: #e6e2d2;
+
+    --ink-primary: #1a1a24;
+    --ink-secondary: #555570;
+    --ink-muted: #8a8aa0;
+    --ink-faint: #c0c0c8;
+
+    --accent: #b86200;
+    --accent-soft: rgba(184, 98, 0, 0.10);
+    --accent-line: rgba(184, 98, 0, 0.35);
+
+    --pass: #16a34a;
+    --fail: #dc2626;
+    --warn: #d97706;
+    --info: #2563eb;
+
+    --engine-mssql: #2563eb;
+    --engine-postgres: #0f766e;
+    --engine-postgres-private: #0c5358;
+    --engine-mysql: #c2410c;
+    --engine-bastion: #15803d;
+    --engine-other: #555570;
+  }
+
+  body {
+    background:
+      radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(184, 98, 0, 0.06), transparent 60%),
+      radial-gradient(ellipse 800px 600px at 50% 110%, rgba(37, 99, 235, 0.03), transparent 60%),
+      var(--bg-base);
+  }
+  /* Tone scanlines + grain way down on light bg — they read as dirt instead of CRT */
+  body::before { opacity: 0.08; mix-blend-mode: multiply; }
+  body::after  { opacity: 0.18; }
+
+  pre { background: var(--bg-deep); }
+
+  .focus { background: linear-gradient(180deg, rgba(220, 38, 38, 0.05), rgba(220, 38, 38, 0.005)); }
+  .focus::before { background: var(--bg-base); }
+  .focus .failure { background: var(--bg-deep); }
+}
+
 /* RESPONSIVE ─────────────────────────────────────────── */
 @media (max-width: 760px) {
   body { padding: var(--space-5) var(--space-4); }
@@ -1168,10 +1220,13 @@ document.addEventListener('mousedown', (event) => {
 `;
 
 export function renderReportBody(report) {
+  // Note: infrastructure is intentionally rendered separately by the live
+  // dashboard so its 2s polls don't trigger a full body remount (which would
+  // collapse open <details> and reset CSS animations). Static reports don't
+  // include infra at all.
   return `
     ${renderHero(report)}
     <p class="synopsis">${escapeHtml(buildSynopsis(report))}</p>
-    ${renderInfrastructure(report.infrastructure)}
     ${renderFailureFocusList(report)}
     ${report.tiers.map((t) => renderTier(report, t)).join('')}
   `;

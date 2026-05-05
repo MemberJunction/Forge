@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import Docker from 'dockerode';
 
-import { renderReportBody, STYLES, SCRIPT, FONT_LINKS } from './render-html.mjs';
+import { renderReportBody, renderInfrastructure, STYLES, SCRIPT, FONT_LINKS } from './render-html.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
@@ -149,12 +149,17 @@ function handleRequest(req, res) {
   }
   if (req.method === 'GET' && req.url === '/api/state') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(serializeState()));
+    res.end(JSON.stringify({ ...serializeState(), infrastructure: serializeInfrastructure() }));
     return;
   }
   if (req.method === 'GET' && req.url === '/api/body') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(renderReportBody(serializeState()));
+    return;
+  }
+  if (req.method === 'GET' && req.url === '/api/infra') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(serializeInfrastructure()));
     return;
   }
   if (req.method === 'GET' && req.url === '/events') {
@@ -167,6 +172,7 @@ function handleRequest(req, res) {
     res.write(': connected\n\n');
     sseClients.add(res);
     pushTo(res, 'state', serializeState());
+    pushTo(res, 'infra', serializeInfrastructure());
     req.on('close', () => sseClients.delete(res));
     return;
   }
@@ -204,6 +210,18 @@ function broadcastNow() {
       pushTo(res, 'state', snapshot);
     } catch (err) {
       console.error('SSE broadcast failed for one client:', err);
+      sseClients.delete(res);
+    }
+  }
+}
+
+function broadcastInfra() {
+  const snapshot = serializeInfrastructure();
+  for (const res of sseClients) {
+    try {
+      pushTo(res, 'infra', snapshot);
+    } catch (err) {
+      console.error('SSE infra broadcast failed for one client:', err);
       sseClients.delete(res);
     }
   }
@@ -372,7 +390,7 @@ async function pollDockerOnce() {
     list = await docker.listContainers({ all: true });
   } catch (err) {
     infra.lastError = `docker daemon unreachable: ${err?.message ?? err}`;
-    scheduleBroadcast();
+    broadcastInfra();
     return;
   }
   infra.lastError = null;
@@ -429,7 +447,7 @@ async function pollDockerOnce() {
   }
 
   infra.lastPolledAt = Date.now();
-  scheduleBroadcast();
+  broadcastInfra();
 }
 
 function startInfrastructurePolling() {
@@ -545,14 +563,11 @@ function serializeState() {
     durationMs += t.durationMs ?? 0;
   }
 
-  return {
-    startedAt: state.startedAt,
-    durationMs,
-    git: state.git,
-    totals,
-    tiers,
-    infrastructure: serializeInfrastructure(),
-  };
+  // Note: infrastructure is intentionally NOT included in the state payload.
+  // It travels on a separate SSE channel (event: infra) so its 2s polls don't
+  // trigger a full body refresh that would collapse <details> and reset
+  // animations. Direct callers that want both can use /api/state.
+  return { startedAt: state.startedAt, durationMs, git: state.git, totals, tiers };
 }
 
 // ---- dashboard HTML ----
@@ -587,6 +602,10 @@ ${FONT_LINKS}
     <span id="live-status">Connecting…</span>
   </div>
 
+  <div id="infra-host">
+    ${renderInfrastructure(serializeInfrastructure())}
+  </div>
+
   <div id="report-body">
     ${renderReportBody(serializeState())}
   </div>
@@ -599,6 +618,7 @@ ${FONT_LINKS}
 ${SCRIPT}
 
 const reportBody = document.getElementById('report-body');
+const infraHost = document.getElementById('infra-host');
 const liveDot = document.getElementById('live-dot');
 const liveStatus = document.getElementById('live-status');
 const nowEl = document.getElementById('now');
@@ -615,28 +635,168 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
+// ---- Body refresh with open-state preservation ----
+//
+// innerHTML swap nukes the open/closed state of every <details>. Capture
+// which ones are open before the swap (by stable data-id) and re-open them
+// after, so the user's expansion choices survive every test event.
+
+function captureOpenIds() {
+  const ids = new Set();
+  reportBody.querySelectorAll('details[open][data-id]').forEach((d) => ids.add(d.dataset.id));
+  return ids;
+}
+function restoreOpenIds(ids) {
+  if (!ids || ids.size === 0) return;
+  reportBody.querySelectorAll('details[data-id]').forEach((d) => {
+    if (ids.has(d.dataset.id)) d.open = true;
+  });
+}
+
 let pendingRefresh = false;
 async function refreshBody() {
   if (pendingRefresh) return;
   pendingRefresh = true;
   try {
+    const wasOpen = captureOpenIds();
     const html = await (await fetch('/api/body')).text();
     reportBody.innerHTML = html;
+    restoreOpenIds(wasOpen);
   } finally {
     pendingRefresh = false;
   }
 }
 
+// ---- Surgical infra updates ----
+//
+// Updating cards in place (rather than replacing the grid's innerHTML) keeps
+// the heartbeat dot animation continuous and avoids the every-2s flash that
+// remounting caused. The card skeleton matches what renderInfraCard emits
+// server-side; new containers get a skeleton appended, departed ones removed.
+
+const INFRA_CARD_SKELETON =
+  '<div class="infra-top">' +
+    '<span class="infra-state-dot"></span>' +
+    '<span class="infra-name"></span>' +
+  '</div>' +
+  '<div class="infra-role"></div>' +
+  '<div class="infra-cpu">' +
+    '<div class="infra-cpu-num">0.0<span class="unit">%</span></div>' +
+    '<svg class="infra-spark" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>' +
+  '</div>' +
+  '<div class="infra-mem">' +
+    '<div class="mem-row">' +
+      '<span class="mem-vals"></span>' +
+      '<span class="mem-pct"></span>' +
+    '</div>' +
+    '<div class="infra-mem-bar"><span></span></div>' +
+  '</div>';
+
+function cssEscape(s) {
+  return (window.CSS && window.CSS.escape) ? window.CSS.escape(String(s)) : String(s).replace(/["\\\\]/g, '\\\\$&');
+}
+
+function sparkPaths(history) {
+  if (!history || history.length < 2) return '';
+  const w = 100, h = 28;
+  const max = Math.max(20, ...history);
+  const step = w / (history.length - 1);
+  const pts = history.map((v, i) => {
+    const x = i * step;
+    const y = h - (Math.min(v, max) / max) * h;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  });
+  const linePath = 'M ' + pts.join(' L ');
+  const areaPath = 'M 0,' + h + ' L ' + pts.join(' L ') + ' L ' + w + ',' + h + ' Z';
+  return '<path class="area" d="' + areaPath + '"/><path d="' + linePath + '"/>';
+}
+
+function setText(node, sel, value) {
+  const el = node.querySelector(sel);
+  if (el && el.textContent !== String(value)) el.textContent = String(value);
+}
+
+function fmtRel(ts) {
+  if (!ts) return '—';
+  const delta = Math.max(0, Date.now() - ts);
+  if (delta < 1500) return 'now';
+  if (delta < 60000) return Math.round(delta / 1000) + 's ago';
+  return Math.round(delta / 60000) + 'm ago';
+}
+
+function ensureInfraScaffold() {
+  let grid = infraHost.querySelector('.infra-grid');
+  if (grid) return grid;
+  // Server may have rendered an empty / error placeholder; replace with grid.
+  infraHost.innerHTML =
+    '<section class="infra">' +
+      '<div class="section-label"><span>Infrastructure</span><span class="meta-readout"></span></div>' +
+      '<div class="infra-grid"></div>' +
+    '</section>';
+  return infraHost.querySelector('.infra-grid');
+}
+
+function applyInfra(payload) {
+  if (!payload) return;
+  if (payload.error) {
+    infraHost.innerHTML =
+      '<section class="infra">' +
+        '<div class="section-label"><span>Infrastructure</span></div>' +
+        '<div class="infra-error">' + payload.error.replace(/[<>&]/g, (m) => ({'<': '&lt;', '>': '&gt;', '&': '&amp;'}[m])) + '</div>' +
+      '</section>';
+    return;
+  }
+  const grid = ensureInfraScaffold();
+  const seen = new Set();
+  for (const c of payload.containers || []) {
+    seen.add(c.name);
+    let card = grid.querySelector('[data-id="' + cssEscape(c.name) + '"]');
+    if (!card) {
+      card = document.createElement('article');
+      card.className = 'infra-card';
+      card.dataset.id = c.name;
+      card.innerHTML = INFRA_CARD_SKELETON;
+      grid.appendChild(card);
+    }
+    if (card.dataset.engine !== c.engine) card.dataset.engine = c.engine;
+    if (card.dataset.state !== c.state) card.dataset.state = c.state;
+
+    setText(card, '.infra-name', c.name);
+    setText(card, '.infra-role', c.role);
+    const cpuEl = card.querySelector('.infra-cpu-num');
+    if (cpuEl && cpuEl.firstChild) cpuEl.firstChild.nodeValue = (c.cpuPct ?? 0).toFixed(1);
+
+    const spark = card.querySelector('.infra-spark');
+    if (spark) spark.innerHTML = sparkPaths(c.history);
+
+    const memMB = Math.round((c.memBytes || 0) / 1048576);
+    const limitMB = Math.round((c.memLimit || 0) / 1048576);
+    const memPct = (c.memPct || 0).toFixed(1);
+    const valEl = card.querySelector('.mem-vals');
+    if (valEl) valEl.innerHTML = memMB + ' / ' + limitMB + ' <span class="mem-unit">MiB</span>';
+    setText(card, '.mem-pct', memPct + '%');
+    const bar = card.querySelector('.infra-mem-bar > span');
+    if (bar) bar.style.setProperty('--pct', memPct + '%');
+  }
+  // Remove cards no longer present
+  for (const card of Array.from(grid.children)) {
+    if (!seen.has(card.dataset.id)) card.remove();
+  }
+  // Update polled-time readout
+  const meta = infraHost.querySelector('.meta-readout');
+  if (meta) meta.textContent = 'polled ' + fmtRel(payload.lastPolledAt);
+}
+
 function connect() {
   const es = new EventSource('/events');
-  es.onopen = () => setStatus('Live · watching for test runs', true);
-  es.addEventListener('state', () => {
-    refreshBody().then(() => {
-      setStatus('Live · last update ' + new Date().toLocaleTimeString(), true);
-    });
+  es.onopen = () => setStatus('Live', true);
+  es.addEventListener('state', () => { refreshBody(); });
+  es.addEventListener('infra', (event) => {
+    try { applyInfra(JSON.parse(event.data)); }
+    catch (err) { console.error('bad infra payload', err); }
   });
   es.onerror = () => {
-    setStatus('Disconnected — retrying…', false);
+    setStatus('Disconnected — retrying', false);
     es.close();
     setTimeout(connect, 2000);
   };
