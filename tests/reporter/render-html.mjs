@@ -12,6 +12,7 @@ const STATUS_BADGE = {
   failed:  { label: 'FAIL',    klass: 'badge-fail'    },
   skipped: { label: 'SKIP',    klass: 'badge-skip'    },
   pending: { label: 'PENDING', klass: 'badge-pending' },
+  running: { label: 'RUN',     klass: 'badge-running' },
 };
 
 function escapeHtml(value) {
@@ -163,15 +164,18 @@ function renderSuite(report, tier, suite) {
   const failed = suite.totals.failed;
   const passed = suite.totals.passed;
   const skipped = suite.totals.skipped;
-  const isOpen = failed > 0;
+  const running = suite.runState === 'running';
+  const isOpen = failed > 0 || running;
   const summary = failed > 0
     ? `<span class="suite-summary text-error">${failed} failed</span>`
     : `<span class="suite-summary text-muted">${passed} passed</span>`;
   const skipNote = skipped > 0 ? `<span class="suite-summary text-muted"> · ${skipped} skipped</span>` : '';
+  const runBadge = running ? `<span class="badge badge-running">RUN</span>` : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
   return `
-    <details class="suite" ${isOpen ? 'open' : ''}>
+    <details class="suite ${running ? 'is-running' : ''}" ${isOpen ? 'open' : ''}>
       <summary>
+        ${runBadge}
         <span class="suite-name mono">${escapeHtml(suite.name)}</span>
         ${summary}${skipNote}
         <span class="suite-duration mono text-muted">${fmtDuration(suite.durationMs)}</span>
@@ -197,11 +201,19 @@ function renderTier(report, tier) {
     `;
   }
   const t = tier.totals;
-  const isOpen = t.failed > 0;
+  const running = tier.runState === 'running';
+  const isOpen = t.failed > 0 || running;
   const payload = escapeHtml(copyPayloadForTier(report, tier));
+  const runBadge = running
+    ? `<span class="badge badge-running" title="Tests are running right now">RUN ${escapeHtml(String(tier.testsCompleted ?? 0))}</span>`
+    : '';
+  const currentTest = running && tier.currentTest
+    ? `<div class="tier-current mono text-muted">↳ ${escapeHtml(tier.currentTest)}</div>`
+    : '';
   return `
-    <details class="tier" ${isOpen ? 'open' : ''}>
+    <details class="tier ${running ? 'is-running' : ''}" ${isOpen ? 'open' : ''}>
       <summary>
+        ${runBadge}
         <h2>${escapeHtml(tier.label)}</h2>
         <span class="tier-counts">
           <span class="text-success">${t.passed} passed</span>
@@ -211,6 +223,7 @@ function renderTier(report, tier) {
         <span class="tier-duration mono text-muted">${fmtDuration(tier.durationMs)}</span>
         <button type="button" class="copy-btn" data-copy-payload="${payload}" title="Copy a token-efficient summary of this tier for pasting into an LLM">Copy for LLM</button>
       </summary>
+      ${currentTest}
       <div class="suite-list">
         ${tier.suites.map((s) => renderSuite(report, tier, s)).join('')}
       </div>
@@ -505,6 +518,22 @@ const STYLES = /* css */ `
   .badge-fail    { background: rgba(248, 113, 113, 0.15); color: var(--status-error);   }
   .badge-skip    { background: rgba(251, 191, 36, 0.15);  color: var(--status-warning); }
   .badge-pending { background: rgba(96, 165, 250, 0.15);  color: var(--status-info);    }
+  .badge-running {
+    background: rgba(124, 110, 246, 0.18);
+    color: var(--accent-light, var(--accent));
+    animation: badgePulse 1.4s ease-in-out infinite;
+  }
+  @keyframes badgePulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+  }
+  .tier.is-running { border-color: var(--accent); }
+  .suite.is-running { border-color: var(--accent); }
+  .tier-current {
+    padding: 0 var(--spacing-md) var(--spacing-sm);
+    font-size: 12px;
+    word-break: break-word;
+  }
   .copy-btn {
     margin-left: auto;
     font-family: var(--font-mono);

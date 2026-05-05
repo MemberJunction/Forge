@@ -3,12 +3,12 @@
 //
 // Brings the Docker harness up, then runs `vitest --watch` for both the unit
 // and integration tiers and hosts a live HTML dashboard at http://127.0.0.1:5188.
-// Each vitest run writes a JSON report to tests/reports/.cache/<tier>.json;
-// the server watches those files and pushes Server-Sent Events to the
-// dashboard so the UI stays in sync with whatever the watchers are doing.
+// Each vitest watcher uses a custom reporter (vitest-live-reporter.mjs) that
+// POSTs run-start / module-start / test-result / run-end events to this
+// server, which mutates state and pushes Server-Sent Events to the dashboard.
 //
-// Per-file state is merged across runs so a single-file rerun doesn't wipe
-// the rest of the suite from the dashboard.
+// Per-test results stream into the dashboard test-by-test as vitest runs, so
+// the UI reflects in-flight progress rather than only the final result.
 //
 // Lifecycle:
 //   - Ctrl+C  → stop the vitest watchers and exit. Docker is left running
@@ -16,7 +16,7 @@
 
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, watchFile, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,9 +25,11 @@ import { renderReportBody, STYLES, SCRIPT } from './render-html.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
 const CACHE_DIR = join(REPO_ROOT, 'tests', 'reports', '.cache');
+const REPORTER_PATH = join(REPO_ROOT, 'tests', 'reporter', 'vitest-live-reporter.mjs');
 
 const PORT = Number(process.env.FORGE_DASHBOARD_PORT ?? 5188);
 const HOST = '127.0.0.1';
+const REPORTER_URL = `http://${HOST}:${PORT}/_event`;
 
 // ---- state ----
 
@@ -41,9 +43,30 @@ const state = {
 };
 
 function makeTier(label, note) {
-  // suites is a Map<file, { name, durationMs, totals, tests }> — merged across
-  // partial reruns so a one-file rerun in watch mode doesn't drop the others.
-  return { label, status: 'initializing', durationMs: 0, suites: new Map(), note, lastUpdatedAt: 0 };
+  return {
+    label,
+    status: 'initializing',
+    runState: 'idle',
+    note,
+    suites: new Map(), // Map<file, suite>
+    totals: { passed: 0, failed: 0, skipped: 0, total: 0 },
+    durationMs: 0,
+    runStartedAt: 0,
+    currentTest: null,
+    testsCompleted: 0,
+    lastUpdatedAt: 0,
+  };
+}
+
+function makeSuite(file) {
+  return {
+    name: relative(REPO_ROOT, file),
+    file,
+    runState: 'idle',
+    tests: new Map(), // Map<fullName, test>
+    totals: { passed: 0, failed: 0, skipped: 0, total: 0 },
+    durationMs: 0,
+  };
 }
 
 const sseClients = new Set();
@@ -53,39 +76,28 @@ const sseClients = new Set();
 await main();
 
 async function main() {
-  await mkdir(CACHE_DIR);
+  mkdirSync(CACHE_DIR, { recursive: true });
   state.git = await getGit();
-
-  // Reset cache files so old runs don't show stale results on a fresh server.
-  for (const tier of ['unit', 'integration']) {
-    const path = cacheJsonFor(tier);
-    if (!existsSync(path)) writeFileSync(path, '{}');
-  }
 
   await ensureHarnessUp();
 
-  // Watch JSON files
-  watchTierJson('unit');
-  watchTierJson('integration');
-
-  // Spawn watchers (vitest in watch mode is the default — no `run` subcommand)
   const unitProc = spawnVitest('unit', []);
   const intProc = spawnVitest('integration', ['--config', 'vitest.integration.config.ts']);
 
-  // HTTP server
+  watchChildExit('unit', unitProc);
+  watchChildExit('integration', intProc);
+
   const server = http.createServer(handleRequest);
   server.listen(PORT, HOST, () => {
-    const url = `http://${HOST}:${PORT}`;
     console.log('');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`  MJ Forge live dashboard:  ${url}`);
+    console.log(`  MJ Forge live dashboard:  http://${HOST}:${PORT}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('  Vitest is watching both tiers. Edit code, see updates.');
+    console.log('  Vitest is watching both tiers. Edit code, see live updates.');
     console.log('  Ctrl+C to stop watchers (Docker stays up).');
     console.log('');
   });
 
-  // Cleanup
   const stop = () => {
     console.log('\n▶ Stopping vitest watchers (Docker harness stays up)…');
     unitProc.kill('SIGTERM');
@@ -128,6 +140,9 @@ function handleRequest(req, res) {
     req.on('close', () => sseClients.delete(res));
     return;
   }
+  if (req.method === 'POST' && req.url === '/_event') {
+    return handleEventPost(req, res);
+  }
   res.writeHead(404);
   res.end('Not found');
 }
@@ -137,11 +152,26 @@ function pushTo(res, event, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-function broadcast(event = 'state') {
+// Throttled broadcast: coalesces bursts of test-result events into one SSE
+// message ~every 80ms so the browser doesn't get hammered when 200+ unit
+// tests finish in the same second.
+let broadcastTimer = null;
+function scheduleBroadcast() {
+  if (broadcastTimer) return;
+  broadcastTimer = setTimeout(() => {
+    broadcastTimer = null;
+    broadcastNow();
+  }, 80);
+}
+function broadcastNow() {
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer);
+    broadcastTimer = null;
+  }
   const snapshot = serializeState();
   for (const res of sseClients) {
     try {
-      pushTo(res, event, snapshot);
+      pushTo(res, 'state', snapshot);
     } catch (err) {
       console.error('SSE broadcast failed for one client:', err);
       sseClients.delete(res);
@@ -149,127 +179,216 @@ function broadcast(event = 'state') {
   }
 }
 
-// ---- vitest watch + JSON tail ----
+// ---- event ingestion (custom Vitest reporter posts here) ----
 
-function cacheJsonFor(tier) {
-  return join(CACHE_DIR, `${tier}.json`);
-}
-
-function spawnVitest(tier, extraArgs) {
-  const args = [
-    'vitest',
-    ...extraArgs,
-    '--reporter=default',
-    '--reporter=json',
-    `--outputFile=${cacheJsonFor(tier)}`,
-  ];
-  console.log(`▶ spawning vitest watch for ${tier}: npx ${args.join(' ')}`);
-  const child = spawn('npx', args, { stdio: 'inherit', cwd: REPO_ROOT });
-  child.on('exit', (code) => {
-    if (code !== null && code !== 0) {
-      console.error(`▶ vitest ${tier} exited unexpectedly with code ${code}`);
+function handleEventPost(req, res) {
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => {
+    let event;
+    try {
+      event = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch (err) {
+      res.writeHead(400);
+      res.end('bad json');
+      return;
     }
-  });
-  return child;
-}
-
-function watchTierJson(tier) {
-  const path = cacheJsonFor(tier);
-  // watchFile (poll-based) is more reliable than fs.watch on macOS for files
-  // that are atomically replaced by the writer. 250ms feels live enough.
-  watchFile(path, { interval: 250 }, (curr, prev) => {
-    if (curr.mtimeMs === prev.mtimeMs) return;
-    handleVitestUpdate(tier, path);
+    handleEvent(event);
+    res.writeHead(204);
+    res.end();
   });
 }
 
-function handleVitestUpdate(tier, path) {
-  let json;
-  try {
-    const raw = readFileSync(path, 'utf8');
-    if (!raw.trim() || raw.trim() === '{}') return; // initial empty
-    json = JSON.parse(raw);
-  } catch (err) {
-    console.error(`[live] failed to parse ${path}:`, err.message);
+function handleEvent(event) {
+  const tier = state.tiers[event.tier];
+  if (!tier) return;
+  const at = event.at ?? Date.now();
+
+  if (event.type === 'run-start') {
+    tier.runState = 'running';
+    tier.runStartedAt = at;
+    tier.currentTest = null;
+    tier.testsCompleted = 0;
+    tier.note = undefined;
+    // Mark every file in this run as 'running'. New files get an empty suite.
+    for (const file of event.files ?? []) {
+      const suite = tier.suites.get(file) ?? makeSuite(file);
+      suite.runState = 'running';
+      tier.suites.set(file, suite);
+    }
+    if (tier.status === 'initializing') tier.status = 'ok';
+    scheduleBroadcast();
     return;
   }
-  if (!Array.isArray(json.testResults)) return;
 
-  const t = state.tiers[tier];
-  // Merge: each file present in the new JSON replaces the prior entry.
-  // Files not present retain their last-known state (vitest watch reruns
-  // only affected files).
-  for (const file of json.testResults) {
-    const tests = (file.assertionResults ?? []).map((a) => ({
-      fullName: a.fullName,
-      status: a.status === 'pending' ? 'skipped' : a.status,
-      durationMs: a.duration,
-      failureMessages: a.failureMessages ?? [],
-    }));
-    const totals = totalsOf(tests);
-    t.suites.set(file.name, {
-      name: relative(REPO_ROOT, file.name),
-      durationMs: file.endTime - file.startTime,
-      totals,
-      tests,
+  if (event.type === 'module-start') {
+    const suite = tier.suites.get(event.file) ?? makeSuite(event.file);
+    suite.runState = 'running';
+    tier.suites.set(event.file, suite);
+    scheduleBroadcast();
+    return;
+  }
+
+  if (event.type === 'module-end') {
+    const suite = tier.suites.get(event.file);
+    if (suite) {
+      suite.runState = 'idle';
+      recomputeSuiteTotals(suite);
+    }
+    recomputeTierTotals(tier);
+    scheduleBroadcast();
+    return;
+  }
+
+  if (event.type === 'test-result') {
+    const suite = tier.suites.get(event.file) ?? makeSuite(event.file);
+    suite.tests.set(event.fullName, {
+      fullName: event.fullName,
+      status: normalizeStatus(event.status),
+      durationMs: event.durationMs,
+      failureMessages: event.failureMessages ?? [],
     });
+    tier.suites.set(event.file, suite);
+    tier.currentTest = event.fullName;
+    tier.testsCompleted += 1;
+    tier.lastUpdatedAt = at;
+    recomputeSuiteTotals(suite);
+    recomputeTierTotals(tier);
+    scheduleBroadcast();
+    return;
   }
-  t.lastUpdatedAt = Date.now();
-  // Recompute tier-level state.
-  t.durationMs = 0;
-  let totalsAcc = { passed: 0, failed: 0, skipped: 0, total: 0 };
-  for (const s of t.suites.values()) {
-    t.durationMs += s.durationMs || 0;
-    totalsAcc.passed += s.totals.passed;
-    totalsAcc.failed += s.totals.failed;
-    totalsAcc.skipped += s.totals.skipped;
-    totalsAcc.total += s.totals.total;
-  }
-  t.totals = totalsAcc;
-  t.status = totalsAcc.failed > 0 ? 'failed' : 'ok';
-  t.note = undefined;
 
-  console.log(`[live] ${tier} updated — ${totalsAcc.passed}/${totalsAcc.total} passed`);
-  broadcast();
+  if (event.type === 'run-end') {
+    tier.runState = 'idle';
+    tier.currentTest = null;
+    for (const suite of tier.suites.values()) {
+      suite.runState = 'idle';
+      recomputeSuiteTotals(suite);
+    }
+    recomputeTierTotals(tier);
+    tier.status = tier.totals.failed > 0 ? 'failed' : 'ok';
+    tier.lastUpdatedAt = at;
+    broadcastNow(); // flush coalesced events promptly on completion
+    return;
+  }
 }
 
-function totalsOf(tests) {
+function normalizeStatus(s) {
+  if (s === 'passed' || s === 'failed' || s === 'skipped') return s;
+  if (s === 'pending' || s === 'todo' || s === 'unknown') return 'skipped';
+  return 'skipped';
+}
+
+function recomputeSuiteTotals(suite) {
+  const tests = Array.from(suite.tests.values());
   const t = { passed: 0, failed: 0, skipped: 0, total: tests.length };
+  let dur = 0;
   for (const x of tests) {
     if (x.status === 'passed') t.passed += 1;
     else if (x.status === 'failed') t.failed += 1;
     else t.skipped += 1;
+    dur += x.durationMs ?? 0;
   }
-  return t;
+  suite.totals = t;
+  suite.durationMs = dur;
 }
 
-// ---- serialization for the renderer + SSE ----
+function recomputeTierTotals(tier) {
+  const t = { passed: 0, failed: 0, skipped: 0, total: 0 };
+  let dur = 0;
+  for (const s of tier.suites.values()) {
+    t.passed += s.totals.passed;
+    t.failed += s.totals.failed;
+    t.skipped += s.totals.skipped;
+    t.total += s.totals.total;
+    dur += s.durationMs;
+  }
+  tier.totals = t;
+  tier.durationMs = dur;
+}
+
+// ---- vitest watch supervision ----
+
+function spawnVitest(tier, extraArgs) {
+  // `--watch` forces watch mode. Vitest's default is "watch if stdin is a TTY"
+  // but when invoked through `npm run` + child_process.spawn the TTY detection
+  // is unreliable, so we make it explicit.
+  const args = [
+    'vitest',
+    '--watch',
+    ...extraArgs,
+    '--reporter=default',
+    `--reporter=${REPORTER_PATH}`,
+    '--reporter=json',
+    `--outputFile=${join(CACHE_DIR, `${tier}.json`)}`,
+  ];
+  console.log(`▶ spawning vitest watch for ${tier}`);
+  const child = spawn('npx', args, {
+    stdio: 'inherit',
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      FORGE_LIVE_REPORTER_URL: REPORTER_URL,
+      FORGE_LIVE_REPORTER_TIER: tier,
+    },
+  });
+  return child;
+}
+
+function watchChildExit(tier, child) {
+  child.on('exit', (code, signal) => {
+    if (signal === 'SIGTERM' || signal === 'SIGINT') return; // we asked it to stop
+    if (code === null || code === 0) return;
+    console.error(`▶ vitest ${tier} exited unexpectedly (code ${code})`);
+    const t = state.tiers[tier];
+    if (t) {
+      t.runState = 'idle';
+      t.status = 'failed';
+      t.note = `vitest ${tier} crashed (exit code ${code}). Check the terminal output.`;
+      broadcastNow();
+    }
+  });
+}
+
+// ---- serialization ----
 
 function serializeState() {
   const tiers = [];
   for (const key of ['unit', 'integration']) {
     const t = state.tiers[key];
-    if (t.status === 'initializing') {
+    if (t.status === 'initializing' && t.suites.size === 0) {
       tiers.push({
         label: t.label,
         status: 'pending',
+        runState: t.runState,
         note: t.note ?? 'Initializing…',
       });
-    } else {
-      tiers.push({
-        label: t.label,
-        status: t.status,
-        durationMs: t.durationMs,
-        totals: t.totals,
-        suites: Array.from(t.suites.values()),
-      });
+      continue;
     }
+    tiers.push({
+      label: t.label,
+      status: t.status,
+      runState: t.runState,
+      durationMs: t.durationMs,
+      totals: t.totals,
+      currentTest: t.currentTest,
+      testsCompleted: t.testsCompleted,
+      suites: Array.from(t.suites.values())
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((s) => ({
+          name: s.name,
+          runState: s.runState,
+          durationMs: s.durationMs,
+          totals: s.totals,
+          tests: Array.from(s.tests.values()),
+        })),
+    });
   }
-  // Phase 4 / 5 placeholders — same as static report.
+  // Phase 4 / 5 placeholders.
   tiers.push({ label: 'E2E (Playwright + Electron)', status: 'pending', note: 'Phase 4 — not yet implemented.' });
   tiers.push({ label: 'Visual regression', status: 'pending', note: 'Phase 5 — not yet implemented.' });
 
-  // Aggregate totals
+  // Aggregate totals across active tiers.
   const totals = { passed: 0, failed: 0, skipped: 0, total: 0 };
   let durationMs = 0;
   for (const t of tiers) {
@@ -326,13 +445,6 @@ ${STYLES}
   70%  { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
   100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
 }
-.flash-update {
-  animation: flashUpdate 0.6s ease;
-}
-@keyframes flashUpdate {
-  0%   { box-shadow: 0 0 0 2px var(--accent); }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
 </style>
 </head>
 <body>
@@ -361,7 +473,6 @@ ${STYLES}
 <script>
 ${SCRIPT}
 
-// Live updates: subscribe to /events; on each state push, swap the report body.
 const reportBody = document.getElementById('report-body');
 const liveDot = document.getElementById('live-dot');
 const liveStatus = document.getElementById('live-status');
@@ -378,17 +489,15 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
-let lastApply = 0;
+let pendingRefresh = false;
 async function refreshBody() {
+  if (pendingRefresh) return;
+  pendingRefresh = true;
   try {
     const html = await (await fetch('/api/body')).text();
     reportBody.innerHTML = html;
-    reportBody.classList.remove('flash-update');
-    void reportBody.offsetWidth; // reflow so the animation re-fires
-    reportBody.classList.add('flash-update');
-    lastApply = Date.now();
-  } catch (err) {
-    console.error('refresh failed', err);
+  } finally {
+    pendingRefresh = false;
   }
 }
 
@@ -453,8 +562,4 @@ function capture(cmd, args) {
     child.on('error', reject);
     child.on('exit', (code) => (code === 0 ? resolve(out) : reject(new Error(`${cmd} exited ${code}`))));
   });
-}
-
-async function mkdir(path) {
-  mkdirSync(path, { recursive: true });
 }
