@@ -4,9 +4,10 @@
 // to tests/reports/.
 //
 // Usage:
-//   node tests/reporter/build-report.mjs            # default: bring harness up, leave running
+//   node tests/reporter/build-report.mjs            # default: brings harness up, runs unit + integration + e2e, leaves harness running
 //   node tests/reporter/build-report.mjs --teardown # tear down harness when done
-//   node tests/reporter/build-report.mjs --no-harness  # skip integration tier (unit only)
+//   node tests/reporter/build-report.mjs --no-harness  # skip integration tier
+//   node tests/reporter/build-report.mjs --no-e2e      # skip Playwright E2E tier
 //
 // Exit code is 0 only if every executed tier passed.
 
@@ -61,8 +62,18 @@ async function main() {
     });
   }
 
-  // Tier 3-5: placeholders for future phases (E2E, visual, AI cassettes).
-  tiers.push({ label: 'E2E (Playwright + Electron)', status: 'pending', note: 'Phase 4 — not yet implemented.' });
+  // Tier 3: E2E (Playwright + Electron)
+  if (ARGS.e2e) {
+    tiers.push(await runPlaywrightTier());
+  } else {
+    tiers.push({
+      label: 'E2E (Playwright + Electron)',
+      status: 'pending',
+      note: 'Skipped via --no-e2e.',
+    });
+  }
+
+  // Tier 4: Visual regression placeholder.
   tiers.push({ label: 'Visual regression', status: 'pending', note: 'Phase 5 — not yet implemented.' });
 
   const durationMs = Date.now() - startedAt;
@@ -87,12 +98,13 @@ async function main() {
 // ---- args ----
 
 function parseArgs(argv) {
-  const args = { harness: true, teardown: false };
+  const args = { harness: true, teardown: false, e2e: true };
   for (const a of argv) {
     if (a === '--no-harness') args.harness = false;
+    else if (a === '--no-e2e') args.e2e = false;
     else if (a === '--teardown') args.teardown = true;
     else if (a === '--help' || a === '-h') {
-      console.log('Usage: node tests/reporter/build-report.mjs [--no-harness] [--teardown]');
+      console.log('Usage: node tests/reporter/build-report.mjs [--no-harness] [--no-e2e] [--teardown]');
       process.exit(0);
     } else {
       console.error(`unknown flag: ${a}`);
@@ -191,6 +203,142 @@ async function runVitestTier({ label, configFlag, cacheFile }) {
     });
   }
   return tier;
+}
+
+// ---- playwright tier ----
+
+const RENDERER_INDEX = join(REPO_ROOT, 'packages', 'renderer', 'dist', 'browser', 'index.html');
+const MAIN_ENTRY = join(REPO_ROOT, 'packages', 'main', 'dist', 'index.js');
+
+async function runPlaywrightTier() {
+  const label = 'E2E (Playwright + Electron)';
+  if (!existsSync(RENDERER_INDEX) || !existsSync(MAIN_ENTRY)) {
+    return {
+      label,
+      status: 'pending',
+      note: 'Skipped — packages/{main,renderer}/dist not built. Run `npm run build` first.',
+    };
+  }
+  const cacheFile = join(CACHE_DIR, 'e2e.json');
+  console.log('▶ Running E2E (Playwright + Electron)…');
+  const startedAt = Date.now();
+  const { code } = await run('npx', ['playwright', 'test'], REPO_ROOT);
+  const durationMs = Date.now() - startedAt;
+
+  if (!existsSync(cacheFile)) {
+    return {
+      label,
+      status: 'failed',
+      durationMs,
+      totals: { passed: 0, failed: 1, skipped: 0, total: 1 },
+      suites: [{
+        name: '<no JSON output>',
+        durationMs,
+        totals: { passed: 0, failed: 1, skipped: 0, total: 1 },
+        tests: [{
+          fullName: 'playwright produced no JSON output',
+          status: 'failed',
+          durationMs,
+          failureMessages: [`Expected JSON at ${cacheFile} but it was not written.`],
+        }],
+      }],
+    };
+  }
+  const json = JSON.parse(await readFile(cacheFile, 'utf8'));
+  const tier = normalizePlaywrightJson(label, json);
+  if (code !== 0 && tier.totals.failed === 0) {
+    tier.status = 'failed';
+    tier.totals.failed = 1;
+    tier.totals.total += 1;
+    tier.suites.unshift({
+      name: '<runner exit>',
+      durationMs: 0,
+      totals: { passed: 0, failed: 1, skipped: 0, total: 1 },
+      tests: [{
+        fullName: 'playwright exited with non-zero status',
+        status: 'failed',
+        durationMs: 0,
+        failureMessages: [`playwright exited with code ${code} despite reporting no test failures.`],
+      }],
+    });
+  }
+  return tier;
+}
+
+function normalizePlaywrightJson(label, json) {
+  // Playwright JSON nests: suites[file].(suites[describe])*.specs[spec].tests[].results[]
+  // Walk recursively and collect a flat list of (file, fullTitle, result).
+  const flat = [];
+  walkSuites(json.suites ?? [], [], flat);
+  // Group by file.
+  const byFile = new Map();
+  for (const item of flat) {
+    if (!byFile.has(item.file)) byFile.set(item.file, []);
+    byFile.get(item.file).push(item);
+  }
+  const suites = [];
+  let tierDuration = 0;
+  for (const [file, items] of byFile) {
+    let suiteDuration = 0;
+    const tests = items.map((it) => {
+      suiteDuration += it.durationMs;
+      return {
+        fullName: it.fullName,
+        status: it.status,
+        durationMs: it.durationMs,
+        failureMessages: it.failureMessages,
+      };
+    });
+    tierDuration += suiteDuration;
+    suites.push({
+      name: relative(REPO_ROOT, file),
+      durationMs: suiteDuration,
+      totals: countByStatus(tests),
+      tests,
+    });
+  }
+  const totals = {
+    passed: json.stats?.expected ?? 0,
+    failed: json.stats?.unexpected ?? 0,
+    skipped: json.stats?.skipped ?? 0,
+    total: 0,
+  };
+  totals.total = totals.passed + totals.failed + totals.skipped;
+  return {
+    label,
+    status: totals.failed > 0 ? 'failed' : 'ok',
+    durationMs: json.stats?.duration ?? tierDuration,
+    totals,
+    suites,
+  };
+}
+
+function walkSuites(suites, ancestors, out) {
+  for (const s of suites) {
+    const trail = s.title ? [...ancestors, s.title] : ancestors;
+    for (const spec of s.specs ?? []) {
+      const fullName = [...trail, spec.title].filter(Boolean).join(' > ');
+      // Each spec.tests[i] is a parameterized variant (we have one each).
+      const test = spec.tests?.[0];
+      const result = test?.results?.[0];
+      const status = normalizePwStatus(result?.status);
+      out.push({
+        file: spec.file ?? s.file ?? '',
+        fullName,
+        status,
+        durationMs: result?.duration ?? 0,
+        failureMessages: (result?.errors ?? []).map((e) => e?.message ?? String(e)),
+      });
+    }
+    if (s.suites?.length) walkSuites(s.suites, trail, out);
+  }
+}
+
+function normalizePwStatus(s) {
+  if (s === 'passed') return 'passed';
+  if (s === 'failed' || s === 'timedOut' || s === 'interrupted') return 'failed';
+  if (s === 'skipped') return 'skipped';
+  return 'failed';
 }
 
 // ---- normalizers ----

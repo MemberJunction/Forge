@@ -15,6 +15,7 @@
 //               (use `npm run test:harness:down` when you're done).
 
 import http from 'node:http';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -28,8 +29,12 @@ const CACHE_DIR = join(REPO_ROOT, 'tests', 'reports', '.cache');
 const REPORTER_PATH = join(REPO_ROOT, 'tests', 'reporter', 'vitest-live-reporter.mjs');
 
 const PORT = Number(process.env.FORGE_DASHBOARD_PORT ?? 5188);
-const HOST = '127.0.0.1';
-const REPORTER_URL = `http://${HOST}:${PORT}/_event`;
+// Bind to all interfaces by default so the dashboard is reachable over LAN
+// / Tailscale. Override with FORGE_DASHBOARD_HOST=127.0.0.1 to restrict.
+const HOST = process.env.FORGE_DASHBOARD_HOST ?? '0.0.0.0';
+// Reporters running locally always POST through 127.0.0.1 — no point
+// going via the external interface.
+const REPORTER_URL = `http://127.0.0.1:${PORT}/_event`;
 
 // ---- state ----
 
@@ -39,6 +44,10 @@ const state = {
   tiers: {
     unit: makeTier('Unit', 'Initializing — first run in progress…'),
     integration: makeTier('Integration', 'Initializing — first run in progress…'),
+    // E2E is passive — populated when the user runs `npm run test:e2e:live`
+    // in another terminal. The dashboard doesn't spawn a watcher for it
+    // because Playwright + Electron is too heavy to rerun on every save.
+    e2e: makeTier('E2E (Playwright + Electron)', 'Run `npm run test:e2e:live` to populate this tier.'),
   },
 };
 
@@ -89,9 +98,12 @@ async function main() {
 
   const server = http.createServer(handleRequest);
   server.listen(PORT, HOST, () => {
+    const localUrl = `http://localhost:${PORT}`;
+    const lanUrls = listLanUrls(PORT);
     console.log('');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`  MJ Forge live dashboard:  http://${HOST}:${PORT}`);
+    console.log(`  MJ Forge live dashboard:  ${localUrl}`);
+    for (const u of lanUrls) console.log(`                            ${u}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('  Vitest is watching both tiers. Edit code, see live updates.');
     console.log('  Ctrl+C to stop watchers (Docker stays up).');
@@ -354,7 +366,7 @@ function watchChildExit(tier, child) {
 
 function serializeState() {
   const tiers = [];
-  for (const key of ['unit', 'integration']) {
+  for (const key of ['unit', 'integration', 'e2e']) {
     const t = state.tiers[key];
     if (t.status === 'initializing' && t.suites.size === 0) {
       tiers.push({
@@ -384,8 +396,7 @@ function serializeState() {
         })),
     });
   }
-  // Phase 4 / 5 placeholders.
-  tiers.push({ label: 'E2E (Playwright + Electron)', status: 'pending', note: 'Phase 4 — not yet implemented.' });
+  // Phase 5 placeholder.
   tiers.push({ label: 'Visual regression', status: 'pending', note: 'Phase 5 — not yet implemented.' });
 
   // Aggregate totals across active tiers.
@@ -467,7 +478,7 @@ ${STYLES}
   </div>
 
   <footer class="footer">
-    Live server at <span class="mono">http://${HOST}:${PORT}</span>
+    Live server on port <span class="mono">${PORT}</span> (binding ${HOST})
   </footer>
 </main>
 <script>
@@ -537,6 +548,22 @@ async function ensureHarnessUp() {
   console.log('▶ Bringing test harness up (idempotent)…');
   await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
   await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
+}
+
+function listLanUrls(port) {
+  const urls = [];
+  const seen = new Set();
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const addr of ifaces[name] ?? []) {
+      if (addr.internal) continue;
+      if (addr.family !== 'IPv4') continue;
+      if (seen.has(addr.address)) continue;
+      seen.add(addr.address);
+      urls.push(`http://${addr.address}:${port}    [${name}]`);
+    }
+  }
+  return urls;
 }
 
 async function getGit() {
