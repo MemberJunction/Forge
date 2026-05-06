@@ -374,17 +374,17 @@ function renderSuite(report, tier, suite) {
     ? `<span class="badge badge-pass" title="All ${passed} tests in this suite passed">PASS</span>`
     : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
-  // While the tier is mid-run every suite is locked out of starting a new
-  // rerun (playwright/vitest both work at the tier level). But only the
-  // suite that's *actually executing right now* is what Cancel would stop —
-  // so other already-done or queued suites show a disabled Run, not Cancel.
+  // Suite-level button never shows Cancel: playwright runs the whole tier
+  // as a single process so there's no way to cancel just one suite — the
+  // only honest Cancel lives on the tier header. While the tier is running,
+  // we render a disabled Run here so the user sees "you can't restart this
+  // mid-run" without being misled into thinking suite-level cancel exists.
   const tierRunning = tier.runState === 'running';
-  const suiteRunning = suite.runState === 'running';
   const runButton = tier.key
     ? renderRunButton('run-suite', { tier: tier.key, file: suite.name }, {
         label: 'Run',
         running: tierRunning,
-        cancelable: suiteRunning,
+        cancelable: false,
         tierKey: tier.key,
       })
     : '';
