@@ -383,6 +383,21 @@ function renderSuite(report, tier, suite) {
   `;
 }
 
+// Toggle pill for the per-tier file-watch auto-rerun. Only e2e + visual have
+// a server-side watcher worth opting out of (vitest reruns are nearly free).
+// Reads current state from report.autorun; click handler POSTs the inverse.
+function renderAutorunToggle(tier, report) {
+  if (!tier.key || (tier.key !== 'e2e' && tier.key !== 'visual')) return '';
+  const enabled = report?.autorun?.[tier.key] !== false; // default ON
+  const cls = enabled ? 'autorun-on' : 'autorun-off';
+  const icon = enabled ? 'autorenew' : 'sync_disabled';
+  const label = enabled ? 'Auto' : 'Manual';
+  const title = enabled
+    ? 'Auto-rerun on save is ON — click to disable (still marks STALE on change)'
+    : 'Auto-rerun on save is OFF — click to enable (you\'ll need to hit Run after edits)';
+  return `<button type="button" class="autorun-toggle ${cls}" data-action="toggle-autorun" data-tier="${escapeHtml(tier.key)}" data-enabled="${enabled}" title="${escapeHtml(title)}"><span class="material-symbols-outlined autorun-icon">${icon}</span><span class="autorun-label">${label}</span></button>`;
+}
+
 function renderTier(report, tier) {
   if (tier.status === 'pending') {
     // Pending tiers can't be running by definition, so no need to thread state.
@@ -416,6 +431,10 @@ function renderTier(report, tier) {
   const runButton = tier.key
     ? renderRunButton('run-tier', { tier: tier.key }, { label: 'Run', running, tierKey: tier.key })
     : '';
+  // Auto-rerun toggle is only meaningful for tiers that have a server-side
+  // file watcher with debounced reruns. Vitest tiers (unit/integration) are
+  // sub-second so always-on is fine; only render the toggle for e2e/visual.
+  const autorunToggle = renderAutorunToggle(tier, report);
   return `
     <details class="tier ${running ? 'is-running' : ''} ${tier.stale && !running ? 'is-stale' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
@@ -428,6 +447,7 @@ function renderTier(report, tier) {
           ${t.skipped > 0 ? `<span class="text-muted"> · ${t.skipped} skipped</span>` : ''}
         </span>
         <span class="tier-duration mono">${fmtDuration(tier.durationMs)}</span>
+        ${autorunToggle}
         ${runButton}
         <button type="button" class="copy-btn" data-copy-payload="${payload}" title="Copy a token-efficient summary of this tier for pasting into an LLM">Copy for LLM</button>
       </summary>
@@ -1326,6 +1346,31 @@ pre {
     inset 0 1px 2px rgba(0, 0, 0, 0.30),
     0 0 0 transparent;
 }
+
+/* Auto-rerun toggle — small pill to the left of Run. ON = subtle accent
+   tint with the rotating-arrows icon; OFF = muted ghost with the slashed
+   sync icon, so the disabled state reads clearly even at a glance. */
+.autorun-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px 4px 7px;
+  font: 600 10px var(--font-stack-condensed);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.autorun-toggle .autorun-icon { font-size: 13px; }
+.autorun-toggle.autorun-on  { color: var(--accent); border-color: rgba(124, 110, 246, 0.55); background: rgba(124, 110, 246, 0.10); }
+.autorun-toggle.autorun-off { color: var(--ink-muted); border-color: var(--line); background: transparent; }
+.autorun-toggle.autorun-on:hover  { background: rgba(124, 110, 246, 0.18); box-shadow: 0 0 10px rgba(124, 110, 246, 0.30); }
+.autorun-toggle.autorun-off:hover { color: var(--ink-secondary); border-color: var(--ink-secondary); }
+.autorun-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.autorun-toggle:active { transform: translateY(1px); }
 
 /* Disabled Run — when a run is in flight for a non-cancelable tier
    (vitest's watcher doesn't expose mid-run abort). Receded but still

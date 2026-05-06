@@ -61,6 +61,12 @@ const state = {
     e2e:    makeTier('E2E (Playwright + Electron)', 'Run via the Run button (or `npm run test:e2e:live`).'),
     visual: makeTier('Visual regression',           'Run via the Run button (or `npm run test:visual:live`).'),
   },
+  // Per-tier opt-out for the file-watch auto-rerun. Only the slow tiers
+  // (e2e/visual) get a toggle — unit + integration are sub-second so the
+  // overhead of an extra rerun is negligible. STALE badges still appear
+  // either way; the flag only gates whether scheduleTierRerun spawns the
+  // playwright child after the 30s debounce.
+  autorun: { e2e: true, visual: true },
 };
 
 function makeTier(label, note) {
@@ -257,6 +263,9 @@ function handleRequest(req, res) {
   if (req.method === 'POST' && req.url === '/control/cancel-tier') {
     return handleControlCancelTier(req, res);
   }
+  if (req.method === 'POST' && req.url === '/control/set-autorun') {
+    return handleControlSetAutorun(req, res);
+  }
   res.writeHead(404);
   res.end('Not found');
 }
@@ -385,6 +394,26 @@ async function handleControlRunSuite(req, res) {
   const touched = await touchFiles([abs]);
   if (touched === 0) return badRequest(res, 'file not found');
   return ack(res, { ok: true, tier, touched });
+}
+
+async function handleControlSetAutorun(req, res) {
+  const body = await readJsonBody(req);
+  if (body === null) return badRequest(res, 'invalid json');
+  const tier = body?.tier;
+  const enabled = !!body?.enabled;
+  if (!Object.prototype.hasOwnProperty.call(state.autorun, tier)) {
+    return badRequest(res, `tier '${tier}' has no autorun toggle (only ${Object.keys(state.autorun).join(', ')})`);
+  }
+  state.autorun[tier] = enabled;
+  // Cancel any pending debounce when turning OFF — otherwise a file change
+  // from before the toggle could still fire a rerun moments later.
+  if (!enabled) {
+    if (tier === 'e2e' && e2eDebounceTimer)       { clearTimeout(e2eDebounceTimer);    e2eDebounceTimer = null; }
+    if (tier === 'visual' && visualDebounceTimer) { clearTimeout(visualDebounceTimer); visualDebounceTimer = null; }
+  }
+  console.log(`[control] autorun for ${tier} → ${enabled ? 'ON' : 'OFF'}`);
+  broadcastNow();
+  return ack(res, { ok: true, tier, enabled });
 }
 
 async function handleControlCancelTier(req, res) {
@@ -540,7 +569,13 @@ function markTierStale(tier) {
 }
 
 function scheduleTierRerun(tier) {
+  // Always mark stale so the user sees that something changed even when the
+  // auto-rerun is opted out — it's the user's signal to hit Run manually.
   markTierStale(tier);
+  if (state.autorun[tier] === false) {
+    console.log(`[watch] ${tier} change detected, but autorun is OFF — STALE only`);
+    return;
+  }
   if (tier === 'visual') {
     if (visualDebounceTimer) clearTimeout(visualDebounceTimer);
     visualDebounceTimer = setTimeout(() => {
@@ -737,6 +772,14 @@ function rehydrateStateFromDisk() {
   }
   if (!saved || !Array.isArray(saved.tiers)) return;
 
+  // Rehydrate per-tier autorun preferences. Only honor keys we know about
+  // (defends against a stale/edited snapshot adding bogus tiers).
+  if (saved.autorun && typeof saved.autorun === 'object') {
+    for (const k of Object.keys(state.autorun)) {
+      if (typeof saved.autorun[k] === 'boolean') state.autorun[k] = saved.autorun[k];
+    }
+  }
+
   for (const savedTier of saved.tiers) {
     if (!savedTier?.key || !state.tiers[savedTier.key]) continue;
     const t = state.tiers[savedTier.key];
@@ -751,9 +794,13 @@ function rehydrateStateFromDisk() {
     t.durationMs = savedTier.durationMs ?? 0;
     t.testsCompleted = savedTier.testsCompleted ?? 0;
     t.lastUpdatedAt = savedTier.lastUpdatedAt ?? 0;
-    // For e2e/visual: mark as stale on rehydrate. Specs may have changed
-    // since the saved state and we have no way to know.
-    if (savedTier.key === 'e2e' || savedTier.key === 'visual') t.stale = true;
+    // We deliberately DO NOT mark e2e/visual stale on rehydrate. STALE is
+    // meant to flag "a file change happened that didn't get re-run yet" — and
+    // the file watcher will set it correctly the next time anything actually
+    // changes. Marking it stale unconditionally on every restart was just
+    // noise: there was no pending debounce timer to back it up, so the badge
+    // sat forever with no work happening.
+    t.stale = !!savedTier.stale;
     // Reconstruct the suites Map. Live events key suites by absolute file
     // path (event.file), so we must do the same on rehydrate. We use the
     // saved relative name to compute the *current* absolute path — that way
@@ -1161,7 +1208,7 @@ function serializeState() {
   // It travels on a separate SSE channel (event: infra) so its 2s polls don't
   // trigger a full body refresh that would collapse <details> and reset
   // animations. Direct callers that want both can use /api/state.
-  return { startedAt: state.startedAt, durationMs, git: state.git, totals, tiers };
+  return { startedAt: state.startedAt, durationMs, git: state.git, totals, tiers, autorun: { ...state.autorun } };
 }
 
 // ---- dashboard HTML ----
@@ -1685,10 +1732,38 @@ document.addEventListener('click', (event) => {
   dispatchControl(btn);
 });
 
+// Auto-rerun toggle pill — separate from the .ctrl-btn dispatcher because it
+// has different semantics (no "starting" flash, no error reset, just flip the
+// server flag and let the next state event re-render the button). The server
+// flips state.autorun and broadcasts; refreshBody picks it up.
+document.addEventListener('click', async (event) => {
+  const btn = event.target.closest('.autorun-toggle');
+  if (!btn) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const tier = btn.dataset.tier;
+  const next = btn.dataset.enabled !== 'true'; // current → inverted
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/control/set-autorun', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tier, enabled: next }),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error('set-autorun failed: ' + resp.status + ' ' + txt);
+    }
+  } catch (err) {
+    console.error('[autorun]', err);
+    btn.disabled = false; // re-enable so the user can retry
+  }
+});
+
 // Same belt-and-suspenders mousedown stop as the copy button — keeps the
-// surrounding <details> from toggling when you click a Run/Reset button.
+// surrounding <details> from toggling when you click a Run/Reset/toggle button.
 document.addEventListener('mousedown', (event) => {
-  if (event.target.closest('.ctrl-btn')) event.stopPropagation();
+  if (event.target.closest('.ctrl-btn, .autorun-toggle')) event.stopPropagation();
 }, true);
 
 // Lightbox bound by LIGHTBOX_SCRIPT, included from render-html.mjs below.
