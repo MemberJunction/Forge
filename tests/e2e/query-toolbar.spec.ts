@@ -58,12 +58,10 @@ test.describe('Forge — query toolbar', () => {
       await window.waitForTimeout(800);
 
       const toolbar = window.locator('.query-toolbar:visible').first();
-      const exportTrigger = toolbar
-        .locator('button')
-        .filter({ hasText: /export/i })
-        .first();
-      // The export trigger may be a direct button or a [matMenuTriggerFor].
-      // Either way, clicking it should reveal the format options.
+      // Export button is icon-only — its label lives on the matTooltip
+      // attribute, which Material renders as the button's aria-label too.
+      // Match by accessible name rather than visible text.
+      const exportTrigger = toolbar.getByRole('button', { name: /^export$/i }).first();
       await exportTrigger.click({ timeout: 5000 });
 
       // Forge wires three options: csv / json / sql. Match by accessible
