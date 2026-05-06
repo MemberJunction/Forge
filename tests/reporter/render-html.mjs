@@ -374,17 +374,20 @@ function renderSuite(report, tier, suite) {
     ? `<span class="badge badge-pass" title="All ${passed} tests in this suite passed">PASS</span>`
     : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
-  // Suite-level button never shows Cancel: playwright runs the whole tier
-  // as a single process so there's no way to cancel just one suite — the
-  // only honest Cancel lives on the tier header. While the tier is running,
-  // we render a disabled Run here so the user sees "you can't restart this
-  // mid-run" without being misled into thinking suite-level cancel exists.
+  // Symmetry with single-suite Run: the suite shows Cancel only when the
+  // active playwright child is running EXACTLY this one suite. In that case
+  // cancelling it kills the right thing and nothing else. Tier-wide reruns
+  // (runScope === 'all') don't get a per-suite Cancel — the only honest
+  // Cancel for those lives on the tier header.
   const tierRunning = tier.runState === 'running';
+  const runScope = tier.runScope;
+  const onlyThisSuiteRunning =
+    Array.isArray(runScope) && runScope.length === 1 && runScope[0] === suite.name;
   const runButton = tier.key
     ? renderRunButton('run-suite', { tier: tier.key, file: suite.name }, {
         label: 'Run',
         running: tierRunning,
-        cancelable: false,
+        cancelable: onlyThisSuiteRunning,
         tierKey: tier.key,
       })
     : '';
@@ -450,12 +453,21 @@ function renderTier(report, tier) {
   const staleBadge = tier.stale && !running
     ? `<span class="badge badge-stale" title="Specs or helpers changed since this run — result may be out of date">STALE</span>`
     : '';
-  // PASS badge: only when every test in the tier passed AND it isn't
+  // PASS badge: only when every test in the tier passed, the tier isn't
   // currently running OR stale (those badges take precedence — STALE means
-  // the green is potentially out of date, RUN means we're not done yet).
-  const passBadge = !running && !tier.stale && t.failed === 0 && t.passed > 0
-    ? `<span class="badge badge-pass" title="All ${t.passed} tests in this tier passed">PASS</span>`
-    : '';
+  // the green is potentially out of date, RUN means we're not done yet),
+  // AND every suite in the tier has actually been run (totals.total > 0).
+  // The last condition prevents a tier from claiming PASS when only some
+  // of its suites have results — e.g. when you ran a single-suite rerun
+  // and the others have never been touched.
+  const allSuitesHaveResults =
+    Array.isArray(tier.suites) &&
+    tier.suites.length > 0 &&
+    tier.suites.every((s) => (s.totals?.total ?? 0) > 0);
+  const passBadge =
+    !running && !tier.stale && t.failed === 0 && t.passed > 0 && allSuitesHaveResults
+      ? `<span class="badge badge-pass" title="All ${t.passed} tests in this tier passed">PASS</span>`
+      : '';
   const currentTest =
     running && tier.currentTest
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`

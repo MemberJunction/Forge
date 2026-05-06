@@ -141,6 +141,14 @@ const playwrightWatchers = [];
 // dashboard can SIGTERM them via the Cancel button. Vitest tiers run inside
 // long-lived watch processes that don't expose a mid-run abort, so cancel is
 // a Playwright-only affordance for now.
+//
+// Each entry's `files` records what the child is actually running:
+//   - 'all'           : a tier-wide rerun (every spec for the project)
+//   - string[]        : a one-shot single-suite rerun (relative paths)
+//
+// This lets the renderer show suite-level Cancel ONLY when the child is
+// running exactly that one suite — so cancelling the suite is equivalent
+// to cancelling the whole child (no silent collateral damage to siblings).
 const playwrightChildren = { e2e: null, visual: null };
 const CANCELABLE_TIERS = new Set(['e2e', 'visual']);
 
@@ -451,19 +459,19 @@ async function handleControlCancelAll(_req, res) {
   // is the normal mode, not a cancellable run.
   let count = 0;
   for (const tier of CANCELABLE_TIERS) {
-    const child = playwrightChildren[tier];
-    if (!child) continue;
-    console.log(`▶ cancel-all: signaling ${tier} (pid ${child.pid})`);
-    child.kill('SIGTERM');
+    const entry = playwrightChildren[tier];
+    if (!entry) continue;
+    console.log(`▶ cancel-all: signaling ${tier} (pid ${entry.child.pid})`);
+    entry.child.kill('SIGTERM');
     count += 1;
   }
   // SIGKILL fallback for any straggler — same 3s grace as cancel-tier.
   setTimeout(() => {
     for (const tier of CANCELABLE_TIERS) {
-      const c = playwrightChildren[tier];
-      if (c && !c.killed) {
+      const e = playwrightChildren[tier];
+      if (e && !e.child.killed) {
         console.warn(`▶ ${tier} did not exit on SIGTERM; sending SIGKILL`);
-        c.kill('SIGKILL');
+        e.child.kill('SIGKILL');
       }
     }
   }, 3000);
@@ -477,16 +485,17 @@ async function handleControlCancelTier(req, res) {
   if (!CANCELABLE_TIERS.has(tier)) {
     return badRequest(res, `tier '${tier}' is not cancelable (only ${[...CANCELABLE_TIERS].join(', ')})`);
   }
-  const child = playwrightChildren[tier];
-  if (!child) return ack(res, { ok: true, tier, action: 'no in-flight run' });
-  console.log(`▶ cancel requested for ${tier} (pid ${child.pid})`);
-  child.kill('SIGTERM');
+  const entry = playwrightChildren[tier];
+  if (!entry) return ack(res, { ok: true, tier, action: 'no in-flight run' });
+  console.log(`▶ cancel requested for ${tier} (pid ${entry.child.pid})`);
+  entry.child.kill('SIGTERM');
   // Give Playwright ~3s to clean up; SIGKILL if it's still alive. Cap the wait
   // so the dashboard doesn't hang on a stuck process.
   setTimeout(() => {
-    if (playwrightChildren[tier] === child && !child.killed) {
+    const cur = playwrightChildren[tier];
+    if (cur === entry && !entry.child.killed) {
       console.warn(`▶ ${tier} did not exit on SIGTERM; sending SIGKILL`);
-      child.kill('SIGKILL');
+      entry.child.kill('SIGKILL');
     }
   }, 3000);
   return ack(res, { ok: true, tier, action: 'cancel signaled' });
@@ -681,7 +690,7 @@ function spawnOneShotPlaywright(tier, files = []) {
   // disables the Run button when running, so this is the safety net for
   // out-of-band callers (file-watch debounce, Run All).
   if (playwrightChildren[tier]) {
-    console.log(`▶ skipping one-shot playwright (${tier}): already in flight (pid ${playwrightChildren[tier].pid})`);
+    console.log(`▶ skipping one-shot playwright (${tier}): already in flight (pid ${playwrightChildren[tier].child.pid})`);
     return;
   }
   const args = ['playwright', 'test', `--project=${tier}`, ...files];
@@ -697,9 +706,16 @@ function spawnOneShotPlaywright(tier, files = []) {
       FORGE_LIVE_REPORTER_TIER: tier,
     },
   });
-  playwrightChildren[tier] = child;
+  // Track WHAT this child is running so the dashboard can decide whether
+  // suite-level Cancel is honest. Files is 'all' for tier-wide reruns;
+  // otherwise the relative paths the user asked for.
+  playwrightChildren[tier] = {
+    child,
+    files: files.length === 0 ? 'all' : files.map((f) => relative(REPO_ROOT, f)),
+  };
   child.once('exit', (_code, signal) => {
-    if (playwrightChildren[tier] === child) playwrightChildren[tier] = null;
+    const entry = playwrightChildren[tier];
+    if (entry && entry.child === child) playwrightChildren[tier] = null;
     if (!signal) return; // clean exit — playwright already sent run-end
     console.log(`◾ playwright (${tier}) exited via ${signal}; synthesizing run-end`);
     // SIGTERM/SIGKILL means we cancelled the child (or it crashed) before
@@ -1428,6 +1444,13 @@ function serializeState() {
       });
       continue;
     }
+    // For PW tiers, expose what the running child is actually running so the
+    // renderer can decide if suite-level Cancel is honest. 'all' = tier-wide
+    // rerun → only tier-level Cancel makes sense; an array of relative
+    // paths = single-suite rerun → suite-level Cancel is meaningful and
+    // bounded to those files.
+    const pwEntry = playwrightChildren[key];
+    const runScope = pwEntry ? pwEntry.files : null;
     tiers.push({
       key,
       label: t.label,
@@ -1438,6 +1461,7 @@ function serializeState() {
       totals: t.totals,
       currentTest: t.currentTest,
       testsCompleted: t.testsCompleted,
+      runScope,
       suites: Array.from(t.suites.values())
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((s) => ({
