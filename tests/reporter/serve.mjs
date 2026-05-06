@@ -17,7 +17,7 @@
 import http from 'node:http';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { mkdirSync, watch as fsWatch } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, watch as fsWatch } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,6 +36,7 @@ const CACHE_DIR = join(REPO_ROOT, 'tests', 'reports', '.cache');
 const REPORTER_PATH = join(REPO_ROOT, 'tests', 'reporter', 'vitest-live-reporter.mjs');
 const SNAPSHOTS_DIR = join(REPO_ROOT, 'tests', '__snapshots__', 'visual');
 const ATTACHMENTS_DIR = join(REPO_ROOT, 'tests', 'reports', '.cache', 'playwright-results');
+const PERSISTED_STATE_FILE = join(REPO_ROOT, 'tests', 'reports', '.cache', 'dashboard-state.json');
 
 const PORT = Number(process.env.FORGE_DASHBOARD_PORT ?? 5188);
 // Bind to all interfaces by default so the dashboard is reachable over LAN
@@ -133,6 +134,11 @@ async function main() {
   mkdirSync(CACHE_DIR, { recursive: true });
   state.git = await getGit();
 
+  // Rehydrate before any watchers/runs so existing tier state survives
+  // restarts. Vitest watchers will overwrite unit/integration on first run;
+  // e2e/visual stays valid until the user explicitly reruns.
+  rehydrateStateFromDisk();
+
   await ensureHarnessUp();
 
   startInfrastructurePolling();
@@ -160,6 +166,7 @@ async function main() {
 
   const stop = () => {
     console.log('\n▶ Stopping vitest watchers (Docker harness stays up)…');
+    persistStateNow(); // flush any pending debounced writes before exit
     if (infraTimer) clearInterval(infraTimer);
     stopPlaywrightWatchers();
     unitProc.kill('SIGTERM');
@@ -587,6 +594,82 @@ function broadcastNow() {
       sseClients.delete(res);
     }
   }
+  schedulePersist();
+}
+
+// ---- State persistence (across server restarts) ----
+//
+// Without this, e2e + visual would reset to "pending" every time the
+// dashboard server restarts (since they're passive — no startup auto-run
+// like the vitest tiers have). Persists serialized state to disk on every
+// broadcast (debounced 500ms) and rehydrates on startup so all four tiers
+// look continuous across restarts.
+
+let persistTimer = null;
+function schedulePersist() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(persistStateNow, 500);
+}
+function persistStateNow() {
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+  try {
+    writeFileSync(PERSISTED_STATE_FILE, JSON.stringify(serializeState()));
+  } catch (err) {
+    console.error('[persist] failed to write state:', err?.message ?? err);
+  }
+}
+
+function rehydrateStateFromDisk() {
+  if (!existsSync(PERSISTED_STATE_FILE)) return;
+  let saved;
+  try {
+    saved = JSON.parse(readFileSync(PERSISTED_STATE_FILE, 'utf8'));
+  } catch (err) {
+    console.warn('[persist] could not parse saved state — starting fresh:', err?.message ?? err);
+    return;
+  }
+  if (!saved || !Array.isArray(saved.tiers)) return;
+
+  for (const savedTier of saved.tiers) {
+    if (!savedTier?.key || !state.tiers[savedTier.key]) continue;
+    const t = state.tiers[savedTier.key];
+    // Only rehydrate tiers that actually had results (skip pending stubs).
+    if (savedTier.status !== 'ok' && savedTier.status !== 'failed') continue;
+    t.status = savedTier.status;
+    // Anything that was running when the server died is now stale; mark
+    // 'idle' rather than restoring 'running' (which would lie to the UI).
+    t.runState = 'idle';
+    t.note = undefined;
+    t.totals = savedTier.totals ?? t.totals;
+    t.durationMs = savedTier.durationMs ?? 0;
+    t.testsCompleted = savedTier.testsCompleted ?? 0;
+    t.lastUpdatedAt = savedTier.lastUpdatedAt ?? 0;
+    // For e2e/visual: mark as stale on rehydrate. Specs may have changed
+    // since the saved state and we have no way to know.
+    if (savedTier.key === 'e2e' || savedTier.key === 'visual') t.stale = true;
+    // Reconstruct the suites Map. Live events key suites by absolute file
+    // path (event.file), so we must do the same on rehydrate. We use the
+    // saved relative name to compute the *current* absolute path — that way
+    // moving the repo doesn't leave orphan entries with stale paths. If a
+    // saved spec no longer exists, drop the entry rather than carry it.
+    t.suites = new Map();
+    for (const s of savedTier.suites ?? []) {
+      if (!s?.name) continue;
+      const absFile = join(REPO_ROOT, s.name);
+      if (!existsSync(absFile)) continue;
+      const tests = new Map();
+      for (const test of s.tests ?? []) tests.set(test.fullName, test);
+      t.suites.set(absFile, {
+        name: s.name,
+        file: absFile,
+        runState: 'idle',
+        totals: s.totals ?? { passed: 0, failed: 0, skipped: 0, total: 0 },
+        durationMs: s.durationMs ?? 0,
+        tests,
+      });
+    }
+  }
+  console.log('[persist] rehydrated tier state from disk');
 }
 
 function broadcastInfra() {
@@ -982,14 +1065,14 @@ function renderDashboardHtml() {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MJ Forge · Live Telemetry</title>
+<title>MJ Forge · Regression Harness</title>
 ${FONT_LINKS}
 <style>${STYLES}</style>
 </head>
 <body>
 <main>
   <header class="header">
-    <h1><span class="accent">MJ Forge</span> Telemetry</h1>
+    <h1><span class="accent">MJ Forge</span> Regression Harness</h1>
     <div class="header-meta">
       <span class="label">Repo</span>
       <span class="value">${escapeHtml(state.git.branch)}@${escapeHtml(state.git.commit)} ${dirtyMark}</span>
