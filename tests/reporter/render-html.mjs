@@ -470,9 +470,11 @@ const STYLES = /* css */ `
   --ink-muted: #54546a;
   --ink-faint: #36364a;
 
-  --accent: #ffb84d;
-  --accent-soft: rgba(255, 184, 77, 0.10);
-  --accent-line: rgba(255, 184, 77, 0.35);
+  /* Forge brand purple — matches packages/renderer/src/styles.scss --accent */
+  --accent: #7c6ef6;
+  --accent-light: #9b8ff8;
+  --accent-soft: rgba(124, 110, 246, 0.12);
+  --accent-line: rgba(124, 110, 246, 0.40);
 
   --pass: #7ed957;
   --fail: #ff5e5e;
@@ -517,7 +519,7 @@ body {
   min-height: 100vh;
   position: relative;
   background:
-    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(255, 184, 77, 0.045), transparent 60%),
+    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(124, 110, 246, 0.06), transparent 60%),
     radial-gradient(ellipse 800px 600px at 50% 110%, rgba(95, 180, 214, 0.025), transparent 60%),
     var(--bg-base);
   padding: var(--space-7) var(--space-6);
@@ -975,7 +977,7 @@ pre {
   text-align: center;
 }
 .tier[open] > summary::before { content: '−'; color: var(--accent); }
-.tier:hover > summary { background: rgba(255, 184, 77, 0.025); }
+.tier:hover > summary { background: rgba(124, 110, 246, 0.04); }
 
 .tier h2 {
   font-family: var(--font-condensed);
@@ -1059,7 +1061,7 @@ pre {
   transition: transform 0.18s ease;
 }
 .suite[open] > summary::before { transform: rotate(90deg); color: var(--accent); }
-.suite:hover > summary { background: rgba(255, 184, 77, 0.025); }
+.suite:hover > summary { background: rgba(124, 110, 246, 0.04); }
 .suite.is-running { border-left: 2px solid var(--accent); }
 
 .suite-name { font-family: var(--font-mono); font-size: 11px; flex: 1; word-break: break-all; color: var(--ink-primary); }
@@ -1155,8 +1157,8 @@ pre {
 .badge-skip    { background: rgba(240, 185, 74, 0.14);  color: var(--warn); }
 .badge-pending { background: rgba(95, 180, 214, 0.12);  color: var(--info); }
 .badge-running {
-  background: rgba(255, 184, 77, 0.16);
-  color: var(--accent);
+  background: rgba(124, 110, 246, 0.18);
+  color: var(--accent-light, var(--accent));
   animation: phosphorPulse 1.6s ease-in-out infinite;
 }
 @keyframes phosphorPulse {
@@ -1233,25 +1235,25 @@ pre {
 .ctrl-btn .ctrl-label { display: inline-block; }
 .ctrl-btn .ctrl-icon { font-size: 16px; }
 
-/* Run — solid amber, primary action. Material play_arrow icon. */
+/* Run — Forge brand purple, primary action. Material play_arrow icon. */
 .ctrl-run {
   font-size: 11px;
   letter-spacing: 0.04em;
   padding: 5px 12px 5px 8px;
   background: var(--accent);
-  color: var(--bg-deep);
+  color: #ffffff;
   border-color: var(--accent);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
     0 1px 2px rgba(0, 0, 0, 0.45);
 }
 .ctrl-run:hover {
-  background: #ffce7a;
-  border-color: #ffce7a;
+  background: var(--accent-light, #9b8ff8);
+  border-color: var(--accent-light, #9b8ff8);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     0 1px 2px rgba(0, 0, 0, 0.45),
-    0 0 18px rgba(255, 184, 77, 0.55);
+    0 0 18px rgba(124, 110, 246, 0.55);
 }
 .ctrl-run:active {
   transform: translateY(1px);
@@ -1582,9 +1584,10 @@ pre {
     --ink-muted: #8a8aa0;
     --ink-faint: #c0c0c8;
 
-    --accent: #b86200;
-    --accent-soft: rgba(184, 98, 0, 0.10);
-    --accent-line: rgba(184, 98, 0, 0.35);
+    --accent: #6356e0;
+    --accent-light: #7c6ef6;
+    --accent-soft: rgba(99, 86, 224, 0.10);
+    --accent-line: rgba(99, 86, 224, 0.35);
 
     --pass: #16a34a;
     --fail: #dc2626;
@@ -1601,7 +1604,7 @@ pre {
 
   body {
     background:
-      radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(184, 98, 0, 0.06), transparent 60%),
+      radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(99, 86, 224, 0.06), transparent 60%),
       radial-gradient(ellipse 800px 600px at 50% 110%, rgba(37, 99, 235, 0.03), transparent 60%),
       var(--bg-base);
   }

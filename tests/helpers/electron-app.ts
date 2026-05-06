@@ -11,7 +11,8 @@
  */
 
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Playwright's TS loader emits CJS, so `__dirname` is available natively.
@@ -23,6 +24,8 @@ const RENDERER_INDEX = join(REPO_ROOT, 'packages', 'renderer', 'dist', 'browser'
 export interface LaunchedApp {
   app: ElectronApplication;
   window: Page;
+  /** Per-launch userData dir (isolated tmp). Cleaned up by withForge. */
+  userDataDir: string;
 }
 
 export async function launchForge(): Promise<LaunchedApp> {
@@ -39,24 +42,33 @@ export async function launchForge(): Promise<LaunchedApp> {
     );
   }
 
+  // Isolated user-data dir per launch so any profiles / settings created
+  // during a test never leak into the next launch (which would shift the
+  // welcome screen baseline once a saved profile starts showing up there).
+  // The --user-data-dir flag is honored by Electron and routes both
+  // electron-store and the keychain credential namespace into the temp dir.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'forge-test-userdata-'));
+
   const app = await electron.launch({
-    args: [MAIN_ENTRY],
+    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`],
     cwd: REPO_ROOT,
     env: {
       ...process.env,
       // FORGE_TEST signals the main process to skip non-essential startup
-      // (analytics, auto-update checks) if it ever needs to. Currently a hint
-      // for future use — no consumer yet.
+      // (currently: keep the window hidden so it doesn't flash during tests).
       FORGE_TEST: '1',
       // Force production mode so the main process loads the built renderer
       // from disk instead of trying to connect to localhost:4200.
       NODE_ENV: 'production',
+      // Surface main-process console output so test failures around IPC /
+      // connection / keytar are diagnosable.
+      ELECTRON_ENABLE_LOGGING: '1',
     },
   });
 
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
-  return { app, window };
+  return { app, window, userDataDir };
 }
 
 /**
@@ -71,6 +83,11 @@ export async function withForge<T>(fn: (launched: LaunchedApp) => Promise<T>): P
       await launched.app.close();
     } catch (err) {
       console.error('[electron-app] failed to close Forge cleanly:', err);
+    }
+    try {
+      rmSync(launched.userDataDir, { recursive: true, force: true });
+    } catch (err) {
+      console.error('[electron-app] failed to clean userData dir:', err);
     }
   }
 }
