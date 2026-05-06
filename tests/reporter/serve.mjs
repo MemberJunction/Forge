@@ -1061,22 +1061,34 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
-// ---- Body refresh with open-state preservation ----
+// ---- Body refresh with user-intent-aware open/close preservation ----
 //
-// innerHTML swap nukes the open/closed state of every <details>. Capture
-// which ones are open before the swap (by stable data-id) and re-open them
-// after, so the user's expansion choices survive every test event.
+// innerHTML swap nukes the open/closed state of every <details>. Naively
+// re-applying the previous open set fights the renderer's auto-behaviour
+// (e.g., after a tier's run completes successfully, isOpen=false in the new
+// HTML so it should auto-collapse — but preserving the prior open state
+// would re-open it). Instead, track the USER'S explicit intent on each
+// detail and only override the server-rendered open state when the user
+// has actually clicked to toggle.
+const userIntent = new Map(); // data-id → 'open' | 'closed'
 
-function captureOpenIds() {
-  const ids = new Set();
-  reportBody.querySelectorAll('details[open][data-id]').forEach((d) => ids.add(d.dataset.id));
-  return ids;
-}
-function restoreOpenIds(ids) {
-  if (!ids || ids.size === 0) return;
-  reportBody.querySelectorAll('details[data-id]').forEach((d) => {
-    if (ids.has(d.dataset.id)) d.open = true;
-  });
+reportBody.addEventListener('click', (event) => {
+  const summary = event.target.closest('summary');
+  if (!summary) return;
+  const details = summary.parentElement;
+  if (!details || details.tagName !== 'DETAILS' || !details.dataset.id) return;
+  // The [open] attribute toggles AFTER the click event runs, so defer
+  // the read to the next microtask.
+  setTimeout(() => {
+    userIntent.set(details.dataset.id, details.open ? 'open' : 'closed');
+  }, 0);
+});
+
+function applyUserIntent() {
+  for (const [id, state] of userIntent) {
+    const d = reportBody.querySelector('details[data-id="' + cssEscape(id) + '"]');
+    if (d) d.open = state === 'open';
+  }
 }
 
 let pendingRefresh = false;
@@ -1084,10 +1096,13 @@ async function refreshBody() {
   if (pendingRefresh) return;
   pendingRefresh = true;
   try {
-    const wasOpen = captureOpenIds();
     const html = await (await fetch('/api/body')).text();
     reportBody.innerHTML = html;
-    restoreOpenIds(wasOpen);
+    // Server's renderTier decides isOpen based on running/failing state
+    // (auto-open on either, auto-collapse on idle+all-pass). Then we
+    // override with explicit user toggles so a manually-closed running
+    // tier stays closed and a manually-opened passing tier stays open.
+    applyUserIntent();
   } finally {
     pendingRefresh = false;
   }
