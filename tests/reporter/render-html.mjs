@@ -209,24 +209,31 @@ function renderHarnessControls(harnessState = 'partial') {
   `;
 }
 
-// Renders the per-tier / per-suite Run button. When the tier is currently
-// running, swaps to:
-//   - a Cancel button for cancelable tiers (e2e/visual — backed by killable
-//     one-shot Playwright children)
-//   - a disabled Run button for vitest tiers (unit/integration — vitest's
-//     watch process doesn't expose a mid-run abort signal)
-// `tierKey` is needed even on suite buttons because cancelability is decided
-// at the tier level (Playwright runs the whole spec list, not per-suite).
+// Renders the per-tier / per-suite Run button.
+//
+// Three input states map to three visuals:
+//
+//   • running=false                  → enabled Run button
+//   • running=true,  cancelable=true → red Cancel button (kills the in-flight
+//                                       playwright child via cancel-tier)
+//   • running=true,  cancelable=false→ disabled Run button (this entity isn't
+//                                       what's actively running, OR the tier
+//                                       has no abortable child — i.e. vitest)
+//
+// `cancelable` is asked separately from `running` because at the suite level
+// the parent tier may be running while THIS suite isn't (already done, or
+// queued). Showing Cancel on a non-running suite would suggest you can stop
+// just that suite, which isn't true — playwright's process is per-tier.
 function renderRunButton(action, payload, opts = {}) {
-  const { label = 'Run', running = false, tierKey } = opts;
+  const { label = 'Run', running = false, cancelable = false, tierKey } = opts;
   const dataAttrs = Object.entries(payload)
     .map(([k, v]) => `data-${k}="${escapeHtml(String(v))}"`)
     .join(' ');
-  if (running && tierKey && (tierKey === 'e2e' || tierKey === 'visual')) {
+  if (running && cancelable && tierKey && (tierKey === 'e2e' || tierKey === 'visual')) {
     return `<button type="button" class="ctrl-btn ctrl-cancel" data-action="cancel-tier" data-tier="${escapeHtml(tierKey)}" title="Stop the in-flight Playwright run"><span class="material-symbols-outlined ctrl-icon">close</span><span class="ctrl-label">Cancel</span></button>`;
   }
   if (running) {
-    return `<button type="button" class="ctrl-btn ctrl-run" disabled title="Already running — wait for the current run to finish"><span class="material-symbols-outlined ctrl-icon">play_arrow</span><span class="ctrl-label">${escapeHtml(label)}</span></button>`;
+    return `<button type="button" class="ctrl-btn ctrl-run" disabled title="Tier is mid-run — wait for the current run to finish"><span class="material-symbols-outlined ctrl-icon">play_arrow</span><span class="ctrl-label">${escapeHtml(label)}</span></button>`;
   }
   return `<button type="button" class="ctrl-btn ctrl-run" data-action="${escapeHtml(action)}" ${dataAttrs} title="Re-run via the live harness"><span class="material-symbols-outlined ctrl-icon">play_arrow</span><span class="ctrl-label">${escapeHtml(label)}</span></button>`;
 }
@@ -358,13 +365,17 @@ function renderSuite(report, tier, suite) {
     ? `<span class="badge badge-pass" title="All ${passed} tests in this suite passed">PASS</span>`
     : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
-  // Suite-level Run reflects the *parent tier* run state — Playwright/vitest
-  // both run the whole project on rerun, so per-suite Run is actually disabled
-  // (or cancelable for Playwright tiers) whenever the parent tier is running.
+  // While the tier is mid-run every suite is locked out of starting a new
+  // rerun (playwright/vitest both work at the tier level). But only the
+  // suite that's *actually executing right now* is what Cancel would stop —
+  // so other already-done or queued suites show a disabled Run, not Cancel.
+  const tierRunning = tier.runState === 'running';
+  const suiteRunning = suite.runState === 'running';
   const runButton = tier.key
     ? renderRunButton('run-suite', { tier: tier.key, file: suite.name }, {
         label: 'Run',
-        running: tier.runState === 'running',
+        running: tierRunning,
+        cancelable: suiteRunning,
         tierKey: tier.key,
       })
     : '';
@@ -441,8 +452,11 @@ function renderTier(report, tier) {
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`
       : '';
   const id = `tier:${tier.label}`;
+  // Tier-level button: when the tier is running, the cancellable thing IS
+  // the tier (single playwright child per tier), so cancelable mirrors
+  // running directly.
   const runButton = tier.key
-    ? renderRunButton('run-tier', { tier: tier.key }, { label: 'Run', running, tierKey: tier.key })
+    ? renderRunButton('run-tier', { tier: tier.key }, { label: 'Run', running, cancelable: running, tierKey: tier.key })
     : '';
   // Auto-rerun toggle is only meaningful for tiers that have a server-side
   // file watcher with debounced reruns. Vitest tiers (unit/integration) are
