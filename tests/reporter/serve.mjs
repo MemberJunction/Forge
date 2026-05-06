@@ -700,7 +700,33 @@ function spawnOneShotPlaywright(tier, files = []) {
   playwrightChildren[tier] = child;
   child.once('exit', (_code, signal) => {
     if (playwrightChildren[tier] === child) playwrightChildren[tier] = null;
-    if (signal) console.log(`◾ playwright (${tier}) exited via ${signal}`);
+    if (!signal) return; // clean exit — playwright already sent run-end
+    console.log(`◾ playwright (${tier}) exited via ${signal}; synthesizing run-end`);
+    // SIGTERM/SIGKILL means we cancelled the child (or it crashed) before
+    // playwright could fire its onEnd hook — so the run-end event never
+    // arrived from the reporter. Without this, the dashboard stays stuck
+    // showing tier.runState='running' forever. Mark the tier idle, flip
+    // any in-flight 'running' test rows to 'skipped' (honest about what
+    // happened), recompute totals from whatever results landed before
+    // the cancel, broadcast, and resolve any waiters.
+    const t = state.tiers[tier];
+    if (!t || t.runState !== 'running') return;
+    t.runState = 'idle';
+    t.currentTest = null;
+    for (const suite of t.suites.values()) {
+      suite.runState = 'idle';
+      for (const test of suite.tests.values()) {
+        if (test.status === 'running') test.status = 'skipped';
+      }
+      recomputeSuiteTotals(suite);
+    }
+    recomputeTierTotals(t);
+    t.lastUpdatedAt = Date.now();
+    // Don't overwrite t.status if results were already computed for this
+    // partial run — leave whatever pass/fail state we got.
+    broadcastNow();
+    writeTierSummary(tier, t);
+    resolveTierWaiters(tier, summarizeTier(tier, t));
   });
 }
 
