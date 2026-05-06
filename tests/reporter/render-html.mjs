@@ -307,8 +307,17 @@ function renderSparkline(history) {
 
 // ---- Test sections ----
 
-function renderTest(test) {
-  const s = STATUS_BADGE[test.status] ?? STATUS_BADGE.skipped;
+function renderTest(test, opts = {}) {
+  // While the parent suite is still running, a completed test's PASS or
+  // FAIL badge fights the suite-level RUN badge visually. Force the row
+  // to render as RUN until the suite settles — once the suite goes idle,
+  // the real per-test status takes over. This is a display-only override;
+  // the underlying test.status (and suite/tier totals) keep the truth.
+  const effectiveStatus =
+    opts.parentSuiteRunning && (test.status === 'passed' || test.status === 'failed')
+      ? 'running'
+      : test.status;
+  const s = STATUS_BADGE[effectiveStatus] ?? STATUS_BADGE.skipped;
   const failureBlock =
     test.status === 'failed' && test.failureMessages?.length
       ? `<pre class="failure">${escapeHtml(test.failureMessages.join('\n\n'))}</pre>`
@@ -394,7 +403,7 @@ function renderSuite(report, tier, suite) {
         <button type="button" class="copy-btn" data-copy-payload="${payload}" title="Copy a token-efficient summary of this suite for pasting into an LLM">Copy for LLM</button>
       </summary>
       <ul class="test-list">
-        ${suite.tests.map(renderTest).join('')}
+        ${suite.tests.map((t) => renderTest(t, { parentSuiteRunning: running })).join('')}
       </ul>
     </details>
   `;
@@ -1494,32 +1503,28 @@ pre {
 .ctrl-run:disabled:hover { background: var(--accent); border-color: var(--accent); box-shadow: none; }
 
 /* Cancel — replaces Run for cancelable tiers (e2e/visual) while their
-   one-shot Playwright child is alive. Red tone + close icon to read as
-   "stop" without colliding with the harness Down button's stop_circle. */
+   one-shot Playwright child is alive. Outline-only red instead of a solid
+   block: the action is destructive but it shouldn't shout — it's not an
+   alert, it's an option. Filled treatment is reserved for hover/active. */
 .ctrl-cancel {
   font-size: 11px;
   letter-spacing: 0.04em;
   padding: 5px 12px 5px 8px;
-  background: var(--fail);
-  color: #ffffff;
+  background: transparent;
+  color: var(--fail);
   border-color: var(--fail);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.20),
-    0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: none;
 }
 .ctrl-cancel:hover {
-  background: #ff7575;
+  background: rgba(255, 94, 94, 0.10);
+  color: #ff7575;
   border-color: #ff7575;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 1px 2px rgba(0, 0, 0, 0.45),
-    0 0 18px rgba(255, 94, 94, 0.55);
+  box-shadow: 0 0 10px rgba(255, 94, 94, 0.28);
 }
 .ctrl-cancel:active {
   transform: translateY(1px);
-  box-shadow:
-    inset 0 1px 2px rgba(0, 0, 0, 0.30),
-    0 0 0 transparent;
+  background: rgba(255, 94, 94, 0.16);
+  box-shadow: 0 0 0 transparent;
 }
 
 /* Harness controls (Up / Down / Reset) — ghost buttons with role-tinted

@@ -266,6 +266,9 @@ function handleRequest(req, res) {
   if (req.method === 'POST' && req.url === '/control/cancel-tier') {
     return handleControlCancelTier(req, res);
   }
+  if (req.method === 'POST' && req.url === '/control/cancel-all') {
+    return handleControlCancelAll(req, res);
+  }
   if (req.method === 'POST' && req.url === '/control/set-autorun') {
     return handleControlSetAutorun(req, res);
   }
@@ -440,6 +443,31 @@ async function handleControlSetAutorun(req, res) {
   console.log(`[control] autorun for ${tier} → ${enabled ? 'ON' : 'OFF'}`);
   broadcastNow();
   return ack(res, { ok: true, tier, enabled });
+}
+
+async function handleControlCancelAll(_req, res) {
+  // Sweeps every cancelable tier child (e2e + visual today). Vitest watch
+  // processes are intentionally NOT killed here — their long-running state
+  // is the normal mode, not a cancellable run.
+  let count = 0;
+  for (const tier of CANCELABLE_TIERS) {
+    const child = playwrightChildren[tier];
+    if (!child) continue;
+    console.log(`▶ cancel-all: signaling ${tier} (pid ${child.pid})`);
+    child.kill('SIGTERM');
+    count += 1;
+  }
+  // SIGKILL fallback for any straggler — same 3s grace as cancel-tier.
+  setTimeout(() => {
+    for (const tier of CANCELABLE_TIERS) {
+      const c = playwrightChildren[tier];
+      if (c && !c.killed) {
+        console.warn(`▶ ${tier} did not exit on SIGTERM; sending SIGKILL`);
+        c.kill('SIGKILL');
+      }
+    }
+  }, 3000);
+  return ack(res, { ok: true, action: 'cancel-all signaled', count });
 }
 
 async function handleControlCancelTier(req, res) {
@@ -1449,6 +1477,10 @@ ${FONT_LINKS}
       <span class="material-symbols-outlined ctrl-icon">play_arrow</span>
       <span class="ctrl-label">Run All</span>
     </button>
+    <button type="button" class="ctrl-btn ctrl-cancel ctrl-cancel-all" data-action="cancel-all" hidden title="Cancel every in-flight Playwright run (e2e + visual)">
+      <span class="material-symbols-outlined ctrl-icon">close</span>
+      <span class="ctrl-label">Cancel All</span>
+    </button>
   </div>
 
   <div id="infra-host">
@@ -1762,14 +1794,22 @@ function connect() {
   // whenever any tier is mid-run — kicking off another Run All while a tier is
   // still running would just bounce off the per-tier in-flight guards anyway.
   function updateRunAllAvailability(stateSnapshot) {
-    const btn = document.querySelector('.ctrl-run-all');
-    if (!btn) return;
-    const anyRunning = Array.isArray(stateSnapshot?.tiers)
-      && stateSnapshot.tiers.some((t) => t.runState === 'running');
-    btn.disabled = anyRunning;
-    btn.title = anyRunning
+    const runBtn = document.querySelector('.ctrl-run-all');
+    const cancelBtn = document.querySelector('.ctrl-cancel-all');
+    if (!runBtn || !cancelBtn) return;
+    // Cancel All only matters for cancelable tiers (e2e/visual). Vitest tiers
+    // can't be aborted mid-run, so a running unit/integration tier shouldn't
+    // surface a Cancel All button — would imply more power than we have.
+    const tiers = Array.isArray(stateSnapshot?.tiers) ? stateSnapshot.tiers : [];
+    const cancelableRunning = tiers.some(
+      (t) => t.runState === 'running' && (t.key === 'e2e' || t.key === 'visual')
+    );
+    const anyRunning = tiers.some((t) => t.runState === 'running');
+    runBtn.disabled = anyRunning;
+    runBtn.title = anyRunning
       ? 'A tier is already running — wait for it to finish'
       : 'Re-run every tier (unit + integration + e2e + visual)';
+    cancelBtn.hidden = !cancelableRunning;
   }
   es.addEventListener('infra', (event) => {
     try { applyInfra(JSON.parse(event.data)); }
@@ -1889,6 +1929,7 @@ async function dispatchControl(btn) {
   if (action === 'run-tier')    payload = { tier: btn.dataset.tier };
   if (action === 'run-suite')   payload = { tier: btn.dataset.tier, file: btn.dataset.file };
   if (action === 'cancel-tier') payload = { tier: btn.dataset.tier };
+  if (action === 'cancel-all')  payload = {};
   try {
     const resp = await fetch('/control/' + action, {
       method: 'POST',
