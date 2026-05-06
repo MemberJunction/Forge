@@ -1381,6 +1381,11 @@ pre {
 }
 .ctrl-btn .ctrl-label { display: inline-block; }
 .ctrl-btn .ctrl-icon { font-size: 16px; }
+/* The native [hidden] attribute is meant to hide the element, but our
+   .ctrl-btn rule sets display:inline-flex at the same specificity as the
+   UA's [hidden]{display:none}, so the custom rule wins and the button
+   stays visible. Force it explicitly. */
+.ctrl-btn[hidden] { display: none !important; }
 
 /* Run — Forge brand purple, primary action. Material play_arrow icon. */
 .ctrl-run {
