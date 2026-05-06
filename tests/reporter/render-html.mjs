@@ -382,6 +382,9 @@ function renderTier(report, tier) {
   const runBadge = running
     ? `<span class="badge badge-running" title="Tests are running right now">RUN ${escapeHtml(String(tier.testsCompleted ?? 0))}</span>`
     : '';
+  const staleBadge = tier.stale && !running
+    ? `<span class="badge badge-stale" title="Specs or helpers changed since this run — result may be out of date">STALE</span>`
+    : '';
   const currentTest =
     running && tier.currentTest
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`
@@ -389,9 +392,10 @@ function renderTier(report, tier) {
   const id = `tier:${tier.label}`;
   const runButton = tier.key ? renderRunButton('run-tier', { tier: tier.key }, 'Run') : '';
   return `
-    <details class="tier ${running ? 'is-running' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
+    <details class="tier ${running ? 'is-running' : ''} ${tier.stale && !running ? 'is-stale' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
         ${runBadge}
+        ${staleBadge}
         <h2>${escapeHtml(tier.label)}</h2>
         <span class="tier-counts">
           <span class="text-success">${t.passed} passed</span>
@@ -1165,6 +1169,25 @@ pre {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.5; }
 }
+
+/* STALE — files changed since the last run, displayed result may be out of
+   date. Diagonal-stripe amber fill so it reads as "marked for re-verification"
+   without screaming "fail". */
+.badge-stale {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(240, 185, 74, 0.18) 0,
+    rgba(240, 185, 74, 0.18) 4px,
+    rgba(240, 185, 74, 0.06) 4px,
+    rgba(240, 185, 74, 0.06) 8px
+  );
+  color: var(--warn);
+  border: 1px solid rgba(240, 185, 74, 0.5);
+  padding: 2px 5px;
+}
+.tier.is-stale .tier-counts,
+.tier.is-stale .tier-duration { opacity: 0.55; }
+.tier.is-stale > summary::before { color: var(--warn); }
 
 /* CONTROL BUTTONS ────────────────────────────────────── */
 

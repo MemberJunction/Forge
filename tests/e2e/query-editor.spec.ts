@@ -64,4 +64,28 @@ test.describe('Forge — query editor', () => {
       await expect(window.getByText(/does not exist/i).first()).toBeVisible({ timeout: 10000 });
     });
   });
+
+  test('Cmd+Shift+F formats SQL (lowercase → SELECT uppercase)', async () => {
+    await withForge(async ({ app, window }) => {
+      await connectToTestPostgres(window);
+      await selectDatabase(window, 'forge_test');
+      await openNewQueryTab(app, window);
+      // Type unformatted lowercase SQL.
+      await typeInEditor(window, 'select id, name from products where id = 1');
+      // Fire format via the same menu IPC the macOS menu uses.
+      // (The component's Cmd+Shift+F handler also works but this path is
+      // independent of which platform Playwright resolves the modifier for.)
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send('menu:format-sql');
+      });
+      await window.waitForTimeout(800);
+      // Forge's formatter uppercases keywords and reflows whitespace. Read
+      // the editor's rendered text and assert SELECT is now uppercase.
+      const editorText = (await window.locator('.monaco-editor .view-line').allTextContents()).join(
+        '\n'
+      );
+      expect(editorText).toContain('SELECT');
+      expect(editorText).toContain('FROM');
+    });
+  });
 });

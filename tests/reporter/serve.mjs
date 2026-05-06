@@ -17,7 +17,7 @@
 import http from 'node:http';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, watch as fsWatch } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,6 +75,10 @@ function makeTier(label, note) {
     currentTest: null,
     testsCompleted: 0,
     lastUpdatedAt: 0,
+    // True when watched files have changed since the last run completed.
+    // Visual indicator that the displayed pass/fail counts are out of date.
+    // Cleared on run-start.
+    stale: false,
   };
 }
 
@@ -104,6 +108,23 @@ const infra = {
 };
 let infraTimer = null;
 
+// ---- E2E + Visual file watchers ----
+//
+// Vitest tiers (unit + integration) get fast watch reruns built into vitest
+// itself. Playwright has no equivalent, and Electron-based E2E is heavy
+// enough (3-7s per test, full Electron launch each time) that auto-running
+// on every keystroke would be miserable. Compromise: file-watch the spec
+// directories and trigger a tier rerun after a long debounce — long enough
+// that the user is clearly done editing before the run kicks off.
+const E2E_WATCH_PATHS = [
+  join(REPO_ROOT, 'tests', 'e2e'),
+  join(REPO_ROOT, 'tests', 'helpers'),
+];
+const PLAYWRIGHT_WATCH_DEBOUNCE_MS = 30_000;
+let e2eDebounceTimer = null;
+let visualDebounceTimer = null;
+const playwrightWatchers = [];
+
 // ---- main ----
 
 await main();
@@ -115,6 +136,7 @@ async function main() {
   await ensureHarnessUp();
 
   startInfrastructurePolling();
+  startPlaywrightWatchers();
 
   const unitProc = spawnVitest('unit', []);
   const intProc = spawnVitest('integration', ['--config', 'vitest.integration.config.ts']);
@@ -139,6 +161,7 @@ async function main() {
   const stop = () => {
     console.log('\n▶ Stopping vitest watchers (Docker harness stays up)…');
     if (infraTimer) clearInterval(infraTimer);
+    stopPlaywrightWatchers();
     unitProc.kill('SIGTERM');
     intProc.kill('SIGTERM');
     server.close();
@@ -386,6 +409,64 @@ function runHarness(label) {
   };
 }
 
+function markTierStale(tier) {
+  // Mark the tier so the dashboard shows that the displayed result is from
+  // before the recent change. Cleared when the next run actually starts.
+  const t = state.tiers[tier];
+  if (t && !t.stale) {
+    t.stale = true;
+    broadcastNow();
+  }
+}
+
+function scheduleTierRerun(tier) {
+  markTierStale(tier);
+  if (tier === 'visual') {
+    if (visualDebounceTimer) clearTimeout(visualDebounceTimer);
+    visualDebounceTimer = setTimeout(() => {
+      console.log('[watch] visual rerun fired (30s debounce)');
+      spawnOneShotPlaywright('visual');
+    }, PLAYWRIGHT_WATCH_DEBOUNCE_MS);
+  } else {
+    if (e2eDebounceTimer) clearTimeout(e2eDebounceTimer);
+    e2eDebounceTimer = setTimeout(() => {
+      console.log('[watch] e2e rerun fired (30s debounce)');
+      spawnOneShotPlaywright('e2e');
+    }, PLAYWRIGHT_WATCH_DEBOUNCE_MS);
+  }
+}
+
+function startPlaywrightWatchers() {
+  for (const dir of E2E_WATCH_PATHS) {
+    let watcher;
+    try {
+      watcher = fsWatch(dir, { recursive: true }, (_event, filename) => {
+        if (!filename || !filename.endsWith('.ts')) return;
+        // Treat tests/e2e/visual/** changes as visual; everything else under
+        // tests/e2e or tests/helpers as e2e. Helpers are shared so a helper
+        // change reruns BOTH (since either tier could be affected).
+        const isVisualSpec = filename.includes('visual/') && filename.endsWith('.spec.ts');
+        const isHelper = dir.endsWith('helpers');
+        if (isVisualSpec || isHelper) scheduleTierRerun('visual');
+        if (!isVisualSpec || isHelper) scheduleTierRerun('e2e');
+      });
+      playwrightWatchers.push(watcher);
+      console.log(`▶ watching ${dir} for spec / helper changes (rerun on 30s quiet)`);
+    } catch (err) {
+      console.error(`[watch] failed to watch ${dir}:`, err?.message ?? err);
+    }
+  }
+}
+
+function stopPlaywrightWatchers() {
+  for (const w of playwrightWatchers) {
+    try { w.close(); } catch { /* swallow */ }
+  }
+  playwrightWatchers.length = 0;
+  if (e2eDebounceTimer) clearTimeout(e2eDebounceTimer);
+  if (visualDebounceTimer) clearTimeout(visualDebounceTimer);
+}
+
 function spawnOneShotPlaywright(tier, files = []) {
   // tier is either 'e2e' or 'visual' — picks the matching Playwright project.
   const args = ['playwright', 'test', `--project=${tier}`, ...files];
@@ -534,6 +615,7 @@ function handleEvent(event) {
     tier.currentTest = null;
     tier.testsCompleted = 0;
     tier.note = undefined;
+    tier.stale = false;
     // Mark every file in this run as 'running'. New files get an empty suite.
     for (const file of event.files ?? []) {
       const suite = tier.suites.get(file) ?? makeSuite(file);
@@ -570,7 +652,7 @@ function handleEvent(event) {
       fullName: event.fullName,
       status: normalizeStatus(event.status),
       durationMs: event.durationMs,
-      failureMessages: event.failureMessages ?? [],
+      failureMessages: (event.failureMessages ?? []).map(stripAnsi),
       screenshots: event.screenshots,
     });
     tier.suites.set(event.file, suite);
@@ -602,6 +684,15 @@ function normalizeStatus(s) {
   if (s === 'passed' || s === 'failed' || s === 'skipped') return s;
   if (s === 'pending' || s === 'todo' || s === 'unknown') return 'skipped';
   return 'skipped';
+}
+
+// Vitest + Playwright output failure messages with ANSI color codes for
+// terminal rendering. Those codes show up as literal "[2m[31m…" garbage in
+// the HTML dashboard. Strip them before storing.
+const ANSI_PATTERN = /?\[\d+(?:;\d+)*[A-Za-z]/g;
+function stripAnsi(s) {
+  if (typeof s !== 'string') return s;
+  return s.replace(ANSI_PATTERN, '');
 }
 
 function recomputeSuiteTotals(suite) {
@@ -823,6 +914,7 @@ function serializeState() {
       label: t.label,
       status: t.status,
       runState: t.runState,
+      stale: t.stale,
       durationMs: t.durationMs,
       totals: t.totals,
       currentTest: t.currentTest,

@@ -129,24 +129,31 @@ export async function selectDatabase(window: Page, dbName: string): Promise<void
 
 /**
  * Open a new query tab via the same IPC channel Forge's macOS menu uses.
- * Waits for the Monaco editor to render before returning.
+ * Waits for the freshly-mounted Monaco editor to be visible before returning.
+ *
+ * Important: every previously-opened query tab keeps its Monaco mount in the
+ * DOM (Golden Layout just hides inactive tabs), so we filter to :visible to
+ * target the editor in the active tab specifically.
  */
 export async function openNewQueryTab(app: ElectronApplication, window: Page): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send('menu:new-query');
   });
-  const editor = window.locator('.monaco-editor').first();
+  const editor = window.locator('.monaco-editor:visible').first();
   await expect(editor).toBeVisible({ timeout: 10000 });
   await window.waitForTimeout(500); // let Monaco finish painting
 }
 
 /**
- * Type SQL into the active Monaco editor. Monaco's hidden textarea ignores
- * Playwright's .fill(); routing through keyboard.type after focusing the
- * editor exercises the standard input handlers.
+ * Type SQL into the ACTIVE Monaco editor. Filtering by `:visible` is critical
+ * — when multiple query tabs exist, every tab's Monaco mounts persist in the
+ * DOM but only the active tab's is visible. Without the filter, .first()
+ * would match the oldest (hidden) editor and the input would silently land
+ * in the wrong tab.
  */
 export async function typeInEditor(window: Page, sql: string): Promise<void> {
-  await window.locator('.monaco-editor').first().click();
+  const editor = window.locator('.monaco-editor:visible').first();
+  await editor.click();
   await window.keyboard.type(sql);
   await window.waitForTimeout(300);
 }
