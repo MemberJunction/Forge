@@ -106,6 +106,11 @@ const infra = {
   containers: new Map(), // Map<id, ContainerStat>
   lastPolledAt: 0,
   lastError: null,
+  // 'up' | 'down' | 'reset' | null. Set when a harness control kicks off,
+  // cleared in runHarness on completion (success or failure). The client uses
+  // this to keep the matching button in a busy/disabled state for the full
+  // duration of the operation rather than the arbitrary 1.5s ack flash.
+  activeOp: null,
 };
 let infraTimer = null;
 
@@ -125,6 +130,13 @@ const PLAYWRIGHT_WATCH_DEBOUNCE_MS = 30_000;
 let e2eDebounceTimer = null;
 let visualDebounceTimer = null;
 const playwrightWatchers = [];
+
+// In-flight one-shot Playwright children, keyed by tier. Tracked so the
+// dashboard can SIGTERM them via the Cancel button. Vitest tiers run inside
+// long-lived watch processes that don't expose a mid-run abort, so cancel is
+// a Playwright-only affordance for now.
+const playwrightChildren = { e2e: null, visual: null };
+const CANCELABLE_TIERS = new Set(['e2e', 'visual']);
 
 // ---- main ----
 
@@ -241,6 +253,9 @@ function handleRequest(req, res) {
   }
   if (req.method === 'POST' && req.url === '/control/run-all') {
     return handleControlRunAll(req, res);
+  }
+  if (req.method === 'POST' && req.url === '/control/cancel-tier') {
+    return handleControlCancelTier(req, res);
   }
   res.writeHead(404);
   res.end('Not found');
@@ -372,6 +387,28 @@ async function handleControlRunSuite(req, res) {
   return ack(res, { ok: true, tier, touched });
 }
 
+async function handleControlCancelTier(req, res) {
+  const body = await readJsonBody(req);
+  if (body === null) return badRequest(res, 'invalid json');
+  const tier = body?.tier;
+  if (!CANCELABLE_TIERS.has(tier)) {
+    return badRequest(res, `tier '${tier}' is not cancelable (only ${[...CANCELABLE_TIERS].join(', ')})`);
+  }
+  const child = playwrightChildren[tier];
+  if (!child) return ack(res, { ok: true, tier, action: 'no in-flight run' });
+  console.log(`▶ cancel requested for ${tier} (pid ${child.pid})`);
+  child.kill('SIGTERM');
+  // Give Playwright ~3s to clean up; SIGKILL if it's still alive. Cap the wait
+  // so the dashboard doesn't hang on a stuck process.
+  setTimeout(() => {
+    if (playwrightChildren[tier] === child && !child.killed) {
+      console.warn(`▶ ${tier} did not exit on SIGTERM; sending SIGKILL`);
+      child.kill('SIGKILL');
+    }
+  }, 3000);
+  return ack(res, { ok: true, tier, action: 'cancel signaled' });
+}
+
 async function handleControlRunAll(_req, res) {
   // Ack immediately; dispatch all four tier reruns in the background.
   ack(res, { ok: true, action: 'all tiers triggered' });
@@ -393,7 +430,7 @@ async function handleControlHarnessReset(_req, res) {
   // operations (e.g., image pulls on first up) still complete asynchronously.
   ack(res, { ok: true, action: 'reset started' });
   console.log('▶ Harness reset requested via dashboard control');
-  runHarness('down -v + up')(async () => {
+  runHarness('down -v + up', 'reset')(async () => {
     await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'down', '-v']);
     await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
     await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
@@ -403,7 +440,7 @@ async function handleControlHarnessReset(_req, res) {
 async function handleControlHarnessUp(_req, res) {
   ack(res, { ok: true, action: 'up started' });
   console.log('▶ Harness up requested via dashboard control');
-  runHarness('up')(async () => {
+  runHarness('up', 'up')(async () => {
     await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
     await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
   });
@@ -414,22 +451,34 @@ async function handleControlHarnessDown(_req, res) {
   // existing state instantly (no re-pull, no init).
   ack(res, { ok: true, action: 'down started' });
   console.log('▶ Harness down requested via dashboard control');
-  runHarness('down')(async () => {
+  runHarness('down', 'down')(async () => {
     await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'down']);
   });
 }
 
 // Wrapper that runs a docker compose action and refreshes the infra poll
 // when it finishes (success or failure). Shape: `runHarness(label)(asyncFn)`.
-function runHarness(label) {
+function runHarness(label, opKind) {
+  // opKind: 'up' | 'down' | 'reset' (purely for the dashboard's busy
+  // indicator). Always cleared on completion so a stuck error doesn't leave
+  // the button frozen.
   return (fn) => {
+    if (opKind) {
+      infra.activeOp = opKind;
+      infra.lastError = null;
+      broadcastInfra();
+    }
+    const finish = () => {
+      if (infra.activeOp === opKind) infra.activeOp = null;
+      broadcastInfra();
+    };
     fn()
       .then(() => pollDockerOnce())
       .catch((err) => {
         console.error(`[control] harness ${label} failed:`, err);
         infra.lastError = `${label} failed: ${err?.message ?? err}`;
-        broadcastInfra();
-      });
+      })
+      .finally(finish);
   };
 }
 
@@ -492,10 +541,16 @@ function stopPlaywrightWatchers() {
 }
 
 function spawnOneShotPlaywright(tier, files = []) {
-  // tier is either 'e2e' or 'visual' — picks the matching Playwright project.
+  // Refuse if a run for this tier is already in flight — the dashboard's UI
+  // disables the Run button when running, so this is the safety net for
+  // out-of-band callers (file-watch debounce, Run All).
+  if (playwrightChildren[tier]) {
+    console.log(`▶ skipping one-shot playwright (${tier}): already in flight (pid ${playwrightChildren[tier].pid})`);
+    return;
+  }
   const args = ['playwright', 'test', `--project=${tier}`, ...files];
   console.log(`▶ spawning one-shot playwright (${tier}): npx ${args.join(' ')}`);
-  spawn('npx', args, {
+  const child = spawn('npx', args, {
     stdio: 'inherit',
     cwd: REPO_ROOT,
     env: {
@@ -505,6 +560,11 @@ function spawnOneShotPlaywright(tier, files = []) {
       // so a visual file in a mixed run still lands in the right tier.
       FORGE_LIVE_REPORTER_TIER: tier,
     },
+  });
+  playwrightChildren[tier] = child;
+  child.once('exit', (_code, signal) => {
+    if (playwrightChildren[tier] === child) playwrightChildren[tier] = null;
+    if (signal) console.log(`◾ playwright (${tier}) exited via ${signal}`);
   });
 }
 
@@ -946,6 +1006,7 @@ function serializeInfrastructure() {
     pollIntervalMs: INFRA_POLL_MS,
     error: infra.lastError,
     harnessState,
+    activeOp: infra.activeOp,
     containers,
   };
 }
@@ -1326,27 +1387,92 @@ function applyInfra(payload) {
     meta.textContent = 'polled every ' + sec + 's';
   }
 
-  // Toggle Up/Down disabled state based on harness state. Reset is always
-  // enabled — it's a recovery action that should work from any state.
+  // Toggle Up/Down/Reset state based on harness state and any in-flight op.
+  // Active op wins: while a long-running docker compose action is happening
+  // we mark the running button as busy and disable all three so the user
+  // can't fire conflicting commands. The op is cleared server-side when the
+  // promise settles (success or failure), so a stuck error won't freeze the
+  // UI — it'll re-enable on the next infra broadcast after the catch.
   const upBtn = infraHost.querySelector('.ctrl-up');
   const downBtn = infraHost.querySelector('.ctrl-down');
+  const resetBtn = infraHost.querySelector('.ctrl-reset');
   const harnessState = payload.harnessState;
-  if (upBtn) {
-    const shouldDisable = harnessState === 'up';
-    upBtn.disabled = shouldDisable;
-    upBtn.title = shouldDisable ? 'Already up' : 'Bring containers up (idempotent)';
+  const activeOp = payload.activeOp;
+
+  applyHarnessButton(upBtn, {
+    op: 'up',
+    activeOp,
+    busyTitle: 'Bringing containers up…',
+    idleDisabled: harnessState === 'up',
+    idleDisabledTitle: 'Already up',
+    enabledTitle: 'Bring containers up (idempotent)',
+  });
+  applyHarnessButton(downBtn, {
+    op: 'down',
+    activeOp,
+    busyTitle: 'Stopping containers…',
+    idleDisabled: harnessState === 'down',
+    idleDisabledTitle: 'Already down',
+    enabledTitle: 'Stop containers (volumes preserved)',
+  });
+  applyHarnessButton(resetBtn, {
+    op: 'reset',
+    activeOp,
+    busyTitle: 'Resetting (down -v + up)…',
+    idleDisabled: false,
+    idleDisabledTitle: '',
+    enabledTitle: 'Tear all containers down (with volumes) and bring them back up',
+  });
+}
+
+function applyHarnessButton(btn, opts) {
+  if (!btn) return;
+  const { op, activeOp, busyTitle, idleDisabled, idleDisabledTitle, enabledTitle } = opts;
+  // Any active op disables every button — they share the docker compose lock.
+  // The button matching the active op also gets the visual busy treatment.
+  if (activeOp) {
+    btn.disabled = true;
+    if (op === activeOp) {
+      btn.classList.add('is-working');
+      btn.title = busyTitle;
+    } else {
+      btn.classList.remove('is-working');
+      btn.title = 'Waiting for ' + activeOp + '…';
+    }
+    return;
   }
-  if (downBtn) {
-    const shouldDisable = harnessState === 'down';
-    downBtn.disabled = shouldDisable;
-    downBtn.title = shouldDisable ? 'Already down' : 'Stop containers (volumes preserved)';
-  }
+  btn.classList.remove('is-working');
+  btn.disabled = idleDisabled;
+  btn.title = idleDisabled ? idleDisabledTitle : enabledTitle;
 }
 
 function connect() {
   const es = new EventSource('/events');
   es.onopen = () => setStatus('Live', true);
-  es.addEventListener('state', () => { refreshBody(); });
+  es.addEventListener('state', (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      updateRunAllAvailability(data);
+    } catch (err) {
+      console.warn('[state] could not parse SSE payload', err);
+    }
+    refreshBody();
+  });
+
+  // Run All sits in the static dashboard shell (not re-rendered by /api/body),
+  // so we toggle its enabled state in place from the SSE state event. Disabled
+  // whenever any tier is mid-run — kicking off another Run All while a tier is
+  // still running would just bounce off the per-tier in-flight guards anyway.
+  function updateRunAllAvailability(stateSnapshot) {
+    const btn = document.querySelector('.ctrl-run-all');
+    if (!btn) return;
+    const anyRunning = Array.isArray(stateSnapshot?.tiers)
+      && stateSnapshot.tiers.some((t) => t.runState === 'running');
+    btn.disabled = anyRunning;
+    btn.title = anyRunning
+      ? 'A tier is already running — wait for it to finish'
+      : 'Re-run every tier (unit + integration + e2e + visual)';
+  }
   es.addEventListener('infra', (event) => {
     try { applyInfra(JSON.parse(event.data)); }
     catch (err) { console.error('bad infra payload', err); }
@@ -1451,13 +1577,20 @@ async function dispatchControl(btn) {
     if (labelEl) labelEl.textContent = text;
     else btn.textContent = text;
   };
+  // Harness ops (up/down/reset) take 5–60s. Their busy state is owned by the
+  // SSE-driven applyHarnessButton path (uses infra.activeOp) so we deliberately
+  // skip the auto-clear here — the button stays disabled + 'is-working' until
+  // the server reports the op finished. Other actions get the original 1.5s
+  // ack flash.
+  const isLongRunning = action === 'harness-up' || action === 'harness-down' || action === 'harness-reset';
   btn.disabled = true;
   btn.classList.add('is-busy');
   btn.classList.remove('is-error');
   setLabel('starting');
   let payload = {};
-  if (action === 'run-tier')  payload = { tier: btn.dataset.tier };
-  if (action === 'run-suite') payload = { tier: btn.dataset.tier, file: btn.dataset.file };
+  if (action === 'run-tier')    payload = { tier: btn.dataset.tier };
+  if (action === 'run-suite')   payload = { tier: btn.dataset.tier, file: btn.dataset.file };
+  if (action === 'cancel-tier') payload = { tier: btn.dataset.tier };
   try {
     const resp = await fetch('/control/' + action, {
       method: 'POST',
@@ -1468,12 +1601,22 @@ async function dispatchControl(btn) {
       const txt = await resp.text();
       throw new Error('control failed: ' + resp.status + ' ' + txt);
     }
-    setLabel('queued');
-    setTimeout(() => {
+    if (isLongRunning) {
+      // SSE will own the rest of the lifecycle. Restore the original label
+      // so the button reads 'Up' / 'Down' / 'Reset' (paired with the spinner)
+      // for the duration, not 'starting' frozen in place.
       setLabel(original);
       btn.classList.remove('is-busy');
-      btn.disabled = false;
-    }, 1500);
+      // Leave btn.disabled = true; applyHarnessButton will re-enable when the
+      // op clears server-side.
+    } else {
+      setLabel('queued');
+      setTimeout(() => {
+        setLabel(original);
+        btn.classList.remove('is-busy');
+        btn.disabled = false;
+      }, 1500);
+    }
   } catch (err) {
     console.error('[control] ' + action, err);
     btn.classList.remove('is-busy');

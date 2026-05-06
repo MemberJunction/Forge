@@ -209,10 +209,25 @@ function renderHarnessControls(harnessState = 'partial') {
   `;
 }
 
-function renderRunButton(action, payload, label = 'Run') {
+// Renders the per-tier / per-suite Run button. When the tier is currently
+// running, swaps to:
+//   - a Cancel button for cancelable tiers (e2e/visual — backed by killable
+//     one-shot Playwright children)
+//   - a disabled Run button for vitest tiers (unit/integration — vitest's
+//     watch process doesn't expose a mid-run abort signal)
+// `tierKey` is needed even on suite buttons because cancelability is decided
+// at the tier level (Playwright runs the whole spec list, not per-suite).
+function renderRunButton(action, payload, opts = {}) {
+  const { label = 'Run', running = false, tierKey } = opts;
   const dataAttrs = Object.entries(payload)
     .map(([k, v]) => `data-${k}="${escapeHtml(String(v))}"`)
     .join(' ');
+  if (running && tierKey && (tierKey === 'e2e' || tierKey === 'visual')) {
+    return `<button type="button" class="ctrl-btn ctrl-cancel" data-action="cancel-tier" data-tier="${escapeHtml(tierKey)}" title="Stop the in-flight Playwright run"><span class="material-symbols-outlined ctrl-icon">close</span><span class="ctrl-label">Cancel</span></button>`;
+  }
+  if (running) {
+    return `<button type="button" class="ctrl-btn ctrl-run" disabled title="Already running — wait for the current run to finish"><span class="material-symbols-outlined ctrl-icon">play_arrow</span><span class="ctrl-label">${escapeHtml(label)}</span></button>`;
+  }
   return `<button type="button" class="ctrl-btn ctrl-run" data-action="${escapeHtml(action)}" ${dataAttrs} title="Re-run via the live harness"><span class="material-symbols-outlined ctrl-icon">play_arrow</span><span class="ctrl-label">${escapeHtml(label)}</span></button>`;
 }
 
@@ -338,8 +353,15 @@ function renderSuite(report, tier, suite) {
   const skipNote = skipped > 0 ? `<span class="suite-summary text-muted"> · ${skipped} skipped</span>` : '';
   const runBadge = running ? `<span class="badge badge-running">RUN</span>` : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
+  // Suite-level Run reflects the *parent tier* run state — Playwright/vitest
+  // both run the whole project on rerun, so per-suite Run is actually disabled
+  // (or cancelable for Playwright tiers) whenever the parent tier is running.
   const runButton = tier.key
-    ? renderRunButton('run-suite', { tier: tier.key, file: suite.name }, 'Run')
+    ? renderRunButton('run-suite', { tier: tier.key, file: suite.name }, {
+        label: 'Run',
+        running: tier.runState === 'running',
+        tierKey: tier.key,
+      })
     : '';
   // Stable data-id so the dashboard's open-state preserver can re-open this
   // suite after a body refresh.
@@ -363,7 +385,8 @@ function renderSuite(report, tier, suite) {
 
 function renderTier(report, tier) {
   if (tier.status === 'pending') {
-    const runButton = tier.key ? renderRunButton('run-tier', { tier: tier.key }, 'Run') : '';
+    // Pending tiers can't be running by definition, so no need to thread state.
+    const runButton = tier.key ? renderRunButton('run-tier', { tier: tier.key }, { label: 'Run' }) : '';
     return `
       <section class="tier tier-pending">
         <div class="tier-header">
@@ -390,7 +413,9 @@ function renderTier(report, tier) {
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`
       : '';
   const id = `tier:${tier.label}`;
-  const runButton = tier.key ? renderRunButton('run-tier', { tier: tier.key }, 'Run') : '';
+  const runButton = tier.key
+    ? renderRunButton('run-tier', { tier: tier.key }, { label: 'Run', running, tierKey: tier.key })
+    : '';
   return `
     <details class="tier ${running ? 'is-running' : ''} ${tier.stale && !running ? 'is-stale' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
@@ -1302,6 +1327,47 @@ pre {
     0 0 0 transparent;
 }
 
+/* Disabled Run — when a run is in flight for a non-cancelable tier
+   (vitest's watcher doesn't expose mid-run abort). Receded but still
+   readable so it's clear *which* button is the Run for that suite. */
+.ctrl-run:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+.ctrl-run:disabled:hover { background: var(--accent); border-color: var(--accent); box-shadow: none; }
+
+/* Cancel — replaces Run for cancelable tiers (e2e/visual) while their
+   one-shot Playwright child is alive. Red tone + close icon to read as
+   "stop" without colliding with the harness Down button's stop_circle. */
+.ctrl-cancel {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 5px 12px 5px 8px;
+  background: var(--fail);
+  color: #ffffff;
+  border-color: var(--fail);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.ctrl-cancel:hover {
+  background: #ff7575;
+  border-color: #ff7575;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 18px rgba(255, 94, 94, 0.55);
+}
+.ctrl-cancel:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.30),
+    0 0 0 transparent;
+}
+
 /* Harness controls (Up / Down / Reset) — ghost buttons with role-tinted
    hover. They share size + typography so they read as a control cluster. */
 .ctrl-up, .ctrl-down, .ctrl-reset {
@@ -1340,10 +1406,45 @@ pre {
 
 .ctrl-up:active, .ctrl-down:active, .ctrl-reset:active { transform: translateY(1px); }
 
+/* In-flight state for harness controls — applied by applyHarnessButton when
+   the SSE infra payload reports activeOp matching this button's role. The
+   button stays disabled (so the user can't double-click) but visibly *busy*
+   via a slow pulsing accent border + role-tinted icon. Distinct from the
+   plain disabled state below (no-op buttons), which just recedes. */
+.ctrl-up.is-working, .ctrl-down.is-working, .ctrl-reset.is-working {
+  cursor: progress;
+  opacity: 1;
+  pointer-events: none;
+}
+.ctrl-up.is-working { color: var(--pass); border-color: var(--pass); }
+.ctrl-down.is-working { color: var(--fail); border-color: var(--fail); }
+.ctrl-reset.is-working { color: var(--warn); border-color: var(--warn); }
+.ctrl-up.is-working,
+.ctrl-down.is-working,
+.ctrl-reset.is-working {
+  animation: ctrl-working-pulse 1.4s ease-in-out infinite;
+}
+.ctrl-up.is-working .ctrl-icon,
+.ctrl-down.is-working .ctrl-icon,
+.ctrl-reset.is-working .ctrl-icon {
+  animation: ctrl-working-spin 1.4s linear infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes ctrl-working-pulse {
+  0%, 100% { box-shadow: 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 14px currentColor; }
+}
+@keyframes ctrl-working-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Disabled state for harness controls — when the action would be a no-op
    (Up while already up, Down while nothing is running) the button visually
-   recedes and stops responding to hover. */
-.ctrl-up[disabled], .ctrl-down[disabled], .ctrl-reset[disabled] {
+   recedes and stops responding to hover. is-working overrides this: a busy
+   button is *also* disabled but should not look greyed out. */
+.ctrl-up[disabled]:not(.is-working),
+.ctrl-down[disabled]:not(.is-working),
+.ctrl-reset[disabled]:not(.is-working) {
   cursor: not-allowed;
   opacity: 0.35;
   pointer-events: none;
