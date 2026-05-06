@@ -46,10 +46,12 @@ const state = {
   tiers: {
     unit: makeTier('Unit', 'Initializing — first run in progress…'),
     integration: makeTier('Integration', 'Initializing — first run in progress…'),
-    // E2E is passive — populated when the user runs `npm run test:e2e:live`
-    // in another terminal. The dashboard doesn't spawn a watcher for it
-    // because Playwright + Electron is too heavy to rerun on every save.
-    e2e: makeTier('E2E (Playwright + Electron)', 'Run `npm run test:e2e:live` to populate this tier.'),
+    // E2E + Visual are passive — populated when the user fires the Run
+    // button on the tier or runs the matching `npm run test:e2e:live` /
+    // `test:visual:live` command in another terminal. Neither has a
+    // dashboard-managed watcher (too heavy to rerun on every save).
+    e2e:    makeTier('E2E (Playwright + Electron)', 'Run via the Run button (or `npm run test:e2e:live`).'),
+    visual: makeTier('Visual regression',           'Run via the Run button (or `npm run test:visual:live`).'),
   },
 };
 
@@ -206,7 +208,7 @@ function handleRequest(req, res) {
 // harness. File-based control inputs are validated to prevent arbitrary path
 // or command execution; only known tier keys and spec-file paths are allowed.
 
-const ALLOWED_TIER_KEYS = new Set(['unit', 'integration', 'e2e']);
+const ALLOWED_TIER_KEYS = new Set(['unit', 'integration', 'e2e', 'visual']);
 const SPEC_FILE_RE = /\.(?:spec|test)\.ts$/;
 
 async function readJsonBody(req) {
@@ -285,8 +287,13 @@ async function handleControlRunTier(req, res) {
   if (!ALLOWED_TIER_KEYS.has(tier)) return badRequest(res, 'unknown tier');
 
   if (tier === 'e2e') {
-    spawnOneShotE2E();
-    return ack(res, { ok: true, tier, action: 'one-shot playwright spawned' });
+    spawnOneShotPlaywright('e2e');
+    return ack(res, { ok: true, tier, action: 'one-shot playwright (e2e) spawned' });
+  }
+
+  if (tier === 'visual') {
+    spawnOneShotPlaywright('visual');
+    return ack(res, { ok: true, tier, action: 'one-shot playwright (visual) spawned' });
   }
 
   // unit / integration: trigger the existing watcher by touching every spec
@@ -309,9 +316,9 @@ async function handleControlRunSuite(req, res) {
 
   const abs = join(REPO_ROOT, file);
 
-  if (tier === 'e2e') {
-    spawnOneShotE2E([abs]);
-    return ack(res, { ok: true, tier, action: 'one-shot playwright spawned for ' + file });
+  if (tier === 'e2e' || tier === 'visual') {
+    spawnOneShotPlaywright(tier, [abs]);
+    return ack(res, { ok: true, tier, action: `one-shot playwright (${tier}) spawned for ${file}` });
   }
 
   const touched = await touchFiles([abs]);
@@ -366,16 +373,19 @@ function runHarness(label) {
   };
 }
 
-function spawnOneShotE2E(files = []) {
-  const args = ['playwright', 'test', ...files];
-  console.log(`▶ spawning one-shot e2e: npx ${args.join(' ')}`);
+function spawnOneShotPlaywright(tier, files = []) {
+  // tier is either 'e2e' or 'visual' — picks the matching Playwright project.
+  const args = ['playwright', 'test', `--project=${tier}`, ...files];
+  console.log(`▶ spawning one-shot playwright (${tier}): npx ${args.join(' ')}`);
   spawn('npx', args, {
     stdio: 'inherit',
     cwd: REPO_ROOT,
     env: {
       ...process.env,
       FORGE_LIVE_REPORTER_URL: REPORTER_URL,
-      FORGE_LIVE_REPORTER_TIER: 'e2e',
+      // Default tier is 'e2e' but the live reporter overrides per file path
+      // so a visual file in a mixed run still lands in the right tier.
+      FORGE_LIVE_REPORTER_TIER: tier,
     },
   });
 }
@@ -716,7 +726,7 @@ function watchChildExit(tier, child) {
 
 function serializeState() {
   const tiers = [];
-  for (const key of ['unit', 'integration', 'e2e']) {
+  for (const key of ['unit', 'integration', 'e2e', 'visual']) {
     const t = state.tiers[key];
     if (t.status === 'initializing' && t.suites.size === 0) {
       tiers.push({
@@ -748,8 +758,7 @@ function serializeState() {
         })),
     });
   }
-  // Phase 5 placeholder — no key, so no Run button.
-  tiers.push({ label: 'Visual regression', status: 'pending', note: 'Phase 5 — not yet implemented.' });
+  // (No more pending placeholder rows — visual is now a real tier above.)
 
   // Aggregate totals across active tiers.
   const totals = { passed: 0, failed: 0, skipped: 0, total: 0 };

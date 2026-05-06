@@ -10,15 +10,22 @@
 // for future sub-tier splits (e.g., 'visual').
 
 const URL = process.env.FORGE_LIVE_REPORTER_URL;
-const TIER = process.env.FORGE_LIVE_REPORTER_TIER || 'e2e';
+const DEFAULT_TIER = process.env.FORGE_LIVE_REPORTER_TIER || 'e2e';
 
-async function post(event) {
+// Visual baselines live under tests/e2e/visual/ — route them to the
+// dedicated 'visual' tier so the dashboard shows them as a distinct row.
+function tierForFile(file) {
+  if (typeof file === 'string' && file.includes('/tests/e2e/visual/')) return 'visual';
+  return DEFAULT_TIER;
+}
+
+async function post(tier, event) {
   if (!URL) return;
   try {
     await fetch(URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tier: TIER, at: Date.now(), ...event }),
+      body: JSON.stringify({ tier, at: Date.now(), ...event }),
     });
   } catch (err) {
     process.stderr.write(`[playwright-live-reporter] post failed: ${err?.message ?? err}\n`);
@@ -30,24 +37,40 @@ function fullNameOf(test) {
 }
 
 export default class ForgePlaywrightLiveReporter {
+  constructor() {
+    // Tracks which tiers actually started in this run, so onEnd only flushes
+    // run-end events for tiers that had a run-start. Avoids flipping an idle
+    // tier (e.g., 'visual' when only e2e ran) to 'ok'/'failed'.
+    this._activeTiers = new Set();
+  }
+
   async onBegin(_config, suite) {
-    const files = new Set();
+    const filesByTier = new Map();
     for (const test of suite.allTests()) {
-      if (test.location?.file) files.add(test.location.file);
+      const file = test.location?.file ?? '';
+      if (!file) continue;
+      const tier = tierForFile(file);
+      if (!filesByTier.has(tier)) filesByTier.set(tier, new Set());
+      filesByTier.get(tier).add(file);
     }
-    await post({ type: 'run-start', files: Array.from(files) });
+    for (const [tier, files] of filesByTier) {
+      this._activeTiers.add(tier);
+      await post(tier, { type: 'run-start', files: Array.from(files) });
+    }
   }
 
   async onTestBegin(test) {
-    await post({ type: 'module-start', file: test.location?.file ?? '' });
+    const file = test.location?.file ?? '';
+    await post(tierForFile(file), { type: 'module-start', file });
   }
 
   async onTestEnd(test, result) {
+    const file = test.location?.file ?? '';
     const status = normalizeStatus(result.status);
     const failureMessages = (result.errors ?? []).map((e) => e?.message ?? String(e));
-    await post({
+    await post(tierForFile(file), {
       type: 'test-result',
-      file: test.location?.file ?? '',
+      file,
       fullName: fullNameOf(test),
       status,
       durationMs: result.duration,
@@ -56,7 +79,12 @@ export default class ForgePlaywrightLiveReporter {
   }
 
   async onEnd(result) {
-    await post({ type: 'run-end', reason: result.status });
+    await Promise.all(
+      Array.from(this._activeTiers).map((tier) =>
+        post(tier, { type: 'run-end', reason: result.status }),
+      ),
+    );
+    this._activeTiers.clear();
   }
 }
 

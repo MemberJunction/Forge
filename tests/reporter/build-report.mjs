@@ -64,7 +64,7 @@ async function main() {
 
   // Tier 3: E2E (Playwright + Electron)
   if (ARGS.e2e) {
-    tiers.push(await runPlaywrightTier());
+    tiers.push(await runPlaywrightTier({ label: 'E2E (Playwright + Electron)', project: 'e2e', cacheName: 'e2e.json' }));
   } else {
     tiers.push({
       label: 'E2E (Playwright + Electron)',
@@ -73,8 +73,16 @@ async function main() {
     });
   }
 
-  // Tier 4: Visual regression placeholder.
-  tiers.push({ label: 'Visual regression', status: 'pending', note: 'Phase 5 — not yet implemented.' });
+  // Tier 4: Visual regression
+  if (ARGS.e2e) {
+    tiers.push(await runPlaywrightTier({ label: 'Visual regression', project: 'visual', cacheName: 'visual.json' }));
+  } else {
+    tiers.push({
+      label: 'Visual regression',
+      status: 'pending',
+      note: 'Skipped via --no-e2e.',
+    });
+  }
 
   const durationMs = Date.now() - startedAt;
   const totals = aggregateTotals(tiers);
@@ -210,8 +218,7 @@ async function runVitestTier({ label, configFlag, cacheFile }) {
 const RENDERER_INDEX = join(REPO_ROOT, 'packages', 'renderer', 'dist', 'browser', 'index.html');
 const MAIN_ENTRY = join(REPO_ROOT, 'packages', 'main', 'dist', 'index.js');
 
-async function runPlaywrightTier() {
-  const label = 'E2E (Playwright + Electron)';
+async function runPlaywrightTier({ label, project, cacheName }) {
   if (!existsSync(RENDERER_INDEX) || !existsSync(MAIN_ENTRY)) {
     return {
       label,
@@ -219,10 +226,20 @@ async function runPlaywrightTier() {
       note: 'Skipped — packages/{main,renderer}/dist not built. Run `npm run build` first.',
     };
   }
-  const cacheFile = join(CACHE_DIR, 'e2e.json');
-  console.log('▶ Running E2E (Playwright + Electron)…');
+  const cacheFile = join(CACHE_DIR, cacheName);
+  console.log(`▶ Running ${label}…`);
   const startedAt = Date.now();
-  const { code } = await run('npx', ['playwright', 'test'], REPO_ROOT);
+  const { code } = await run(
+    'npx',
+    [
+      'playwright', 'test',
+      `--project=${project}`,
+      `--reporter=list,json`,
+      `--output=${join(CACHE_DIR, 'playwright-' + project)}`,
+    ],
+    REPO_ROOT,
+    { PLAYWRIGHT_JSON_OUTPUT_FILE: cacheFile },
+  );
   const durationMs = Date.now() - startedAt;
 
   if (!existsSync(cacheFile)) {
@@ -410,9 +427,13 @@ async function writeReport(html, startedAt) {
 
 // ---- shell helpers ----
 
-function run(cmd, args, cwd) {
+function run(cmd, args, cwd, env = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: 'inherit', cwd });
+    const child = spawn(cmd, args, {
+      stdio: 'inherit',
+      cwd,
+      env: { ...process.env, ...env },
+    });
     child.on('error', reject);
     child.on('exit', (code) => resolve({ code: code ?? 1 }));
   });

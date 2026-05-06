@@ -2,11 +2,12 @@
 
 Three-tier test pyramid for catching regressions across all supported engines and the full Electron app.
 
-| Tier             | Runner                  | Scope                             | Lives in                             |
-| ---------------- | ----------------------- | --------------------------------- | ------------------------------------ |
-| 1. Unit          | Vitest                  | Pure logic, no I/O                | `packages/*/src/**/*.{test,spec}.ts` |
-| 2. Integration   | Vitest + Docker Compose | Real DBs, SSH tunnel, AI plumbing | `tests/integration/**`               |
-| 3. E2E (Phase 4) | Playwright + Electron   | Full app, functional + visual     | `tests/e2e/**`                       |
+| Tier           | Runner                  | Scope                             | Lives in                             |
+| -------------- | ----------------------- | --------------------------------- | ------------------------------------ |
+| 1. Unit        | Vitest                  | Pure logic, no I/O                | `packages/*/src/**/*.{test,spec}.ts` |
+| 2. Integration | Vitest + Docker Compose | Real DBs, SSH tunnel, AI plumbing | `tests/integration/**`               |
+| 3. E2E         | Playwright + Electron   | Functional E2E specs              | `tests/e2e/*.spec.ts`                |
+| 4. Visual      | Playwright + Electron   | Pixel-diff baselines, macOS-only  | `tests/e2e/visual/**`                |
 
 ## Quick start
 
@@ -59,6 +60,9 @@ npm run test:harness:down     # tear down when done
 | `npm run test:integration:watch` | Integration in watch mode for active dev                                 |
 | `npm run test:full`              | All tiers + HTML report. Brings harness up automatically.                |
 | `npm run test:dashboard`         | Live HTML dashboard at http://127.0.0.1:5188, vitest watch on both tiers |
+| `npm run test:visual`            | Capture/compare visual regression baselines (one-shot)                   |
+| `npm run test:visual:live`       | Same, but stream events to the dashboard                                 |
+| `npm run test:visual:update`     | Re-capture all visual baselines (use after intentional UI changes)       |
 | `npm run test:harness:up`        | Start docker-compose network, generate SSH keypair if needed             |
 | `npm run test:harness:down`      | Stop network and remove volumes                                          |
 | `npm run test:harness:status`    | Show compose service health                                              |
@@ -124,8 +128,8 @@ Helper for this is coming in Phase 2.
 - **Phase 2** — Real integration specs: dialect smoke per engine, query-executor across engines, SSH tunnel happy path.
 - **Phase 3** — LLM mock + cassette replay for deterministic AI tests.
 - **Phase 4** — Playwright E2E suite covering everything from `regression-suite.md` (the legacy MSSQL audit) plus PG, MySQL, AI chat.
-- **Phase 5** — Visual regression baselines for ~12 critical screens (macOS-only).
-- **Phase 6** — `npm run test:full` (one-shot CI-style) and `npm run test:smoke` (fast subset for the agent loop).
+- **Phase 5** ✓ — Visual regression baselines under `tests/__snapshots__/visual/` (macOS-only by design — re-capture with `test:visual:update` if the host machine changes).
+- **Phase 6** — `npm run test:full` (one-shot CI-style) ✓ and `npm run test:smoke` (fast subset for the agent loop) — pending.
 
 ## Troubleshooting
 
