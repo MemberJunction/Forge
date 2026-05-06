@@ -13,7 +13,7 @@
 
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -304,6 +304,7 @@ function normalizePlaywrightJson(label, json) {
         status: it.status,
         durationMs: it.durationMs,
         failureMessages: it.failureMessages,
+        screenshots: it.screenshots,
       };
     });
     tierDuration += suiteDuration;
@@ -339,16 +340,59 @@ function walkSuites(suites, ancestors, out) {
       const test = spec.tests?.[0];
       const result = test?.results?.[0];
       const status = normalizePwStatus(result?.status);
+      const file = spec.file ?? s.file ?? '';
       out.push({
-        file: spec.file ?? s.file ?? '',
+        file,
         fullName,
         status,
         durationMs: result?.duration ?? 0,
         failureMessages: (result?.errors ?? []).map((e) => e?.message ?? String(e)),
+        // For visual specs, embed the relevant PNGs as base64 so the static
+        // HTML report stays self-contained (no /snapshots route to fetch from).
+        // Playwright JSON file paths are relative to testDir (tests/e2e), so
+        // visual specs arrive as "visual/<spec>.spec.ts" — match accordingly.
+        screenshots: /^visual\//.test(file)
+          ? collectStaticScreenshots(file, spec.title, result)
+          : undefined,
       });
     }
     if (s.suites?.length) walkSuites(s.suites, trail, out);
   }
+}
+
+const SNAPSHOT_ROOT = join(REPO_ROOT, 'tests', '__snapshots__', 'visual');
+
+function snapshotNameFromTitle(title) {
+  return String(title).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
+}
+
+function fileToDataUrl(absPath) {
+  if (!absPath || !existsSync(absPath)) return null;
+  try {
+    return 'data:image/png;base64,' + readFileSync(absPath).toString('base64');
+  } catch (err) {
+    console.warn(`[build-report] failed to inline ${absPath}: ${err?.message ?? err}`);
+    return null;
+  }
+}
+
+function collectStaticScreenshots(specFile, title, result) {
+  const out = {};
+  const specName = specFile.split('/').pop() || 'spec';
+  const baselineAbs = join(SNAPSHOT_ROOT, specName, snapshotNameFromTitle(title));
+  const baseline = fileToDataUrl(baselineAbs);
+  if (baseline) out.baseline = baseline;
+  for (const a of result?.attachments ?? []) {
+    if (!a?.path || !a?.name) continue;
+    if (a.name.endsWith('-actual')) {
+      const url = fileToDataUrl(a.path);
+      if (url) out.actual = url;
+    } else if (a.name.endsWith('-diff')) {
+      const url = fileToDataUrl(a.path);
+      if (url) out.diff = url;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function normalizePwStatus(s) {

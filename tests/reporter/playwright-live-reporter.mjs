@@ -66,15 +66,23 @@ export default class ForgePlaywrightLiveReporter {
 
   async onTestEnd(test, result) {
     const file = test.location?.file ?? '';
+    const tier = tierForFile(file);
     const status = normalizeStatus(result.status);
     const failureMessages = (result.errors ?? []).map((e) => e?.message ?? String(e));
-    await post(tierForFile(file), {
+    // For visual tests: baseline + (on failure) actual/diff attachments.
+    // The server exposes these via /snapshots/* and /attachments/* so the
+    // dashboard can render thumbnails without bloating SSE payloads.
+    const screenshots = tier === 'visual'
+      ? collectVisualScreenshots(test, result)
+      : undefined;
+    await post(tier, {
       type: 'test-result',
       file,
       fullName: fullNameOf(test),
       status,
       durationMs: result.duration,
       failureMessages,
+      screenshots,
     });
   }
 
@@ -86,6 +94,36 @@ export default class ForgePlaywrightLiveReporter {
     );
     this._activeTiers.clear();
   }
+}
+
+// Convention: snapshot file = test title, kebab-cased + .png. Lets the
+// reporter point at the right baseline without parsing the test source.
+function snapshotNameFromTitle(title) {
+  return String(title).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
+}
+
+function collectVisualScreenshots(test, result) {
+  const file = test.location?.file ?? '';
+  const specName = file.split('/').pop() || 'spec';
+  const snapshotName = snapshotNameFromTitle(test.title);
+  // Server resolves these relative to tests/__snapshots__/visual.
+  const baseline = `${specName}/${snapshotName}`;
+  // Failure attachments are absolute paths under
+  // tests/reports/.cache/playwright-results/. Server's /attachments/ route
+  // validates and serves them.
+  const byName = new Map();
+  for (const a of result.attachments ?? []) {
+    if (!a?.path || !a?.name) continue;
+    byName.set(a.name, a.path);
+  }
+  const result_ = { baseline };
+  // Playwright attachment names look like "<arg>-actual" / "<arg>-diff".
+  for (const name of byName.keys()) {
+    if (name.endsWith('-actual')) result_.actual = byName.get(name);
+    else if (name.endsWith('-diff')) result_.diff = byName.get(name);
+    else if (name.endsWith('-expected')) result_.expectedSnapshot = byName.get(name);
+  }
+  return result_;
 }
 
 function normalizeStatus(s) {

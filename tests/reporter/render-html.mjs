@@ -287,13 +287,37 @@ function renderTest(test) {
     test.status === 'failed' && test.failureMessages?.length
       ? `<pre class="failure">${escapeHtml(test.failureMessages.join('\n\n'))}</pre>`
       : '';
+  const visuals = test.screenshots ? renderVisualBlock(test.screenshots, test.status) : '';
   return `
     <li class="test test-${test.status}">
       <span class="badge ${s.klass}">${s.label}</span>
       <span class="test-name">${escapeHtml(test.fullName)}</span>
       <span class="test-duration mono">${fmtDuration(test.durationMs)}</span>
       ${failureBlock}
+      ${visuals}
     </li>
+  `;
+}
+
+// Visual-tier test row addendum: thumbnails of the captured baseline (always)
+// plus actual + diff (only when the test failed). Click any thumbnail to
+// open the lightbox.
+function renderVisualBlock(screenshots, status) {
+  if (!screenshots) return '';
+  const thumbs = [];
+  if (screenshots.baseline) thumbs.push({ label: 'Baseline', url: screenshots.baseline });
+  if (status === 'failed' && screenshots.actual) thumbs.push({ label: 'Actual',   url: screenshots.actual,   tone: 'fail' });
+  if (status === 'failed' && screenshots.diff)   thumbs.push({ label: 'Diff',     url: screenshots.diff,     tone: 'fail' });
+  if (thumbs.length === 0) return '';
+  return `
+    <div class="visual-row">
+      ${thumbs.map((t) => `
+        <button type="button" class="visual-thumb visual-thumb-${escapeHtml(t.tone ?? 'ok')}" data-lightbox-src="${escapeHtml(t.url)}" data-lightbox-label="${escapeHtml(t.label)}" title="Click to enlarge">
+          <img loading="lazy" src="${escapeHtml(t.url)}" alt="${escapeHtml(t.label)}" />
+          <span class="visual-thumb-label">${escapeHtml(t.label)}</span>
+        </button>
+      `).join('')}
+    </div>
   `;
 }
 
@@ -1311,6 +1335,114 @@ pre {
   text-align: center;
 }
 
+/* VISUAL THUMBNAILS ──────────────────────────────────── */
+.visual-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--line);
+}
+.visual-thumb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  cursor: zoom-in;
+  transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  overflow: hidden;
+  min-width: 0;
+}
+.visual-thumb img {
+  display: block;
+  width: 200px;
+  max-height: 130px;
+  object-fit: cover;
+  object-position: top center;
+  background: var(--bg-deep);
+}
+.visual-thumb-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding: 4px 8px 6px;
+  text-align: left;
+}
+.visual-thumb:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.visual-thumb:hover .visual-thumb-label { color: var(--accent); }
+.visual-thumb-fail { border-color: rgba(255, 94, 94, 0.4); }
+.visual-thumb-fail .visual-thumb-label { color: var(--fail); }
+.visual-thumb-fail:hover { border-color: var(--fail); }
+.visual-thumb-fail:hover .visual-thumb-label { color: var(--fail); }
+
+/* LIGHTBOX ───────────────────────────────────────────── */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  cursor: zoom-out;
+  animation: modalFadeIn 0.18s ease;
+}
+.lightbox[hidden] { display: none !important; }
+.lightbox-frame {
+  position: relative;
+  max-width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.lightbox-img {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  background: var(--bg-deep);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.lightbox-caption {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+.lightbox-close {
+  position: absolute;
+  top: -38px;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--ink-muted);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+.lightbox-close:hover { color: var(--accent); border-color: var(--accent); }
+
 /* MODAL ──────────────────────────────────────────────── */
 .modal {
   position: fixed;
@@ -1487,6 +1619,59 @@ pre {
 }
 `;
 
+// Lightbox markup + JS — used by both the live dashboard and the static
+// report. Click any .visual-thumb to open it; ESC or backdrop-click to close.
+const LIGHTBOX_HTML = `
+<div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="lightbox-frame">
+    <button type="button" class="lightbox-close" aria-label="Close">×</button>
+    <img class="lightbox-img" alt="" />
+    <span class="lightbox-caption"></span>
+  </div>
+</div>`;
+
+const LIGHTBOX_SCRIPT = /* javascript */ `
+(() => {
+  const lightbox = document.getElementById('lightbox');
+  if (!lightbox) return;
+  const lightboxImg = lightbox.querySelector('.lightbox-img');
+  const lightboxCaption = lightbox.querySelector('.lightbox-caption');
+  const lightboxClose = lightbox.querySelector('.lightbox-close');
+  function openLightbox(src, label) {
+    lightboxImg.src = src;
+    lightboxImg.alt = label || '';
+    lightboxCaption.textContent = label || '';
+    lightbox.hidden = false;
+    lightbox.setAttribute('aria-hidden', 'false');
+    document.addEventListener('keydown', lightboxKeydown, true);
+  }
+  function closeLightbox() {
+    lightbox.hidden = true;
+    lightbox.setAttribute('aria-hidden', 'true');
+    lightboxImg.removeAttribute('src');
+    document.removeEventListener('keydown', lightboxKeydown, true);
+  }
+  function lightboxKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); }
+  }
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightboxImg) return;
+    closeLightbox();
+  });
+  lightboxClose.addEventListener('click', (e) => { e.stopPropagation(); closeLightbox(); });
+  document.addEventListener('click', (event) => {
+    const thumb = event.target.closest('.visual-thumb');
+    if (!thumb) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openLightbox(thumb.dataset.lightboxSrc, thumb.dataset.lightboxLabel);
+  });
+  document.addEventListener('mousedown', (event) => {
+    if (event.target.closest('.visual-thumb')) event.stopPropagation();
+  }, true);
+})();
+`;
+
 const SCRIPT = /* javascript */ `
 function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1569,9 +1754,11 @@ ${FONT_LINKS}
     Generated by tests/reporter/build-report.mjs
   </footer>
 </main>
+${LIGHTBOX_HTML}
 <script>${SCRIPT}</script>
+<script>${LIGHTBOX_SCRIPT}</script>
 </body>
 </html>`;
 }
 
-export { STYLES, SCRIPT, FONT_LINKS };
+export { STYLES, SCRIPT, FONT_LINKS, LIGHTBOX_HTML, LIGHTBOX_SCRIPT };

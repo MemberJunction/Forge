@@ -23,12 +23,19 @@ import { fileURLToPath } from 'node:url';
 
 import Docker from 'dockerode';
 
-import { renderReportBody, renderInfrastructure, STYLES, SCRIPT, FONT_LINKS } from './render-html.mjs';
+import {
+  renderReportBody,
+  renderInfrastructure,
+  STYLES, SCRIPT, FONT_LINKS,
+  LIGHTBOX_HTML, LIGHTBOX_SCRIPT,
+} from './render-html.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
 const CACHE_DIR = join(REPO_ROOT, 'tests', 'reports', '.cache');
 const REPORTER_PATH = join(REPO_ROOT, 'tests', 'reporter', 'vitest-live-reporter.mjs');
+const SNAPSHOTS_DIR = join(REPO_ROOT, 'tests', '__snapshots__', 'visual');
+const ATTACHMENTS_DIR = join(REPO_ROOT, 'tests', 'reports', '.cache', 'playwright-results');
 
 const PORT = Number(process.env.FORGE_DASHBOARD_PORT ?? 5188);
 // Bind to all interfaces by default so the dashboard is reachable over LAN
@@ -180,6 +187,12 @@ function handleRequest(req, res) {
   }
   if (req.method === 'POST' && req.url === '/_event') {
     return handleEventPost(req, res);
+  }
+  if (req.method === 'GET' && req.url.startsWith('/snapshots/')) {
+    return serveStaticFile(req, res, SNAPSHOTS_DIR, '/snapshots/');
+  }
+  if (req.method === 'GET' && req.url.startsWith('/attachments/')) {
+    return serveStaticFile(req, res, ATTACHMENTS_DIR, '/attachments/');
   }
   if (req.method === 'POST' && req.url === '/control/run-tier') {
     return handleControlRunTier(req, res);
@@ -395,6 +408,62 @@ function pushTo(res, event, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+// ---- static file serving (snapshots + attachments) ----
+//
+// Two routes serve PNGs to the dashboard:
+//   - /snapshots/<spec>/<arg>.png   ← visual baselines (committed)
+//   - /attachments/<rel-path>       ← Playwright failure outputs (gitignored)
+//
+// Both are sandboxed to their root dir via path.resolve + prefix check, so
+// a request like /snapshots/../../etc/passwd resolves to outside the root
+// and gets rejected.
+async function serveStaticFile(req, res, rootDir, urlPrefix) {
+  const { resolve, sep, extname } = await import('node:path');
+  const { createReadStream } = await import('node:fs');
+  const { stat } = await import('node:fs/promises');
+  const subpath = decodeURIComponent(req.url.slice(urlPrefix.length).split('?')[0]);
+  const abs = resolve(rootDir, subpath);
+  if (!abs.startsWith(rootDir + sep) && abs !== rootDir) {
+    res.writeHead(403);
+    return res.end('forbidden');
+  }
+  try {
+    const s = await stat(abs);
+    if (!s.isFile()) {
+      res.writeHead(404);
+      return res.end('not a file');
+    }
+  } catch {
+    res.writeHead(404);
+    return res.end('not found');
+  }
+  const ext = extname(abs).toLowerCase();
+  const type = ext === '.png' ? 'image/png'
+    : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+    : ext === '.webm' ? 'video/webm'
+    : 'application/octet-stream';
+  res.writeHead(200, {
+    'content-type': type,
+    'cache-control': 'no-cache',
+  });
+  createReadStream(abs).pipe(res);
+}
+
+// Rewrite absolute on-disk attachment paths into URLs that the dashboard
+// can fetch through the /attachments/ route. Baseline paths come through
+// already as a relative subpath (spec/<arg>.png) and become /snapshots/...
+function rewriteScreenshotPaths(s) {
+  if (!s) return undefined;
+  const out = {};
+  if (s.baseline) out.baseline = '/snapshots/' + s.baseline;
+  for (const k of ['actual', 'diff', 'expectedSnapshot']) {
+    if (typeof s[k] === 'string' && s[k].startsWith(ATTACHMENTS_DIR)) {
+      out[k] = '/attachments/' + s[k].slice(ATTACHMENTS_DIR.length + 1).split('\\').join('/');
+    }
+  }
+  return out;
+}
+
 // Throttled broadcast: coalesces bursts of test-result events into one SSE
 // message ~every 80ms so the browser doesn't get hammered when 200+ unit
 // tests finish in the same second.
@@ -502,6 +571,7 @@ function handleEvent(event) {
       status: normalizeStatus(event.status),
       durationMs: event.durationMs,
       failureMessages: event.failureMessages ?? [],
+      screenshots: event.screenshots,
     });
     tier.suites.set(event.file, suite);
     tier.currentTest = event.fullName;
@@ -754,7 +824,12 @@ function serializeState() {
           runState: s.runState,
           durationMs: s.durationMs,
           totals: s.totals,
-          tests: Array.from(s.tests.values()),
+          tests: Array.from(s.tests.values()).map((t) => ({
+        ...t,
+        // Rewrite absolute attachment paths into server-relative URLs the
+        // browser can fetch. Baseline comes through as already-relative.
+        screenshots: t.screenshots ? rewriteScreenshotPaths(t.screenshots) : undefined,
+      })),
         })),
     });
   }
@@ -823,6 +898,8 @@ ${FONT_LINKS}
     Live server · port <span class="mono">${PORT}</span>
   </footer>
 </main>
+
+${LIGHTBOX_HTML}
 
 <!-- One global confirm modal. forgeConfirm() rebinds its content + handlers
      each time it's invoked, returning a Promise<boolean>. -->
@@ -1186,7 +1263,10 @@ document.addEventListener('click', (event) => {
 document.addEventListener('mousedown', (event) => {
   if (event.target.closest('.ctrl-btn')) event.stopPropagation();
 }, true);
+
+// Lightbox bound by LIGHTBOX_SCRIPT, included from render-html.mjs below.
 </script>
+<script>${LIGHTBOX_SCRIPT}</script>
 </body>
 </html>`;
 }
