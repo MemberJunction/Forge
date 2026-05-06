@@ -7,10 +7,17 @@
  */
 
 import { IPC_CHANNELS } from '@mj-forge/shared';
-import type { BackupRequest, BackupFileInfo, RestoreRequest } from '@mj-forge/shared';
+import type {
+  BackupRequest,
+  BackupFileInfo,
+  CliDepsResult,
+  CliEngine,
+  RestoreRequest,
+} from '@mj-forge/shared';
 import { BackupRestoreService } from '../services/sql/backup-restore';
 import { PgBackupService } from '../services/sql/pg-backup';
 import { MySQLBackupService } from '../services/sql/mysql-backup';
+import { CliDepsService } from '../services/sql/cli-deps';
 import { ServerFilesystemService } from '../services/sql/server-filesystem';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { safeHandle } from './safe-handle';
@@ -23,7 +30,20 @@ export function registerBackupHandlers(): void {
   const backupService = BackupRestoreService.getInstance();
   const pgBackupService = PgBackupService.getInstance();
   const mysqlBackupService = MySQLBackupService.getInstance();
+  const cliDeps = CliDepsService.getInstance();
   const serverFs = new ServerFilesystemService();
+
+  // CLI tool probe — renderer queries this before opening the
+  // backup/restore form on PG/MySQL. CHECK_TOOLS is cached;
+  // RECHECK_TOOLS forces a fresh probe (after the user installs).
+  safeHandle(
+    IPC_CHANNELS.BACKUP.CHECK_TOOLS,
+    async (_event, engine: CliEngine): Promise<CliDepsResult> => cliDeps.checkDeps(engine)
+  );
+  safeHandle(
+    IPC_CHANNELS.BACKUP.RECHECK_TOOLS,
+    async (_event, engine: CliEngine): Promise<CliDepsResult> => cliDeps.recheck(engine)
+  );
 
   // Start backup — routes to correct provider
   safeHandle(IPC_CHANNELS.BACKUP.START, async (_event, request: BackupRequest): Promise<string> => {

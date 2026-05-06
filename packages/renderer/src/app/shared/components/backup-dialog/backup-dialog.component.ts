@@ -19,6 +19,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { firstValueFrom, Subscription } from 'rxjs';
@@ -28,11 +29,14 @@ import {
   ServerFileBrowserComponent,
   ServerFileBrowserDialogData,
 } from '../server-file-browser/server-file-browser.component';
+import { MissingCliToolsComponent } from '../missing-cli-tools/missing-cli-tools.component';
 import type {
   BackupRequest,
   BackupType,
   BackupProgress,
   BackupHistoryEntry,
+  CliDepsResult,
+  CliEngine,
 } from '@mj-forge/shared';
 
 export interface BackupDialogData {
@@ -55,8 +59,10 @@ export interface BackupDialogData {
     MatSelectModule,
     MatCheckboxModule,
     MatProgressBarModule,
+    MatProgressSpinnerModule,
     MatTooltipModule,
     MatExpansionModule,
+    MissingCliToolsComponent,
   ],
   template: `
     <div class="backup-dialog">
@@ -66,158 +72,180 @@ export interface BackupDialogData {
       </h2>
 
       <mat-dialog-content>
-        <div class="form-grid">
-          <!-- Backup Type -->
-          <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>{{
-              data.engine === 'postgresql'
-                ? 'Dump Format'
-                : data.engine === 'mysql'
-                  ? 'Dump Format'
-                  : 'Backup Type'
-            }}</mat-label>
-            @if (data.engine === 'postgresql') {
-              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
-                <mat-option value="full">Custom (compressed, pg_restore)</mat-option>
-                <mat-option value="differential">Plain SQL (readable text)</mat-option>
-                <mat-option value="log">Directory (parallel dump)</mat-option>
-              </mat-select>
-            } @else if (data.engine === 'mysql') {
-              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
-                <mat-option value="full">SQL dump (mysqldump)</mat-option>
-              </mat-select>
-            } @else {
-              <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
-                <mat-option value="full">Full Backup</mat-option>
-                <mat-option value="differential">Differential Backup</mat-option>
-                <mat-option value="log">Transaction Log Backup</mat-option>
-              </mat-select>
-            }
-          </mat-form-field>
-
-          <!-- Backup Path -->
-          <div class="path-row">
-            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
-              <mat-label>{{
-                data.engine === 'mssql' ? 'Backup Path (on SQL Server)' : 'Backup File Path (local)'
-              }}</mat-label>
-              <input
-                matInput
-                [(ngModel)]="formData.backupPath"
-                [disabled]="backing()"
-                [placeholder]="
-                  data.engine === 'postgresql'
-                    ? 'e.g., /tmp/mydb.dump'
-                    : data.engine === 'mysql'
-                      ? 'e.g., /tmp/mydb.sql'
-                      : 'e.g., /var/opt/mssql/backup/db.bak'
-                "
-              />
-            </mat-form-field>
-            @if (data.engine === 'mssql' || !data.engine) {
-              <button
-                mat-icon-button
-                [disabled]="backing()"
-                (click)="browseBackupPath()"
-                matTooltip="Browse server"
-              >
-                <mat-icon>folder_open</mat-icon>
-              </button>
-            }
+        @if (checkingTools()) {
+          <div class="checking-tools" data-testid="backup-tools-checking">
+            <mat-spinner diameter="20" />
+            <span>Checking for required CLI tools…</span>
           </div>
-
-          <!-- Options (MSSQL only — mysqldump/pg_dump handle these differently) -->
-          @if (data.engine === 'mssql' || !data.engine) {
-            <div class="options-row">
-              <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
-                >Compression</mat-checkbox
-              >
-              <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
-                >Copy-Only</mat-checkbox
-              >
-              <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
-                >Checksum</mat-checkbox
-              >
-            </div>
-
-            <!-- Description -->
+        } @else if (showMissingTools()) {
+          <app-missing-cli-tools
+            [instructions]="toolsCheck()!.installInstructions!"
+            [tools]="toolsCheck()!.tools"
+            [rechecking]="rechecking()"
+            (recheck)="recheckTools()"
+            (copyCommand)="copyToClipboard($event)"
+            (openLink)="openExternalLink($event)"
+          />
+        } @else {
+          <div class="form-grid">
+            <!-- Backup Type -->
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Description (optional)</mat-label>
-              <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
+              <mat-label>{{
+                data.engine === 'postgresql'
+                  ? 'Dump Format'
+                  : data.engine === 'mysql'
+                    ? 'Dump Format'
+                    : 'Backup Type'
+              }}</mat-label>
+              @if (data.engine === 'postgresql') {
+                <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                  <mat-option value="full">Custom (compressed, pg_restore)</mat-option>
+                  <mat-option value="differential">Plain SQL (readable text)</mat-option>
+                  <mat-option value="log">Directory (parallel dump)</mat-option>
+                </mat-select>
+              } @else if (data.engine === 'mysql') {
+                <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                  <mat-option value="full">SQL dump (mysqldump)</mat-option>
+                </mat-select>
+              } @else {
+                <mat-select [(ngModel)]="formData.backupType" [disabled]="backing()">
+                  <mat-option value="full">Full Backup</mat-option>
+                  <mat-option value="differential">Differential Backup</mat-option>
+                  <mat-option value="log">Transaction Log Backup</mat-option>
+                </mat-select>
+              }
             </mat-form-field>
-          }
-        </div>
 
-        <!-- Progress -->
-        @if (backing()) {
-          <div class="progress-section">
-            <div class="progress-header">
-              <span>{{ progress()?.currentPhase || 'Starting backup...' }}</span>
-              @if ((progress()?.percentComplete ?? 0) >= 0) {
-                <span>{{ progress()?.percentComplete || 0 }}%</span>
+            <!-- Backup Path -->
+            <div class="path-row">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic" class="flex-1">
+                <mat-label>{{
+                  data.engine === 'mssql'
+                    ? 'Backup Path (on SQL Server)'
+                    : 'Backup File Path (local)'
+                }}</mat-label>
+                <input
+                  matInput
+                  [(ngModel)]="formData.backupPath"
+                  [disabled]="backing()"
+                  [placeholder]="
+                    data.engine === 'postgresql'
+                      ? 'e.g., /tmp/mydb.dump'
+                      : data.engine === 'mysql'
+                        ? 'e.g., /tmp/mydb.sql'
+                        : 'e.g., /var/opt/mssql/backup/db.bak'
+                  "
+                />
+              </mat-form-field>
+              @if (data.engine === 'mssql' || !data.engine) {
+                <button
+                  mat-icon-button
+                  [disabled]="backing()"
+                  (click)="browseBackupPath()"
+                  matTooltip="Browse server"
+                >
+                  <mat-icon>folder_open</mat-icon>
+                </button>
               }
             </div>
-            <mat-progress-bar
-              [mode]="(progress()?.percentComplete ?? 0) < 0 ? 'indeterminate' : 'determinate'"
-              [value]="
-                (progress()?.percentComplete ?? 0) < 0 ? 0 : progress()?.percentComplete || 0
-              "
-            />
+
+            <!-- Options (MSSQL only — mysqldump/pg_dump handle these differently) -->
+            @if (data.engine === 'mssql' || !data.engine) {
+              <div class="options-row">
+                <mat-checkbox [(ngModel)]="formData.compression" [disabled]="backing()"
+                  >Compression</mat-checkbox
+                >
+                <mat-checkbox [(ngModel)]="formData.copyOnly" [disabled]="backing()"
+                  >Copy-Only</mat-checkbox
+                >
+                <mat-checkbox [(ngModel)]="formData.checksum" [disabled]="backing()"
+                  >Checksum</mat-checkbox
+                >
+              </div>
+
+              <!-- Description -->
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Description (optional)</mat-label>
+                <input matInput [(ngModel)]="formData.description" [disabled]="backing()" />
+              </mat-form-field>
+            }
           </div>
-        }
 
-        <!-- Expandable panels (MSSQL only) -->
-        @if (data.engine === 'mssql' || !data.engine) {
-          <mat-accordion class="panels">
-            <mat-expansion-panel>
-              <mat-expansion-panel-header>
-                <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
-              </mat-expansion-panel-header>
-              <pre class="tsql-code">{{ generatedTsql() }}</pre>
-            </mat-expansion-panel>
-
-            <mat-expansion-panel>
-              <mat-expansion-panel-header>
-                <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
-              </mat-expansion-panel-header>
-              <div class="history-list">
-                @if (loadingHistory()) {
-                  <div class="empty-text">Loading...</div>
-                } @else if (backupHistory().length === 0) {
-                  <div class="empty-text">No backup history</div>
-                } @else {
-                  @for (entry of backupHistory(); track entry.backupStartDate) {
-                    <div class="history-item">
-                      <div class="history-main">
-                        <span class="history-type">{{ entry.backupType }}</span>
-                        <span class="history-date">{{
-                          entry.backupFinishDate | date: 'short'
-                        }}</span>
-                      </div>
-                      <div class="history-details">
-                        <span class="history-path">{{ entry.physicalDeviceName }}</span>
-                        <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
-                      </div>
-                    </div>
-                  }
+          <!-- Progress -->
+          @if (backing()) {
+            <div class="progress-section">
+              <div class="progress-header">
+                <span>{{ progress()?.currentPhase || 'Starting backup...' }}</span>
+                @if ((progress()?.percentComplete ?? 0) >= 0) {
+                  <span>{{ progress()?.percentComplete || 0 }}%</span>
                 }
               </div>
-            </mat-expansion-panel>
-          </mat-accordion>
+              <mat-progress-bar
+                [mode]="(progress()?.percentComplete ?? 0) < 0 ? 'indeterminate' : 'determinate'"
+                [value]="
+                  (progress()?.percentComplete ?? 0) < 0 ? 0 : progress()?.percentComplete || 0
+                "
+              />
+            </div>
+          }
+
+          <!-- Expandable panels (MSSQL only) -->
+          @if (data.engine === 'mssql' || !data.engine) {
+            <mat-accordion class="panels">
+              <mat-expansion-panel>
+                <mat-expansion-panel-header>
+                  <mat-panel-title><mat-icon>code</mat-icon>T-SQL Preview</mat-panel-title>
+                </mat-expansion-panel-header>
+                <pre class="tsql-code">{{ generatedTsql() }}</pre>
+              </mat-expansion-panel>
+
+              <mat-expansion-panel>
+                <mat-expansion-panel-header>
+                  <mat-panel-title><mat-icon>history</mat-icon>Backup History</mat-panel-title>
+                </mat-expansion-panel-header>
+                <div class="history-list">
+                  @if (loadingHistory()) {
+                    <div class="empty-text">Loading...</div>
+                  } @else if (backupHistory().length === 0) {
+                    <div class="empty-text">No backup history</div>
+                  } @else {
+                    @for (entry of backupHistory(); track entry.backupStartDate) {
+                      <div class="history-item">
+                        <div class="history-main">
+                          <span class="history-type">{{ entry.backupType }}</span>
+                          <span class="history-date">{{
+                            entry.backupFinishDate | date: 'short'
+                          }}</span>
+                        </div>
+                        <div class="history-details">
+                          <span class="history-path">{{ entry.physicalDeviceName }}</span>
+                          <span class="history-size">{{ formatBytes(entry.backupSizeBytes) }}</span>
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
+              </mat-expansion-panel>
+            </mat-accordion>
+          }
         }
       </mat-dialog-content>
 
       <mat-dialog-actions align="start">
-        <button
-          mat-flat-button
-          color="primary"
-          [disabled]="!canBackup() || backing()"
-          (click)="startBackup()"
-        >
-          <mat-icon>{{ backing() ? 'sync' : 'backup' }}</mat-icon>
-          <span>{{ backing() ? 'Backing Up...' : 'Start Backup' }}</span>
+        @if (!checkingTools() && !showMissingTools()) {
+          <button
+            mat-flat-button
+            color="primary"
+            [disabled]="!canBackup() || backing()"
+            (click)="startBackup()"
+          >
+            <mat-icon>{{ backing() ? 'sync' : 'backup' }}</mat-icon>
+            <span>{{ backing() ? 'Backing Up...' : 'Start Backup' }}</span>
+          </button>
+        }
+        <button mat-button (click)="cancel()" [disabled]="backing()">
+          {{ checkingTools() || showMissingTools() ? 'Close' : 'Cancel' }}
         </button>
-        <button mat-button (click)="cancel()" [disabled]="backing()">Cancel</button>
       </mat-dialog-actions>
     </div>
   `,
@@ -360,6 +388,15 @@ export interface BackupDialogData {
         font-size: 13px;
       }
 
+      .checking-tools {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 24px 0;
+        color: var(--text-secondary);
+        font-size: 13px;
+      }
+
       button mat-icon {
         &.spinning {
           animation: spin 1s linear infinite;
@@ -404,6 +441,18 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
   readonly backupHistory = signal<BackupHistoryEntry[]>([]);
   readonly loadingHistory = signal(false);
 
+  // CLI dependency probe state. Only relevant for engines that shell out
+  // to host-installed CLI tools (PG and MySQL today). MSSQL uses T-SQL
+  // BACKUP DATABASE so the deps check is skipped — `checkingTools` stays
+  // false and `showMissingTools` always returns false for MSSQL.
+  readonly toolsCheck = signal<CliDepsResult | null>(null);
+  readonly checkingTools = signal(false);
+  readonly rechecking = signal(false);
+  readonly showMissingTools = computed(() => {
+    const result = this.toolsCheck();
+    return result !== null && !result.allAvailable;
+  });
+
   readonly generatedTsql = computed(() => {
     const db = this.data.databaseName;
     const path = this.formData.backupPath || '<path>';
@@ -438,6 +487,7 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    this.checkCliTools();
     this.loadDefaultPath();
     this.loadBackupHistory();
 
@@ -451,6 +501,65 @@ export class BackupDialogComponent implements OnInit, OnDestroy {
         this.backing.set(false);
         this.notification.error(p.error || 'Backup failed');
       }
+    });
+  }
+
+  private async checkCliTools(): Promise<void> {
+    const cliEngine = this.cliEngineFor(this.data.engine);
+    if (!cliEngine) return;
+
+    this.checkingTools.set(true);
+    try {
+      const result = await firstValueFrom(this.ipc.checkBackupTools(cliEngine));
+      this.toolsCheck.set(result);
+    } catch (err) {
+      this.notification.error(
+        err instanceof Error ? err.message : 'Failed to probe backup CLI tools'
+      );
+    } finally {
+      this.checkingTools.set(false);
+    }
+  }
+
+  async recheckTools(): Promise<void> {
+    const cliEngine = this.cliEngineFor(this.data.engine);
+    if (!cliEngine) return;
+
+    this.rechecking.set(true);
+    try {
+      const result = await firstValueFrom(this.ipc.recheckBackupTools(cliEngine));
+      this.toolsCheck.set(result);
+      if (result.allAvailable) {
+        this.notification.success('Required CLI tools are now available');
+      }
+    } catch (err) {
+      this.notification.error(
+        err instanceof Error ? err.message : 'Failed to re-check backup CLI tools'
+      );
+    } finally {
+      this.rechecking.set(false);
+    }
+  }
+
+  private cliEngineFor(engine: BackupDialogData['engine']): CliEngine | null {
+    if (engine === 'postgresql' || engine === 'mysql') return engine;
+    return null;
+  }
+
+  async copyToClipboard(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.notification.success('Copied to clipboard');
+    } catch (err) {
+      this.notification.error(err instanceof Error ? err.message : 'Could not copy to clipboard');
+    }
+  }
+
+  openExternalLink(url: string): void {
+    this.ipc.openExternal(url).subscribe({
+      error: err => {
+        this.notification.error(err instanceof Error ? err.message : 'Could not open link');
+      },
     });
   }
 

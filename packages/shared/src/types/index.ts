@@ -27,3 +27,6 @@ export * from './ai.types';
 
 // Chat types
 export * from './chat.types';
+
+// CLI deps types
+export * from './cli-deps.types';
