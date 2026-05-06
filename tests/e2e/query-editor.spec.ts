@@ -65,6 +65,26 @@ test.describe('Forge — query editor', () => {
     });
   });
 
+  test('two SELECTs render two result grids', async () => {
+    await withForge(async ({ app, window }) => {
+      await connectToTestPostgres(window);
+      await selectDatabase(window, 'forge_test');
+      await openNewQueryTab(app, window);
+      // Two statements separated by ; — Forge renders one grid per result set.
+      await typeInEditor(
+        window,
+        'SELECT id, name FROM products LIMIT 3;\nSELECT id, name FROM customers LIMIT 2;'
+      );
+      await executeQuery(window);
+
+      // Both grids visible in the result panel. Forge attaches an
+      // ag-grid-angular per result set; expect at least 2 of them.
+      await expect(window.locator('ag-grid-angular').nth(1)).toBeVisible({ timeout: 15000 });
+      // Sanity-check rows from each result set are rendered.
+      await expect(window.getByText('MacBook Air M4').first()).toBeVisible({ timeout: 5000 });
+    });
+  });
+
   test('Cmd+Shift+F formats SQL (lowercase → SELECT uppercase)', async () => {
     await withForge(async ({ app, window }) => {
       await connectToTestPostgres(window);

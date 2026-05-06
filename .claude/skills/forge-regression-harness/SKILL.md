@@ -1,11 +1,35 @@
 ---
 name: forge-regression-harness
-description: Use the MJ Forge regression test harness to verify changes don't break anything. Trigger this skill BEFORE starting any non-trivial dev work that touches packages/main, packages/renderer, packages/shared, or packages/preload — and AFTER making changes (to catch regressions early). The user has 268+ tests across four tiers (unit, integration, e2e, visual) wired into a fast pipeline at `npm run test:full`. Make sure to use this skill whenever the user asks you to fix, implement, refactor, add, or otherwise modify substantive code in this repo, even if they don't explicitly ask you to "run the tests" — they expect you to verify your work. The dashboard at http://127.0.0.1:5188 is for the human to watch your progress; you should rely on programmatic mechanisms (npm scripts, structured JSON output) to drive and interpret runs.
+description: Use the MJ Forge regression test harness to drive quality on every non-trivial change — TDD/BDD style: harness up first, failing test first, implementation second, green test confirms intent. Trigger this skill BEFORE starting any non-trivial dev work that touches packages/main, packages/renderer, packages/shared, or packages/preload — and AFTER making changes (to catch regressions early). The user has 268+ tests across four tiers (unit, integration, e2e, visual) wired into a fast pipeline at `npm run test:full`. Make sure to use this skill whenever the user asks you to fix, implement, refactor, add, or otherwise modify substantive code in this repo, even if they don't explicitly ask you to "run the tests" — they expect you to verify your work and to write the test FIRST when the change is feature-shaped. The dashboard at http://127.0.0.1:5188 is for the human to watch your progress; you should rely on programmatic mechanisms (npm scripts, structured JSON output) to drive and interpret runs.
 ---
 
 # MJ Forge Regression Harness
 
-This repo has a comprehensive regression test harness. Use it. The workflow below tells you when and how.
+This repo has a comprehensive regression test harness. Use it. Use it _first_. The workflow below tells you when and how.
+
+## Start every non-trivial task this way
+
+The user has invested heavily in this harness so it can drive quality on every change — not just verify after the fact. Default workflow when the user asks for a feature, fix, or refactor:
+
+1. **Make sure the harness is up.** Check whether the dashboard is already running:
+   ```
+   curl -sf -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5188/ 2>&1
+   ```
+
+   - 200 → harness is live, watching files; carry on.
+   - Anything else → ask the user to run `npm run test:dashboard` in another terminal so they can watch the run live. (You can still drive runs with `npm run test:full` etc., but the dashboard makes the iteration loop visible.)
+2. **Establish baseline green.** `npm test` (or the right tier — see below). Don't start work on top of pre-existing failures; surface those first and get alignment with the user on whether they're in scope.
+3. **Write the failing test FIRST.** Express the new behavior as a test the harness can run before the production code exists. The test failing tells you the test actually exercises the new path; the test going green tells you the implementation matches the contract you wrote down.
+4. **Implement until the test goes green.** Smallest change that satisfies the assertion. Don't expand scope.
+5. **Run the broader tier** to catch neighbor regressions, then `npm run test:full` before declaring done.
+
+This is non-negotiable for feature-shaped work. For genuine bug-fix work, write the regression test that _reproduces_ the bug first, watch it fail, then fix until it passes — same loop, same discipline.
+
+When TDD/BDD doesn't fit cleanly:
+
+- **UI tweaks where the assertion is visual** — run the visual tier, look at the diff, confirm intent, regenerate baselines. The "test first" is harder; in this case write the visual test alongside the change rather than before.
+- **Pure refactor with no behavior change** — no new test needed; existing tests are the contract. Just make sure they stay green.
+- **Exploratory spike** — fine to skip TDD for the spike itself, but rewrite test-first when you turn it into something that ships.
 
 ## When to use
 
@@ -117,14 +141,16 @@ If the harness isn't up, `npm run test:integration` will fail with a connection 
 - **Treating "vitest watch ran fine in the dashboard" as confirmation** — the dashboard's vitest watcher reruns AFFECTED tests, not all of them. For "is everything still green?" use `npm test` or `npm run test:full`.
 - **Updating visual baselines reflexively** — `:update` regenerates from current behavior. If you didn't intend to change the UI but a visual test fails, that's a real regression you need to investigate, not silence.
 
-## Workflow example
+## Workflow example (TDD/BDD-first)
 
 User says: "Add a `formatBytes` utility to the shared package and use it in the connection pool stats display."
 
-1. **Baseline check** — `npm test` to confirm starting state is green.
-2. **Implement the utility + the consumer.**
-3. **Targeted re-run** — `npx vitest run packages/shared/src/utils/format-bytes.spec.ts` (write tests alongside per the repo's CLAUDE.md rule).
-4. **Tier check** — `npm test` to confirm shared changes haven't broken consumers in main.
-5. **UI changed?** Yes (display in renderer). Build, then visual: `npm run build && npm run test:visual`. If a baseline fails because the formatted bytes string is now visible where it wasn't, inspect the diff (it'll appear in the dashboard / static report), confirm intent, then `npm run test:visual:update` and commit the new baseline.
-6. **Final check** — `npm run test:full` before declaring done.
-7. Open the static report at `tests/reports/latest.html` and verify the green run, then summarize for the user.
+1. **Harness check** — curl http://127.0.0.1:5188/. Not up → ask the user to start `npm run test:dashboard` so they can watch.
+2. **Baseline** — `npm test` to confirm green starting state. Surface and triage anything red before adding to it.
+3. **Write the failing unit test FIRST** — `packages/shared/src/utils/format-bytes.spec.ts` with the cases that define the contract (zero, KB boundary, MB boundary, GB boundary, negative input handling, etc.). Run it: `npx vitest run packages/shared/src/utils/format-bytes.spec.ts`. Confirm it fails for the right reason (the function doesn't exist yet — not a typo).
+4. **Implement the smallest thing that passes** — `format-bytes.ts`. Re-run the targeted spec until green.
+5. **Wire into the consumer** — connection pool stats display in renderer. If the consumer is in the renderer, the visual tier is the place to assert the user-visible result; either capture a new baseline alongside (intentional UI change) or rely on existing baselines if the layout is unchanged.
+6. **Tier check** — `npm test` to confirm shared changes haven't broken consumers in main.
+7. **Visual check (only because UI changed)** — `npm run build && npm run test:visual`. Diff visible? Confirm intent, `npm run test:visual:update`, commit the new baseline alongside the code change.
+8. **Final** — `npm run test:full` before declaring done.
+9. Open the static report at `tests/reports/latest.html`, verify the green run, summarize for the user.

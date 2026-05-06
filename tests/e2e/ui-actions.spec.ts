@@ -54,6 +54,18 @@ test.describe('Forge — UI actions', () => {
     });
   });
 
+  test('shortcuts dialog opens via menu IPC', async () => {
+    await withForge(async ({ app, window }) => {
+      await expect(window.locator('app-root')).toBeVisible({ timeout: 15000 });
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send('menu:show-shortcuts');
+      });
+      await expect(window.locator('app-shortcuts-dialog .shortcuts-dialog')).toBeVisible({
+        timeout: 5000,
+      });
+    });
+  });
+
   test('docker panel opens from the status-bar indicator', async () => {
     await withForge(async ({ window }) => {
       await expect(window.locator('app-root')).toBeVisible({ timeout: 15000 });
