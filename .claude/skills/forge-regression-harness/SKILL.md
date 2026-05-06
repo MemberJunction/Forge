@@ -12,12 +12,14 @@ This repo has a comprehensive regression test harness. Use it. Use it _first_. T
 The user has invested heavily in this harness so it can drive quality on every change — not just verify after the fact. Default workflow when the user asks for a feature, fix, or refactor:
 
 1. **Make sure the harness is up.** Check whether the dashboard is already running:
+
    ```
    curl -sf -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5188/ 2>&1
    ```
 
    - 200 → harness is live, watching files; carry on.
    - Anything else → ask the user to run `npm run test:dashboard` in another terminal so they can watch the run live. (You can still drive runs with `npm run test:full` etc., but the dashboard makes the iteration loop visible.)
+
 2. **Establish baseline green.** `npm test` (or the right tier — see below). Don't start work on top of pre-existing failures; surface those first and get alignment with the user on whether they're in scope.
 3. **Write the failing test FIRST.** Express the new behavior as a test the harness can run before the production code exists. The test failing tells you the test actually exercises the new path; the test going green tells you the implementation matches the contract you wrote down.
 4. **Implement until the test goes green.** Smallest change that satisfies the assertion. Don't expand scope.
@@ -45,7 +47,35 @@ The harness is fast (~13s for the full pipeline) and the cost of running it is f
 
 ## How to trigger (programmatic)
 
-The dashboard at http://127.0.0.1:5188 is for the **human** to watch — you should drive runs with these:
+Two pathways — **prefer the dashboard's blocking-run endpoint when it's up**, since it gives you the result inline without polling files.
+
+### When the dashboard is up: blocking HTTP run (preferred for Claude)
+
+```bash
+# Trigger a tier and wait for the result in one shot. Body is the compact
+# summary JSON: { tier, status, totals, failures: [...] }.
+curl -sX POST 'http://127.0.0.1:5188/control/run-tier?wait=true' \
+  -H 'content-type: application/json' \
+  -d '{"tier":"e2e"}'
+```
+
+The `?wait=true` variant holds the connection open until the run completes (5-minute hard cap), then returns just the failures + totals — no polling, no file reads. Drop the query string and you'll get a fire-and-forget ack instead.
+
+To re-read the latest result for a tier without re-running:
+
+```bash
+curl -s http://127.0.0.1:5188/api/result/e2e
+```
+
+To re-run a single suite:
+
+```bash
+curl -sX POST http://127.0.0.1:5188/control/run-suite \
+  -H 'content-type: application/json' \
+  -d '{"tier":"e2e","file":"tests/e2e/connection.spec.ts"}'
+```
+
+### When the dashboard is NOT up: npm scripts
 
 | Script                     | Tier(s)                     | Wall time | Infra needed                    |
 | -------------------------- | --------------------------- | --------- | ------------------------------- |
@@ -55,37 +85,41 @@ The dashboard at http://127.0.0.1:5188 is for the **human** to watch — you sho
 | `npm run test:visual`      | Visual regression baselines | ~10s      | `npm run build` first           |
 | `npm run test:full`        | All four                    | ~13s      | Brings harness up automatically |
 
-`npm run test:full` is your most useful single command: it brings the Docker harness up, runs every tier, writes structured JSON to `tests/reports/.cache/`, generates the HTML report at `tests/reports/latest.html`, and exits non-zero on any failure.
-
-If the user already has the dashboard running (`npm run test:dashboard` in another terminal), you can also trigger via HTTP — but always fall back to the npm scripts as the reliable path:
-
-```
-POST http://127.0.0.1:5188/control/run-tier   {"tier":"unit"|"integration"|"e2e"|"visual"}
-POST http://127.0.0.1:5188/control/run-suite  {"tier":"…","file":"tests/…"}
-```
+`npm run test:full` is the most useful single command: brings the Docker harness up, runs every tier, writes structured JSON to `tests/reports/.cache/`, generates the HTML report at `tests/reports/latest.html`, and exits non-zero on any failure.
 
 ## How to interpret results
 
-Three signals, in order of preference:
+Four signals, in order of cost-to-read (cheapest first):
 
-1. **Exit code** — primary signal (0 = pass, non-zero = fail). Don't celebrate green based on a quick scan of stdout; trust the exit.
+1. **Compact markdown summary** at `tests/reports/.cache/{tier}.summary.md` — one file per tier, written by the dashboard server every time a tier finishes. Failures-only with totals + duration at the top. **Read this first.** It's deliberately small enough to fit in a Claude turn without burning context.
 
-2. **Structured JSON** at `tests/reports/.cache/{unit,integration,e2e,visual}.json` — read these for per-test details. Failure messages and stack traces are inline in `testResults[].assertionResults[].failureMessages` for vitest output and in nested `suites[].specs[].tests[].results[]` for playwright. Visual tests expose snapshot paths.
+2. **Compact JSON summary** at `tests/reports/.cache/{tier}.summary.json` — same data, machine-readable. Equivalent to `GET /api/result/{tier}` from the dashboard. Use when you need to grep or filter programmatically.
 
-3. **Static HTML report** at `tests/reports/latest.html` — has every result with per-section "Copy for LLM" payloads embedded as `data-copy-payload` attributes. Useful when you want the same compressed failure context the human is looking at.
+3. **Exit code** — when triggering via npm (not via the dashboard's blocking endpoint). Non-zero means at least one failure; zero means the tier ran clean.
+
+4. **Full structured JSON** at `tests/reports/.cache/{tier}.json` — every test, including passes. Bigger payload. Reach for this only if the summary doesn't tell you enough (e.g. you need timing data for passing tests, or attachment paths for visual diffs).
+
+5. **Static HTML report** at `tests/reports/latest.html` — has every result with per-section `data-copy-payload` LLM-ready snippets baked in. Useful when you want the same context the human is looking at, but the summary file is usually enough.
 
 ## How to iterate on failures
 
 When a test fails, do this — not a dump-and-pray full-pipeline retry:
 
-1. **Read the JSON** to find the failing test's source file and the specific assertion that failed.
+1. **Read the summary** — `tests/reports/.cache/{tier}.summary.md`. Failures-only, formatted for you. Tells you which suite + which test + the failure message.
 2. **Read the failing test source** to understand what it's verifying.
 3. **Read the production code under test** — the test usually targets a specific module.
 4. **Make a focused fix** — narrow scope, don't refactor adjacent code.
-5. **Re-run JUST that suite** to iterate quickly:
+5. **Re-run JUST that suite** to iterate quickly. If the dashboard is up:
+   ```bash
+   curl -sX POST 'http://127.0.0.1:5188/control/run-suite' \
+     -H 'content-type: application/json' \
+     -d '{"tier":"e2e","file":"tests/e2e/connection.spec.ts"}'
+   curl -s http://127.0.0.1:5188/api/result/e2e
+   ```
+   Otherwise:
    - Vitest: `npx vitest run <path/to/spec.ts>` (unit) or `npx vitest run --config vitest.integration.config.ts <path>` (integration)
    - Playwright: `npx playwright test --project=e2e <path>` or `--project=visual <path>`
-6. Once the targeted suite passes, run the broader tier (`npm test` / `npm run test:integration` / etc.) to ensure your fix didn't break neighbors.
+6. Once the targeted suite passes, run the broader tier with `?wait=true` (dashboard) or `npm test` / `npm run test:integration` (no dashboard) to catch neighbor regressions.
 7. Before declaring done, run `npm run test:full`.
 
 ## Picking the right tier for your change

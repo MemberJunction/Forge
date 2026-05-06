@@ -236,13 +236,16 @@ function handleRequest(req, res) {
   if (req.method === 'POST' && req.url === '/_event') {
     return handleEventPost(req, res);
   }
+  if (req.method === 'GET' && req.url.startsWith('/api/result/')) {
+    return handleApiResult(req, res);
+  }
   if (req.method === 'GET' && req.url.startsWith('/snapshots/')) {
     return serveStaticFile(req, res, SNAPSHOTS_DIR, '/snapshots/');
   }
   if (req.method === 'GET' && req.url.startsWith('/attachments/')) {
     return serveStaticFile(req, res, ATTACHMENTS_DIR, '/attachments/');
   }
-  if (req.method === 'POST' && req.url === '/control/run-tier') {
+  if (req.method === 'POST' && pathOf(req.url) === '/control/run-tier') {
     return handleControlRunTier(req, res);
   }
   if (req.method === 'POST' && req.url === '/control/run-suite') {
@@ -350,30 +353,53 @@ async function touchFiles(absPaths) {
   return touched;
 }
 
+function pathOf(url) {
+  const i = url.indexOf('?');
+  return i === -1 ? url : url.slice(0, i);
+}
+
+function searchOf(url) {
+  const i = url.indexOf('?');
+  return i === -1 ? '' : url.slice(i);
+}
+
 async function handleControlRunTier(req, res) {
   const body = await readJsonBody(req);
   if (body === null) return badRequest(res, 'invalid json');
   const tier = body?.tier;
   if (!ALLOWED_TIER_KEYS.has(tier)) return badRequest(res, 'unknown tier');
+  // ?wait=true (or just ?wait): hold the response until run-end fires for
+  // this tier, then return the summary directly. Caps at 5 minutes — long
+  // enough for any plausible run, short enough that a stuck test won't tie
+  // up the connection forever.
+  const wait = new URLSearchParams(searchOf(req.url)).get('wait') !== null
+    && new URLSearchParams(searchOf(req.url)).get('wait') !== 'false';
 
-  if (tier === 'e2e') {
-    spawnOneShotPlaywright('e2e');
-    return ack(res, { ok: true, tier, action: 'one-shot playwright (e2e) spawned' });
+  triggerTierRun(tier);
+
+  if (!wait) {
+    return ack(res, { ok: true, tier, action: 'triggered' });
   }
-
-  if (tier === 'visual') {
-    spawnOneShotPlaywright('visual');
-    return ack(res, { ok: true, tier, action: 'one-shot playwright (visual) spawned' });
+  try {
+    const summary = await waitForTierRunEnd(tier, 300_000);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, tier, ...summary }));
+  } catch (err) {
+    res.writeHead(504, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, tier, error: err?.message ?? String(err) }));
   }
+}
 
-  // unit / integration: trigger the existing watcher by touching every spec
-  // file in the tier. The watcher batches the changes into a single rerun.
+// Single source of truth for "kick off this tier" — used by both the
+// non-blocking and ?wait=true paths.
+async function triggerTierRun(tier) {
+  if (tier === 'e2e') return spawnOneShotPlaywright('e2e');
+  if (tier === 'visual') return spawnOneShotPlaywright('visual');
   const dirs = tier === 'unit'
     ? ['packages/main/src', 'packages/shared/src']
     : ['tests/integration'];
   const files = await listSpecsUnder(...dirs);
-  const touched = await touchFiles(files);
-  return ack(res, { ok: true, tier, touched });
+  await touchFiles(files);
 }
 
 async function handleControlRunSuite(req, res) {
@@ -930,6 +956,11 @@ function handleEvent(event) {
     tier.status = tier.totals.failed > 0 ? 'failed' : 'ok';
     tier.lastUpdatedAt = at;
     broadcastNow(); // flush coalesced events promptly on completion
+    // Write the compact summary file for Claude/CLI consumers, and wake any
+    // waiters parked on POST /control/run-tier?wait=true. Both happen here
+    // because run-end is the single point where a tier's results stabilize.
+    writeTierSummary(event.tier, tier);
+    resolveTierWaiters(event.tier, summarizeTier(event.tier, tier));
     return;
   }
 }
@@ -1195,6 +1226,130 @@ function watchChildExit(tier, child) {
       broadcastNow();
     }
   });
+}
+
+// ---- Compact run summaries (CLI/HTTP/markdown) ----
+//
+// Three consumers want the same shape:
+//   - tests/reports/.cache/{tier}.summary.md  (human + Claude can Read it)
+//   - GET /api/result/{tier}                  (HTTP-only callers)
+//   - POST /control/run-tier?wait=true        (synchronous run + result)
+//
+// summarizeTier() produces the JSON form; markdownForSummary() formats it
+// for the .md file. Failures only — passing tests are noise for this view.
+
+function summarizeTier(key, tier) {
+  const failures = [];
+  for (const suite of tier.suites.values()) {
+    for (const test of suite.tests.values()) {
+      if (test.status !== 'failed') continue;
+      failures.push({
+        suite: suite.name,
+        test: test.fullName,
+        durationMs: test.durationMs,
+        message: (test.failureMessages ?? []).join('\n\n'),
+      });
+    }
+  }
+  return {
+    tier: key,
+    label: tier.label,
+    status: tier.status,
+    ranAt: tier.lastUpdatedAt || null,
+    durationMs: tier.durationMs || 0,
+    totals: { ...tier.totals },
+    failures,
+  };
+}
+
+function markdownForSummary(summary) {
+  const lines = [];
+  lines.push(`# ${summary.label} — ${summary.status.toUpperCase()}`);
+  lines.push('');
+  const t = summary.totals;
+  const ts = summary.ranAt ? new Date(summary.ranAt).toISOString() : 'n/a';
+  const sec = (summary.durationMs / 1000).toFixed(2);
+  lines.push(`Ran at ${ts} · ${sec}s`);
+  lines.push('');
+  lines.push(`**${t.total} tests · ${t.passed} passed · ${t.failed} failed · ${t.skipped} skipped**`);
+  lines.push('');
+  if (summary.failures.length === 0) {
+    lines.push('No failures. ✓');
+    lines.push('');
+    return lines.join('\n');
+  }
+  lines.push(`## Failures (${summary.failures.length})`);
+  lines.push('');
+  for (const f of summary.failures) {
+    lines.push(`### ${f.suite} — ${f.test}`);
+    lines.push('');
+    if (f.message) {
+      lines.push('```');
+      lines.push(f.message);
+      lines.push('```');
+      lines.push('');
+    }
+  }
+  return lines.join('\n');
+}
+
+function writeTierSummary(key, tier) {
+  try {
+    const summary = summarizeTier(key, tier);
+    const md = markdownForSummary(summary);
+    writeFileSync(join(CACHE_DIR, `${key}.summary.md`), md);
+    writeFileSync(join(CACHE_DIR, `${key}.summary.json`), JSON.stringify(summary, null, 2));
+  } catch (err) {
+    console.error(`[summary] failed to write ${key} summary:`, err?.message ?? err);
+  }
+}
+
+function handleApiResult(req, res) {
+  const tier = req.url.replace(/^\/api\/result\//, '').replace(/\/$/, '');
+  if (!ALLOWED_TIER_KEYS.has(tier)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: `unknown tier '${tier}'` }));
+    return;
+  }
+  const t = state.tiers[tier];
+  if (!t || (t.status === 'initializing' && t.suites.size === 0)) {
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, tier, error: 'no run results yet' }));
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ ok: true, ...summarizeTier(tier, t) }, null, 2));
+}
+
+// ---- Waiters for ?wait=true ----
+//
+// Multiple ?wait=true requests can be in flight for the same tier (e.g.
+// human triggered Run All, plus Claude waiting for e2e). Each parks a
+// resolver here; run-end fires them all at once with the same summary.
+// Timeout (set per-request) cleans up if the run never completes.
+const tierWaiters = { unit: [], integration: [], e2e: [], visual: [] };
+
+function waitForTierRunEnd(tier, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const entry = { resolve, reject, timer: null };
+    entry.timer = setTimeout(() => {
+      const list = tierWaiters[tier];
+      const idx = list.indexOf(entry);
+      if (idx !== -1) list.splice(idx, 1);
+      reject(new Error(`run-end for tier '${tier}' did not arrive within ${timeoutMs}ms`));
+    }, timeoutMs);
+    tierWaiters[tier].push(entry);
+  });
+}
+
+function resolveTierWaiters(tier, summary) {
+  const list = tierWaiters[tier];
+  if (!list || list.length === 0) return;
+  const pending = list.splice(0); // claim & clear
+  for (const entry of pending) {
+    clearTimeout(entry.timer);
+    entry.resolve(summary);
+  }
 }
 
 // ---- serialization ----
