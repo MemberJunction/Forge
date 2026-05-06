@@ -385,16 +385,18 @@ function renderSuite(report, tier, suite) {
 
 // Switch control for the per-tier file-watch auto-rerun. Only e2e + visual
 // have a server-side watcher worth opting out of (vitest reruns are nearly
-// free). Native iOS-style track + thumb; uses role="switch" + aria-checked
-// for accessibility. Click handler in serve.mjs reads data-enabled and POSTs
-// the inverse to /control/set-autorun.
+// free). For tiers without the switch we still emit an empty .autorun-slot
+// of the same width — that keeps the [counts][duration][Run][Copy] cluster
+// horizontally aligned across all four tiers.
 function renderAutorunToggle(tier, report) {
-  if (!tier.key || (tier.key !== 'e2e' && tier.key !== 'visual')) return '';
+  if (!tier.key || (tier.key !== 'e2e' && tier.key !== 'visual')) {
+    return '<span class="autorun-slot" aria-hidden="true"></span>';
+  }
   const enabled = report?.autorun?.[tier.key] !== false; // default ON
   const title = enabled
-    ? 'Auto-rerun on save is ON — click to disable (still marks STALE on change)'
-    : 'Auto-rerun on save is OFF — click to enable (you\'ll need to hit Run after edits)';
-  return `<button type="button" role="switch" aria-checked="${enabled}" class="autorun-toggle" data-action="toggle-autorun" data-tier="${escapeHtml(tier.key)}" data-enabled="${enabled}" title="${escapeHtml(title)}"><span class="autorun-label">Auto-rerun</span><span class="autorun-track"><span class="autorun-thumb"></span></span></button>`;
+    ? 'Watch is ON — file changes auto-rerun the suite after a 30s debounce. Click to disable (STALE badge will still appear on change).'
+    : 'Watch is OFF — file changes still mark the suite STALE but won\'t auto-rerun. Click to enable.';
+  return `<span class="autorun-slot"><button type="button" role="switch" aria-checked="${enabled}" class="autorun-toggle" data-action="toggle-autorun" data-tier="${escapeHtml(tier.key)}" data-enabled="${enabled}" title="${escapeHtml(title)}"><span class="autorun-label">Watch</span><span class="autorun-track"><span class="autorun-thumb"></span></span></button></span>`;
 }
 
 function renderTier(report, tier) {
@@ -440,13 +442,13 @@ function renderTier(report, tier) {
         ${runBadge}
         ${staleBadge}
         <h2>${escapeHtml(tier.label)}</h2>
+        ${autorunToggle}
         <span class="tier-counts">
           <span class="text-success">${t.passed} passed</span>
           ${t.failed > 0 ? `<span class="text-error"> · ${t.failed} failed</span>` : ''}
           ${t.skipped > 0 ? `<span class="text-muted"> · ${t.skipped} skipped</span>` : ''}
         </span>
         <span class="tier-duration mono">${fmtDuration(tier.durationMs)}</span>
-        ${autorunToggle}
         ${runButton}
         <button type="button" class="copy-btn" data-copy-payload="${payload}" title="Copy a token-efficient summary of this tier for pasting into an LLM">Copy for LLM</button>
       </summary>
@@ -1344,6 +1346,17 @@ pre {
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.30),
     0 0 0 transparent;
+}
+
+/* Slot wrapper — always rendered (even on tiers without a switch) so the
+   downstream [counts][duration][Run][Copy] cluster sits at the same x-offset
+   across all four tiers. Width chosen to fit "Watch ◯" comfortably without
+   wrapping; right-aligned so the switch hugs the counts column. */
+.autorun-slot {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 78px;
 }
 
 /* Auto-rerun switch — physical-feeling toggle with a sliding thumb. The
