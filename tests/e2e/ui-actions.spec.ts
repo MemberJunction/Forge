@@ -62,12 +62,18 @@ test.describe('Forge — UI actions', () => {
       await expect(dialog).toBeVisible({ timeout: 5000 });
       const input = dialog.locator('input').first();
       await expect(input).toBeVisible();
-      await input.fill('user');
+      // .fill() sets value via DOM but doesn't fire the keystroke events
+      // Angular's (input) two-way binding listens for, so the model stayed
+      // empty even though the value was technically set. keyboard.type
+      // dispatches real keydown/keypress/keyup events the way a human
+      // would — same workaround we use for Monaco.
+      await input.click();
+      await window.keyboard.type('user');
       await expect(input).toHaveValue('user');
-      // We don't assert that real results show up — the legacy harness
-      // notes object search depends on server-side indexing that may not
-      // be populated in test. We DO assert the dialog stays open and the
-      // input keeps focus, which is the contract the user sees.
+      // We don't assert specific results — object search depends on
+      // server-side indexing that may not be populated in test. We DO
+      // assert the dialog stays open after the input lands, which is the
+      // contract the user sees.
       await expect(dialog).toBeVisible();
     });
   });
