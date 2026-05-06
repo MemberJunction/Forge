@@ -1378,9 +1378,14 @@ pre {
   background: transparent;
   border: 0;
   cursor: pointer;
-  font: 500 9px var(--font-stack-condensed);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  /* Sized to match the .copy-btn sibling so the row reads as a balanced
+     cluster of secondary controls — not Watch shouting alongside a quiet
+     Copy. Same font family/size/weight/case as Copy for LLM. */
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--ink-muted);
   transition: color 0.15s;
 }
