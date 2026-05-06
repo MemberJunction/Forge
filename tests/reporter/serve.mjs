@@ -232,6 +232,9 @@ function handleRequest(req, res) {
   if (req.method === 'POST' && req.url === '/control/harness-down') {
     return handleControlHarnessDown(req, res);
   }
+  if (req.method === 'POST' && req.url === '/control/run-all') {
+    return handleControlRunAll(req, res);
+  }
   res.writeHead(404);
   res.end('Not found');
 }
@@ -360,6 +363,20 @@ async function handleControlRunSuite(req, res) {
   const touched = await touchFiles([abs]);
   if (touched === 0) return badRequest(res, 'file not found');
   return ack(res, { ok: true, tier, touched });
+}
+
+async function handleControlRunAll(_req, res) {
+  // Ack immediately; dispatch all four tier reruns in the background.
+  ack(res, { ok: true, action: 'all tiers triggered' });
+  console.log('▶ Run All requested via dashboard control');
+  // Vitest tiers — touch every spec file so the watchers batch a rerun.
+  const unitFiles = await listSpecsUnder('packages/main/src', 'packages/shared/src');
+  const intFiles = await listSpecsUnder('tests/integration');
+  await touchFiles(unitFiles);
+  await touchFiles(intFiles);
+  // Playwright tiers — one-shot each (e2e then visual; both are independent).
+  spawnOneShotPlaywright('e2e');
+  spawnOneShotPlaywright('visual');
 }
 
 async function handleControlHarnessReset(_req, res) {
@@ -986,6 +1003,10 @@ ${FONT_LINKS}
   <div class="live-banner">
     <span class="live-dot" id="live-dot"></span>
     <span id="live-status">Connecting…</span>
+    <button type="button" class="ctrl-btn ctrl-run ctrl-run-all" data-action="run-all" title="Re-run every tier (unit + integration + e2e + visual)">
+      <span class="material-symbols-outlined ctrl-icon">play_arrow</span>
+      <span class="ctrl-label">Run All</span>
+    </button>
   </div>
 
   <div id="infra-host">

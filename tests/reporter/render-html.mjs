@@ -508,6 +508,20 @@ const STYLES = /* css */ `
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Native <details> open/close animation. interpolate-size is what makes
+   block-size: auto actually animate; ::details-content is the content
+   slot Chromium exposes so we can animate it without JS. Both supported
+   in Chromium 131+ (Electron 41 → Chromium ~134 — well covered). */
+:root { interpolate-size: allow-keywords; }
+::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition:
+    block-size 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    content-visibility 220ms cubic-bezier(0.4, 0, 0.2, 1) allow-discrete;
+}
+details[open]::details-content { block-size: auto; }
+
 html, body {
   background: var(--bg-base);
   color: var(--ink-primary);
@@ -1188,6 +1202,9 @@ pre {
 .tier.is-stale .tier-counts,
 .tier.is-stale .tier-duration { opacity: 0.55; }
 .tier.is-stale > summary::before { color: var(--warn); }
+
+/* Run All — sits in the live banner, pushed to the right. */
+.ctrl-run-all { margin-left: auto; }
 
 /* CONTROL BUTTONS ────────────────────────────────────── */
 
