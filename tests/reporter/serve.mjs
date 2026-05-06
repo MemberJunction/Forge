@@ -188,6 +188,12 @@ function handleRequest(req, res) {
   if (req.method === 'POST' && req.url === '/control/harness-reset') {
     return handleControlHarnessReset(req, res);
   }
+  if (req.method === 'POST' && req.url === '/control/harness-up') {
+    return handleControlHarnessUp(req, res);
+  }
+  if (req.method === 'POST' && req.url === '/control/harness-down') {
+    return handleControlHarnessDown(req, res);
+  }
   res.writeHead(404);
   res.end('Not found');
 }
@@ -314,23 +320,50 @@ async function handleControlRunSuite(req, res) {
 }
 
 async function handleControlHarnessReset(_req, res) {
-  // Send the response immediately; the actual down/up runs in the background
-  // and surfaces via the next infrastructure poll.
+  // Ack-immediately pattern (shared by all three harness controls): the
+  // actual docker compose work runs in the background and surfaces via the
+  // next infra poll. The dashboard's button busy state lasts ~1.5s; longer
+  // operations (e.g., image pulls on first up) still complete asynchronously.
   ack(res, { ok: true, action: 'reset started' });
   console.log('▶ Harness reset requested via dashboard control');
-  resetHarness().catch((err) => {
-    console.error('[control] harness reset failed:', err);
-    infra.lastError = `reset failed: ${err?.message ?? err}`;
-    broadcastInfra();
+  runHarness('down -v + up')(async () => {
+    await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'down', '-v']);
+    await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
+    await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
   });
 }
 
-async function resetHarness() {
-  await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'down', '-v']);
-  await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
-  await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
-  // Bump infra immediately so the dashboard reflects the fresh containers.
-  await pollDockerOnce();
+async function handleControlHarnessUp(_req, res) {
+  ack(res, { ok: true, action: 'up started' });
+  console.log('▶ Harness up requested via dashboard control');
+  runHarness('up')(async () => {
+    await runOnce('node', ['tests/scripts/ensure-ssh-key.mjs']);
+    await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'up', '-d', '--wait']);
+  });
+}
+
+async function handleControlHarnessDown(_req, res) {
+  // No -v: stop containers but keep volumes so a subsequent up restores
+  // existing state instantly (no re-pull, no init).
+  ack(res, { ok: true, action: 'down started' });
+  console.log('▶ Harness down requested via dashboard control');
+  runHarness('down')(async () => {
+    await runOnce('docker', ['compose', '-f', 'tests/docker-compose.test.yml', 'down']);
+  });
+}
+
+// Wrapper that runs a docker compose action and refreshes the infra poll
+// when it finishes (success or failure). Shape: `runHarness(label)(asyncFn)`.
+function runHarness(label) {
+  return (fn) => {
+    fn()
+      .then(() => pollDockerOnce())
+      .catch((err) => {
+        console.error(`[control] harness ${label} failed:`, err);
+        infra.lastError = `${label} failed: ${err?.message ?? err}`;
+        broadcastInfra();
+      });
+  };
 }
 
 function spawnOneShotE2E(files = []) {
@@ -781,6 +814,23 @@ ${FONT_LINKS}
     Live server · port <span class="mono">${PORT}</span>
   </footer>
 </main>
+
+<!-- One global confirm modal. forgeConfirm() rebinds its content + handlers
+     each time it's invoked, returning a Promise<boolean>. -->
+<div id="forge-modal" class="modal" hidden role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-backdrop"></div>
+  <div class="modal-card">
+    <h3 class="modal-title">
+      <span class="material-symbols-outlined modal-icon">help</span>
+      <span class="modal-title-text">Confirm</span>
+    </h3>
+    <p class="modal-body"></p>
+    <div class="modal-actions">
+      <button type="button" class="ctrl-modal-cancel">Cancel</button>
+      <button type="button" class="ctrl-modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
 <script>
 ${SCRIPT}
 
@@ -995,12 +1045,83 @@ connect();
 // harness reset. Per Craig's call: controls are remote-accessible; no
 // localhost gate.
 
+// ---- Custom confirm modal (replaces native window.confirm) ----
+//
+// The native confirm dialog clashes with the dashboard aesthetic and can't be
+// styled. forgeConfirm builds on the existing modal markup, returns a Promise,
+// and supports a 'tone' (info / warn / danger) that picks the accent color.
+
+const modal = document.getElementById('forge-modal');
+const modalCard = modal.querySelector('.modal-card');
+const modalTitle = modal.querySelector('.modal-title-text');
+const modalIcon = modal.querySelector('.modal-icon');
+const modalBody = modal.querySelector('.modal-body');
+const modalCancel = modal.querySelector('.ctrl-modal-cancel');
+const modalConfirm = modal.querySelector('.ctrl-modal-confirm');
+
+const TONE_ICON = { info: 'help', warn: 'warning', danger: 'dangerous' };
+
+let modalActiveResolve = null;
+function closeModal(result) {
+  modal.hidden = true;
+  modal.setAttribute('aria-hidden', 'true');
+  document.removeEventListener('keydown', modalKeydown, true);
+  if (modalActiveResolve) { modalActiveResolve(result); modalActiveResolve = null; }
+}
+function modalKeydown(event) {
+  if (event.key === 'Escape') { event.preventDefault(); closeModal(false); }
+  else if (event.key === 'Enter') { event.preventDefault(); closeModal(true); }
+}
+
+function forgeConfirm({ title = 'Confirm', body = '', confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'info' } = {}) {
+  return new Promise((resolve) => {
+    if (modalActiveResolve) { modalActiveResolve(false); }
+    modalActiveResolve = resolve;
+    modalCard.dataset.tone = tone;
+    modalTitle.textContent = title;
+    modalIcon.textContent = TONE_ICON[tone] || 'help';
+    modalBody.textContent = body;
+    modalConfirm.textContent = confirmLabel;
+    modalCancel.textContent = cancelLabel;
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    setTimeout(() => modalConfirm.focus(), 0);
+  });
+}
+
+modalCancel.addEventListener('click', () => closeModal(false));
+modalConfirm.addEventListener('click', () => closeModal(true));
+modal.querySelector('.modal-backdrop').addEventListener('click', () => closeModal(false));
+// Bind ESC/Enter only while modal is shown — re-bound each open via forgeConfirm.
+modal.addEventListener('toggle-listen', () => document.addEventListener('keydown', modalKeydown, true));
+const modalObserver = new MutationObserver(() => {
+  if (modal.hidden) document.removeEventListener('keydown', modalKeydown, true);
+  else document.addEventListener('keydown', modalKeydown, true);
+});
+modalObserver.observe(modal, { attributes: true, attributeFilter: ['hidden'] });
+
 async function dispatchControl(btn) {
   const action = btn.dataset.action;
   if (!action) return;
-  if (action === 'harness-reset' && !window.confirm('Reset harness — bring all containers down (with volumes) and back up?')) {
-    return;
+
+  if (action === 'harness-reset') {
+    const ok = await forgeConfirm({
+      title: 'Reset harness',
+      body: 'This stops every test container, removes their volumes, and brings them back up. Any in-progress test runs will be interrupted and seeded data will be wiped. The first run after reset may be slower while databases re-initialize.',
+      confirmLabel: 'Reset',
+      tone: 'danger',
+    });
+    if (!ok) return;
+  } else if (action === 'harness-down') {
+    const ok = await forgeConfirm({
+      title: 'Stop containers',
+      body: 'Stops all test containers. Volumes are preserved — the next Up restores existing state immediately.',
+      confirmLabel: 'Shutdown',
+      tone: 'warn',
+    });
+    if (!ok) return;
   }
+
   const labelEl = btn.querySelector('.ctrl-label');
   const original = labelEl ? labelEl.textContent : btn.textContent;
   const setLabel = (text) => {

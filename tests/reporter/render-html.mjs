@@ -172,7 +172,8 @@ export function renderInfrastructure(infra) {
       <section class="infra">
         <div class="section-label">
           <span>Infrastructure</span>
-          ${renderResetButton()}
+          <span class="section-line"></span>
+          ${renderHarnessControls()}
         </div>
         <div class="infra-empty">Awaiting Docker — run <span class="mono">npm run test:harness:up</span></div>
       </section>
@@ -186,15 +187,22 @@ export function renderInfrastructure(infra) {
       <div class="section-label">
         <span>Infrastructure</span>
         ${polled}
-        ${renderResetButton()}
+        <span class="section-line"></span>
+        ${renderHarnessControls()}
       </div>
       <div class="infra-grid">${cards}</div>
     </section>
   `;
 }
 
-function renderResetButton() {
-  return `<button type="button" class="ctrl-btn ctrl-reset" data-action="harness-reset" title="Tear all containers down and bring them back up"><span class="material-symbols-outlined ctrl-icon">restart_alt</span><span class="ctrl-label">Reset</span></button>`;
+function renderHarnessControls() {
+  return `
+    <span class="section-controls">
+      <button type="button" class="ctrl-btn ctrl-up"    data-action="harness-up"    title="Bring containers up (idempotent)"><span class="material-symbols-outlined ctrl-icon">power_settings_new</span><span class="ctrl-label">Up</span></button>
+      <button type="button" class="ctrl-btn ctrl-down"  data-action="harness-down"  title="Stop containers (volumes preserved)"><span class="material-symbols-outlined ctrl-icon">stop</span><span class="ctrl-label">Down</span></button>
+      <button type="button" class="ctrl-btn ctrl-reset" data-action="harness-reset" title="Tear all containers down (with volumes) and bring them back up"><span class="material-symbols-outlined ctrl-icon">restart_alt</span><span class="ctrl-label">Reset</span></button>
+    </span>
+  `;
 }
 
 function renderRunButton(action, payload, label = 'Run') {
@@ -722,11 +730,12 @@ pre {
   gap: var(--space-3);
 }
 .section-label > span:first-child { color: var(--ink-secondary); }
-.section-label::after {
-  content: '';
+.section-line {
   flex: 1;
   height: 1px;
   background: var(--line);
+  align-self: center;
+  /* Reset the section-label's mono ALL-CAPS treatment that would apply to plain spans. */
 }
 .section-label .meta-readout {
   font-family: var(--font-mono);
@@ -735,6 +744,10 @@ pre {
   letter-spacing: 0.16em;
   color: var(--ink-muted);
   text-transform: uppercase;
+}
+.section-controls {
+  display: flex;
+  gap: var(--space-2);
 }
 
 /* INFRASTRUCTURE ─────────────────────────────────────── */
@@ -1219,9 +1232,9 @@ pre {
     0 0 0 transparent;
 }
 
-/* Reset — secondary, ghost with warn-tinted hover */
-.ctrl-reset {
-  margin-left: auto;
+/* Harness controls (Up / Down / Reset) — ghost buttons with role-tinted
+   hover. They share size + typography so they read as a control cluster. */
+.ctrl-up, .ctrl-down, .ctrl-reset {
   font-size: 10px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
@@ -1230,7 +1243,23 @@ pre {
   color: var(--ink-muted);
   border-color: var(--line);
 }
-.ctrl-reset .ctrl-icon { font-size: 14px; transition: transform 0.5s ease; }
+.ctrl-up .ctrl-icon, .ctrl-down .ctrl-icon, .ctrl-reset .ctrl-icon {
+  font-size: 14px;
+  transition: transform 0.5s ease;
+}
+
+.ctrl-up:hover {
+  color: var(--pass);
+  border-color: var(--pass);
+  background: rgba(126, 217, 87, 0.10);
+  box-shadow: 0 0 10px rgba(126, 217, 87, 0.28);
+}
+.ctrl-down:hover {
+  color: var(--info);
+  border-color: var(--info);
+  background: rgba(95, 180, 214, 0.10);
+  box-shadow: 0 0 10px rgba(95, 180, 214, 0.28);
+}
 .ctrl-reset:hover {
   color: var(--warn);
   border-color: var(--warn);
@@ -1238,7 +1267,8 @@ pre {
   box-shadow: 0 0 10px rgba(240, 185, 74, 0.28);
 }
 .ctrl-reset:hover .ctrl-icon { transform: rotate(360deg); }
-.ctrl-reset:active { transform: translateY(1px); }
+
+.ctrl-up:active, .ctrl-down:active, .ctrl-reset:active { transform: translateY(1px); }
 
 /* Busy state — replaces the icon with a spinning ring + pulses the button */
 .ctrl-btn.is-busy {
@@ -1280,6 +1310,111 @@ pre {
   text-transform: uppercase;
   text-align: center;
 }
+
+/* MODAL ──────────────────────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: modalFadeIn 0.18s ease;
+}
+.modal[hidden] { display: none !important; }
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  min-width: 360px;
+  max-width: 540px;
+  margin: var(--space-5);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: modalSlideIn 0.22s ease;
+}
+.modal-card[data-tone="danger"] { border-top-color: var(--fail); }
+.modal-card[data-tone="warn"]   { border-top-color: var(--warn); }
+.modal-title {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-primary);
+  margin-bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.modal-card[data-tone="danger"] .modal-title { color: var(--fail); }
+.modal-card[data-tone="warn"]   .modal-title { color: var(--warn); }
+.modal-title .material-symbols-outlined {
+  font-size: 20px;
+  font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+}
+.modal-body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-primary);
+  margin-bottom: var(--space-5);
+}
+.modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+.ctrl-modal-cancel,
+.ctrl-modal-confirm {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  padding: 6px 16px;
+  border: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: all 0.15s ease;
+}
+.ctrl-modal-cancel { color: var(--ink-secondary); }
+.ctrl-modal-cancel:hover { color: var(--ink-primary); border-color: var(--ink-secondary); }
+.ctrl-modal-confirm {
+  background: var(--accent);
+  color: var(--bg-deep);
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.modal-card[data-tone="danger"] .ctrl-modal-confirm {
+  background: var(--fail);
+  border-color: var(--fail);
+}
+.modal-card[data-tone="warn"] .ctrl-modal-confirm {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+.ctrl-modal-confirm:hover {
+  filter: brightness(1.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 14px var(--accent-line);
+}
+.modal-card[data-tone="danger"] .ctrl-modal-confirm:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 0 14px rgba(255, 94, 94, 0.45); }
+.modal-card[data-tone="warn"]   .ctrl-modal-confirm:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 0 14px rgba(240, 185, 74, 0.45); }
+.ctrl-modal-confirm:active, .ctrl-modal-cancel:active { transform: translateY(1px); }
+
+@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalSlideIn { from { opacity: 0; transform: translateY(-12px) scale(0.985); } to { opacity: 1; transform: none; } }
 
 /* LIGHT THEME ────────────────────────────────────────── */
 @media (prefers-color-scheme: light) {
