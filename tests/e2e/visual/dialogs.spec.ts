@@ -49,7 +49,7 @@ test.describe('Forge — dialog visual baselines', () => {
       const dialog = window.locator('app-shortcuts-dialog .shortcuts-dialog');
       await expect(dialog).toBeVisible({ timeout: 10000 });
       await window.waitForTimeout(600);
-      await expect(dialog).toHaveScreenshot('keyboard-shortcuts.png');
+      await expect(dialog).toHaveScreenshot('keyboard-shortcuts-dialog.png');
     } finally {
       await launched.app.close();
     }

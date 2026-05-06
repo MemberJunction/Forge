@@ -138,7 +138,7 @@ test.describe('Forge — connected visual baselines', () => {
       // Sidebar shows the connected state and explorer tree, which is what
       // we actually want to lock down.
       const sidebar = window.locator('app-sidebar');
-      await expect(sidebar).toHaveScreenshot('sidebar-connected-pg.png');
+      await expect(sidebar).toHaveScreenshot('sidebar-with-populated-explorer-tree.png');
     });
   });
 
@@ -162,7 +162,7 @@ test.describe('Forge — connected visual baselines', () => {
       const mainArea = window
         .locator('.main-area, app-shell .main-area, [class*="main-area"]')
         .first();
-      await expect(mainArea).toHaveScreenshot('query-editor-empty.png');
+      await expect(mainArea).toHaveScreenshot('query-editor-empty-new-tab.png');
     });
   });
 
@@ -202,7 +202,7 @@ test.describe('Forge — connected visual baselines', () => {
       const mainArea = window
         .locator('.main-area, app-shell .main-area, [class*="main-area"]')
         .first();
-      await expect(mainArea).toHaveScreenshot('result-grid-products.png');
+      await expect(mainArea).toHaveScreenshot('result-grid-products-query.png');
     });
   });
 });

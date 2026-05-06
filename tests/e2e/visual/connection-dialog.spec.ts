@@ -32,7 +32,7 @@ test.describe('Forge — connection dialog variants', () => {
     await withForge(async ({ window }) => {
       const dialog = await openConnectionDialog(window);
       await selectEngine(window, 'PostgreSQL');
-      await expect(dialog).toHaveScreenshot('connection-dialog-postgresql.png');
+      await expect(dialog).toHaveScreenshot('postgresql-engine-selected.png');
     });
   });
 
@@ -40,7 +40,7 @@ test.describe('Forge — connection dialog variants', () => {
     await withForge(async ({ window }) => {
       const dialog = await openConnectionDialog(window);
       await selectEngine(window, 'MySQL');
-      await expect(dialog).toHaveScreenshot('connection-dialog-mysql.png');
+      await expect(dialog).toHaveScreenshot('mysql-engine-selected.png');
     });
   });
 
@@ -51,7 +51,7 @@ test.describe('Forge — connection dialog variants', () => {
       await dialog.locator('mat-checkbox').filter({ hasText: 'Connect via SSH tunnel' }).click();
       // Settle: Angular reveals the SSH form fields below the checkbox.
       await window.waitForTimeout(400);
-      await expect(dialog).toHaveScreenshot('connection-dialog-ssh.png');
+      await expect(dialog).toHaveScreenshot('ssh-tunnel-section-expanded.png');
     });
   });
 });
