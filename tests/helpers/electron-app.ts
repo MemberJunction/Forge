@@ -28,7 +28,16 @@ export interface LaunchedApp {
   userDataDir: string;
 }
 
-export async function launchForge(): Promise<LaunchedApp> {
+export interface LaunchOptions {
+  /**
+   * Extra env vars to merge over the default Forge launch env. Useful
+   * for tests that need to perturb the host (e.g. restricting PATH so
+   * the CLI dep probe fails and the missing-tools view renders).
+   */
+  envOverrides?: Record<string, string>;
+}
+
+export async function launchForge(options: LaunchOptions = {}): Promise<LaunchedApp> {
   if (!existsSync(MAIN_ENTRY)) {
     throw new Error(
       `[electron-app] expected built main process at ${MAIN_ENTRY}. ` +
@@ -63,6 +72,8 @@ export async function launchForge(): Promise<LaunchedApp> {
       // Surface main-process console output so test failures around IPC /
       // connection / keytar are diagnosable.
       ELECTRON_ENABLE_LOGGING: '1',
+      // Per-test overrides land last so they win over the defaults.
+      ...(options.envOverrides ?? {}),
     },
   });
 
@@ -73,9 +84,23 @@ export async function launchForge(): Promise<LaunchedApp> {
 
 /**
  * Convenience wrapper that guarantees teardown even if the test body throws.
+ *
+ * `optionsOrFn` keeps the original 1-arg form (`withForge(fn)`) working
+ * while letting newer tests pass launch options too: `withForge({
+ * envOverrides }, fn)`.
  */
-export async function withForge<T>(fn: (launched: LaunchedApp) => Promise<T>): Promise<T> {
-  const launched = await launchForge();
+export async function withForge<T>(fn: (launched: LaunchedApp) => Promise<T>): Promise<T>;
+export async function withForge<T>(
+  options: LaunchOptions,
+  fn: (launched: LaunchedApp) => Promise<T>
+): Promise<T>;
+export async function withForge<T>(
+  optionsOrFn: LaunchOptions | ((launched: LaunchedApp) => Promise<T>),
+  maybeFn?: (launched: LaunchedApp) => Promise<T>
+): Promise<T> {
+  const [options, fn]: [LaunchOptions, (launched: LaunchedApp) => Promise<T>] =
+    typeof optionsOrFn === 'function' ? [{}, optionsOrFn] : [optionsOrFn, maybeFn!];
+  const launched = await launchForge(options);
   try {
     return await fn(launched);
   } finally {

@@ -24,6 +24,8 @@ import type {
   BackupProgress,
   BackupFileInfo,
   BackupHistoryEntry,
+  CliDepsResult,
+  CliEngine,
   RestoreRequest,
   RestoreProgress,
   DockerStatus,
@@ -330,6 +332,8 @@ export interface ForgeAPI {
     cancel: (backupId: string) => Promise<void>;
     getHistory: (connectionId: string, databaseName?: string) => Promise<BackupHistoryEntry[]>;
     onProgress: (callback: (progress: BackupProgress) => void) => () => void;
+    checkTools: (engine: CliEngine) => Promise<CliDepsResult>;
+    recheckTools: (engine: CliEngine) => Promise<CliDepsResult>;
   };
 
   restore: {
@@ -796,6 +800,8 @@ const forgeAPI: ForgeAPI = {
     getHistory: (connectionId, databaseName) =>
       ipcRenderer.invoke(IPC_CHANNELS.BACKUP.GET_HISTORY, connectionId, databaseName),
     onProgress: callback => createEventListener(IPC_CHANNELS.BACKUP.PROGRESS, callback),
+    checkTools: engine => ipcRenderer.invoke(IPC_CHANNELS.BACKUP.CHECK_TOOLS, engine),
+    recheckTools: engine => ipcRenderer.invoke(IPC_CHANNELS.BACKUP.RECHECK_TOOLS, engine),
   },
 
   restore: {

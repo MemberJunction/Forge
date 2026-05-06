@@ -202,6 +202,10 @@ npm run typecheck        # TypeScript check without emit
 2. **npm**: v10+
 3. **Xcode CLI Tools**: Required for native modules
 4. **Docker** (optional): For local database testing (SQL Server, PostgreSQL, MySQL containers auto-detected)
+5. **Host CLI tools for PG/MySQL backup/restore** (only if you use those features or run the backup integration/e2e tests):
+   - macOS: `brew install postgresql@16 mysql-client`, then add `/opt/homebrew/opt/mysql-client/bin` to your shell PATH (mysql-client is keg-only).
+   - Windows: install the PostgreSQL and MySQL client tools from the official installers; ensure `pg_dump`, `pg_restore`, `mysqldump`, and `mysql` are on PATH.
+   - Forge's PG/MySQL backup services shell out to these binaries at runtime — they are not bundled with the app. The Backup / Restore dialogs render a setup-instructions view (with platform-specific commands) when the binaries aren't found, so end users get a guided fix rather than a cryptic spawn ENOENT.
 
 ## Key Dependencies
 

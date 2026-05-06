@@ -27,6 +27,8 @@ import type {
   RestoreProgress,
   BackupFileInfo,
   BackupHistoryEntry,
+  CliDepsResult,
+  CliEngine,
   ObjectMetadata,
   ObjectType,
   ObjectDefinition,
@@ -338,6 +340,8 @@ interface ForgeAPI {
     cancel: (backupId: string) => Promise<void>;
     getHistory: (connectionId: string, databaseName?: string) => Promise<BackupHistoryEntry[]>;
     onProgress: (callback: (progress: BackupProgress) => void) => () => void;
+    checkTools: (engine: CliEngine) => Promise<CliDepsResult>;
+    recheckTools: (engine: CliEngine) => Promise<CliDepsResult>;
   };
   restore: {
     start: (request: RestoreRequest) => Promise<void>;
@@ -850,6 +854,15 @@ export class IpcService {
 
   getBackupHistory(connectionId: string, databaseName?: string): Observable<BackupHistoryEntry[]> {
     return from(this.api.backup.getHistory(connectionId, databaseName));
+  }
+
+  // CLI tool dependency probe (PG/MySQL backup/restore)
+  checkBackupTools(engine: CliEngine): Observable<CliDepsResult> {
+    return from(this.api.backup.checkTools(engine));
+  }
+
+  recheckBackupTools(engine: CliEngine): Observable<CliDepsResult> {
+    return from(this.api.backup.recheckTools(engine));
   }
 
   // Server file system methods
