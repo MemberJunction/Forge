@@ -29,20 +29,40 @@ export const TEST_PG = {
  * schema + data so visual / functional specs that connect via the UI find
  * a populated database. The integration tier uses isolated per-test DBs
  * via `withFreshDatabase` and never touches `forge_test`.
+ *
+ * Two distinct schemas are seeded:
+ *   - `public.*` — synthetic e-commerce (products / customers / orders /
+ *     order_items). Used by everyday spec/visual tests.
+ *   - `__mj.*` — minimal MemberJunction shape (user / application / entity).
+ *     Used by the MJ-specific regression tests; row counts chosen to match
+ *     the legacy 31-suite expectations (11 applications, 24 entities).
+ *
+ * Each schema's presence is checked independently so adding either to an
+ * existing seeded database doesn't redo the other.
  */
 export async function ensureForgeTestSeeded(): Promise<void> {
   const client = new PgClient({ ...TEST_PG });
   await client.connect();
   try {
-    const r = await client.query(
+    const fixturesRoot = join(__dirname, '..', 'fixtures', 'postgres');
+
+    // Public e-commerce schema.
+    const ecomSeeded = await client.query(
       "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'products'"
     );
-    if (r.rowCount && r.rowCount > 0) return;
-    const fixturesRoot = join(__dirname, '..', 'fixtures', 'postgres');
-    const schema = readFileSync(join(fixturesRoot, 'schema.sql'), 'utf8');
-    const seed = readFileSync(join(fixturesRoot, 'seed.sql'), 'utf8');
-    await client.query(schema);
-    await client.query(seed);
+    if (!(ecomSeeded.rowCount && ecomSeeded.rowCount > 0)) {
+      await client.query(readFileSync(join(fixturesRoot, 'schema.sql'), 'utf8'));
+      await client.query(readFileSync(join(fixturesRoot, 'seed.sql'), 'utf8'));
+    }
+
+    // MJ schema.
+    const mjSeeded = await client.query(
+      "SELECT 1 FROM information_schema.tables WHERE table_schema = '__mj' AND table_name = 'entity'"
+    );
+    if (!(mjSeeded.rowCount && mjSeeded.rowCount > 0)) {
+      await client.query(readFileSync(join(fixturesRoot, 'mj-schema.sql'), 'utf8'));
+      await client.query(readFileSync(join(fixturesRoot, 'mj-seed.sql'), 'utf8'));
+    }
   } finally {
     await client.end();
   }
