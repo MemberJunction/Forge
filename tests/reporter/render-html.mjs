@@ -424,6 +424,12 @@ function renderTier(report, tier) {
   const staleBadge = tier.stale && !running
     ? `<span class="badge badge-stale" title="Specs or helpers changed since this run — result may be out of date">STALE</span>`
     : '';
+  // PASS badge: only when every test in the tier passed AND it isn't
+  // currently running OR stale (those badges take precedence — STALE means
+  // the green is potentially out of date, RUN means we're not done yet).
+  const passBadge = !running && !tier.stale && t.failed === 0 && t.passed > 0
+    ? `<span class="badge badge-pass" title="All ${t.passed} tests in this tier passed">PASS</span>`
+    : '';
   const currentTest =
     running && tier.currentTest
       ? `<div class="tier-current mono">↳ ${escapeHtml(tier.currentTest)}</div>`
@@ -441,6 +447,7 @@ function renderTier(report, tier) {
       <summary>
         ${runBadge}
         ${staleBadge}
+        ${passBadge}
         <h2>${escapeHtml(tier.label)}</h2>
         ${autorunToggle}
         <span class="tier-counts">
