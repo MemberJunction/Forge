@@ -383,19 +383,18 @@ function renderSuite(report, tier, suite) {
   `;
 }
 
-// Toggle pill for the per-tier file-watch auto-rerun. Only e2e + visual have
-// a server-side watcher worth opting out of (vitest reruns are nearly free).
-// Reads current state from report.autorun; click handler POSTs the inverse.
+// Switch control for the per-tier file-watch auto-rerun. Only e2e + visual
+// have a server-side watcher worth opting out of (vitest reruns are nearly
+// free). Native iOS-style track + thumb; uses role="switch" + aria-checked
+// for accessibility. Click handler in serve.mjs reads data-enabled and POSTs
+// the inverse to /control/set-autorun.
 function renderAutorunToggle(tier, report) {
   if (!tier.key || (tier.key !== 'e2e' && tier.key !== 'visual')) return '';
   const enabled = report?.autorun?.[tier.key] !== false; // default ON
-  const cls = enabled ? 'autorun-on' : 'autorun-off';
-  const icon = enabled ? 'autorenew' : 'sync_disabled';
-  const label = enabled ? 'Auto' : 'Manual';
   const title = enabled
     ? 'Auto-rerun on save is ON — click to disable (still marks STALE on change)'
     : 'Auto-rerun on save is OFF — click to enable (you\'ll need to hit Run after edits)';
-  return `<button type="button" class="autorun-toggle ${cls}" data-action="toggle-autorun" data-tier="${escapeHtml(tier.key)}" data-enabled="${enabled}" title="${escapeHtml(title)}"><span class="material-symbols-outlined autorun-icon">${icon}</span><span class="autorun-label">${label}</span></button>`;
+  return `<button type="button" role="switch" aria-checked="${enabled}" class="autorun-toggle" data-action="toggle-autorun" data-tier="${escapeHtml(tier.key)}" data-enabled="${enabled}" title="${escapeHtml(title)}"><span class="autorun-label">Auto-rerun</span><span class="autorun-track"><span class="autorun-thumb"></span></span></button>`;
 }
 
 function renderTier(report, tier) {
@@ -1347,30 +1346,70 @@ pre {
     0 0 0 transparent;
 }
 
-/* Auto-rerun toggle — small pill to the left of Run. ON = subtle accent
-   tint with the rotating-arrows icon; OFF = muted ghost with the slashed
-   sync icon, so the disabled state reads clearly even at a glance. */
+/* Auto-rerun switch — physical-feeling toggle with a sliding thumb. The
+   track + thumb communicate state; the label just says what it controls.
+   ON = accent-purple track + thumb on the right; OFF = muted track + thumb
+   on the left. Cushioned 0.18s spring so the flick reads as deliberate. */
 .autorun-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 9px 4px 7px;
+  gap: 8px;
+  padding: 2px 4px 2px 8px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
   font: 600 10px var(--font-stack-condensed);
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: transparent;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  color: var(--ink-muted);
+  transition: color 0.15s;
 }
-.autorun-toggle .autorun-icon { font-size: 13px; }
-.autorun-toggle.autorun-on  { color: var(--accent); border-color: rgba(124, 110, 246, 0.55); background: rgba(124, 110, 246, 0.10); }
-.autorun-toggle.autorun-off { color: var(--ink-muted); border-color: var(--line); background: transparent; }
-.autorun-toggle.autorun-on:hover  { background: rgba(124, 110, 246, 0.18); box-shadow: 0 0 10px rgba(124, 110, 246, 0.30); }
-.autorun-toggle.autorun-off:hover { color: var(--ink-secondary); border-color: var(--ink-secondary); }
-.autorun-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.autorun-toggle:active { transform: translateY(1px); }
+.autorun-toggle:hover { color: var(--ink-secondary); }
+.autorun-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 3px; }
+.autorun-toggle:disabled { cursor: progress; opacity: 0.6; }
+.autorun-label { white-space: nowrap; }
+
+.autorun-track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.40);
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+.autorun-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.18s;
+}
+.autorun-toggle[aria-checked="true"] .autorun-track {
+  background: rgba(124, 110, 246, 0.55);
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.30),
+    0 0 8px rgba(124, 110, 246, 0.35);
+}
+.autorun-toggle[aria-checked="true"] .autorun-thumb {
+  background: #ffffff;
+  transform: translateX(12px);
+}
+.autorun-toggle[aria-checked="true"] { color: var(--accent); }
+.autorun-toggle[aria-checked="true"]:hover .autorun-track {
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.30),
+    0 0 12px rgba(124, 110, 246, 0.55);
+}
+.autorun-toggle:active .autorun-thumb { transform: scale(0.92) translateX(0); }
+.autorun-toggle[aria-checked="true"]:active .autorun-thumb { transform: scale(0.92) translateX(12px); }
 
 /* Disabled Run — when a run is in flight for a non-cancelable tier
    (vitest's watcher doesn't expose mid-run abort). Receded but still
