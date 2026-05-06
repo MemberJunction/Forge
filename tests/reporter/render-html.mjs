@@ -352,6 +352,11 @@ function renderSuite(report, tier, suite) {
       : `<span class="suite-summary text-muted">${passed} passed</span>`;
   const skipNote = skipped > 0 ? `<span class="suite-summary text-muted"> · ${skipped} skipped</span>` : '';
   const runBadge = running ? `<span class="badge badge-running">RUN</span>` : '';
+  // Mirrors the tier-level PASS rule: only show when every test in this
+  // suite passed and the suite isn't currently running.
+  const passBadge = !running && failed === 0 && passed > 0
+    ? `<span class="badge badge-pass" title="All ${passed} tests in this suite passed">PASS</span>`
+    : '';
   const payload = escapeHtml(copyPayloadForSuite(report, tier, suite));
   // Suite-level Run reflects the *parent tier* run state — Playwright/vitest
   // both run the whole project on rerun, so per-suite Run is actually disabled
@@ -370,6 +375,7 @@ function renderSuite(report, tier, suite) {
     <details class="suite ${running ? 'is-running' : ''}" data-id="${escapeHtml(id)}" ${isOpen ? 'open' : ''}>
       <summary>
         ${runBadge}
+        ${passBadge}
         <span class="suite-name mono">${escapeHtml(suite.name)}</span>
         ${summary}${skipNote}
         <span class="suite-duration mono text-muted">${fmtDuration(suite.durationMs)}</span>
