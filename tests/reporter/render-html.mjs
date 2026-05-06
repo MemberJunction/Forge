@@ -1363,7 +1363,7 @@ pre {
   display: inline-flex;
   justify-content: flex-end;
   align-items: center;
-  min-width: 78px;
+  min-width: 64px;
 }
 
 /* Auto-rerun switch — physical-feeling toggle with a sliding thumb. The
@@ -1373,13 +1373,13 @@ pre {
 .autorun-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 2px 4px 2px 8px;
+  gap: 6px;
+  padding: 2px 4px 2px 6px;
   background: transparent;
   border: 0;
   cursor: pointer;
-  font: 600 10px var(--font-stack-condensed);
-  letter-spacing: 0.10em;
+  font: 500 9px var(--font-stack-condensed);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-muted);
   transition: color 0.15s;
