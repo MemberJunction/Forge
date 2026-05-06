@@ -935,7 +935,7 @@ function handleEvent(event) {
 }
 
 function normalizeStatus(s) {
-  if (s === 'passed' || s === 'failed' || s === 'skipped') return s;
+  if (s === 'passed' || s === 'failed' || s === 'skipped' || s === 'running') return s;
   if (s === 'pending' || s === 'todo' || s === 'unknown') return 'skipped';
   return 'skipped';
 }
@@ -954,8 +954,13 @@ function recomputeSuiteTotals(suite) {
   const t = { passed: 0, failed: 0, skipped: 0, total: tests.length };
   let dur = 0;
   for (const x of tests) {
+    // Tests with status='running' are in-flight rows the user sees as RUN
+    // badges. Don't roll them into passed/failed/skipped — that would
+    // misreport the real outcome. They still count toward total so the
+    // tier-level "X tests" reflects what's been observed so far.
     if (x.status === 'passed') t.passed += 1;
     else if (x.status === 'failed') t.failed += 1;
+    else if (x.status === 'running') { /* in flight — skip */ }
     else t.skipped += 1;
     dur += x.durationMs ?? 0;
   }
@@ -1079,22 +1084,66 @@ function startInfrastructurePolling() {
   }, INFRA_POLL_MS);
 }
 
+// Source of truth for "what containers should exist when the harness is up".
+// Drives ghost-card rendering when docker is down (or partially down) so the
+// dashboard always shows the same 5-card grid — clearer than empty space.
+// Names + engine + role mirror tests/docker-compose.test.yml.
+const KNOWN_CONTAINERS = [
+  { name: 'forge-test-mssql',            engine: 'mssql',            role: 'SQL Server 2022' },
+  { name: 'forge-test-postgres',         engine: 'postgres',         role: 'PostgreSQL 16' },
+  { name: 'forge-test-mysql',            engine: 'mysql',            role: 'MySQL 8' },
+  { name: 'forge-test-postgres-private', engine: 'postgres-private', role: 'tunneled pg' },
+  { name: 'forge-test-bastion',          engine: 'bastion',          role: 'SSH bastion' },
+];
+
+function ghostContainerFor(known) {
+  return {
+    id: 'ghost:' + known.name,
+    name: known.name,
+    engine: known.engine,
+    role: known.role,
+    state: 'down',
+    status: 'not running',
+    cpuPct: 0,
+    memBytes: 0,
+    memLimit: 0,
+    memPct: 0,
+    history: [],
+  };
+}
+
 function serializeInfrastructure() {
-  const containers = Array.from(infra.containers.values()).sort((a, b) => {
+  const realContainers = Array.from(infra.containers.values());
+  // Merge: real containers first; for any KNOWN_CONTAINER missing from the
+  // docker poll, splice in a ghost. Lets the surgical client-side update
+  // path "promote" a ghost in place when its real counterpart appears
+  // (data-id matches; only the data-state attribute and inner numbers
+  // change, no DOM remount).
+  const realByName = new Map(realContainers.map((c) => [c.name, c]));
+  const merged = [];
+  for (const known of KNOWN_CONTAINERS) {
+    merged.push(realByName.get(known.name) ?? ghostContainerFor(known));
+  }
+  // Anything outside KNOWN_CONTAINERS (shouldn't happen — we filter to
+  // forge-test-* — but defensive against future compose additions) appended
+  // verbatim so it still shows up.
+  for (const c of realContainers) {
+    if (!KNOWN_CONTAINERS.some((k) => k.name === c.name)) merged.push(c);
+  }
+  const containers = merged.sort((a, b) => {
     const ai = ROLE_ORDER.indexOf(a.engine);
     const bi = ROLE_ORDER.indexOf(b.engine);
     if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     return a.name.localeCompare(b.name);
   });
-  // Derive overall harness state so the dashboard can disable buttons
-  // that wouldn't do anything (Up when already up, Down when nothing to stop).
-  // 'partial' covers e.g. one container manually stopped — both buttons stay
-  // enabled so the user can recover with either action.
-  const totalCount = containers.length;
-  const runningCount = containers.filter((c) => c.state === 'running').length;
+  // Derive overall harness state from REAL containers only — ghosts shouldn't
+  // count toward "all up" or skew the partial detection. Otherwise the Up
+  // button would never enable since ghosts always look 'down'.
+  const realTotal = realContainers.length;
+  const realRunning = realContainers.filter((c) => c.state === 'running').length;
   let harnessState = 'partial';
-  if (totalCount === 0) harnessState = 'down';
-  else if (runningCount === totalCount) harnessState = 'up';
+  if (realTotal === 0) harnessState = 'down';
+  else if (realRunning === realTotal) harnessState = 'up';
   return {
     lastPolledAt: infra.lastPolledAt,
     pollIntervalMs: INFRA_POLL_MS,

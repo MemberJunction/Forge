@@ -879,6 +879,9 @@ pre {
   gap: var(--space-3);
   font-family: var(--font-mono);
   overflow: hidden;
+  /* Smooth ghost→live transition when a container starts during a session
+     (data-state changes from "down" to "running"). */
+  transition: opacity 0.4s ease, filter 0.4s ease, background 0.4s ease;
 }
 
 .infra-top {
@@ -917,6 +920,28 @@ pre {
 .infra-card[data-state="running"] .infra-state-dot {
   background: var(--engine, var(--pass));
   animation: dotPulse 2s ease-in-out infinite;
+}
+
+/* Ghost / down state — container is expected (per docker-compose) but not
+   currently running. Card stays in the grid as a desaturated outline so the
+   user can see WHAT will be there once docker is up, not just empty space.
+   When the real container appears, data-state changes off "down" and the
+   ghost styling drops away — surgical update path handles the promotion in
+   place via matching data-id. */
+.infra-card[data-state="down"] {
+  opacity: 0.42;
+  filter: grayscale(0.85);
+  background: rgba(255, 255, 255, 0.015);
+  box-shadow: none;
+}
+.infra-card[data-state="down"] .infra-state-dot {
+  background: var(--ink-muted);
+  animation: none;
+  box-shadow: none;
+}
+.infra-card[data-state="down"]:hover {
+  opacity: 0.6;
+  filter: grayscale(0.6);
 }
 @keyframes dotPulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--engine, var(--pass)); }

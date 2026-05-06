@@ -42,6 +42,11 @@ export default class ForgePlaywrightLiveReporter {
     // run-end events for tiers that had a run-start. Avoids flipping an idle
     // tier (e.g., 'visual' when only e2e ran) to 'ok'/'failed'.
     this._activeTiers = new Set();
+    // file -> Set<fullName>. Lets us emit module-end the moment a file's
+    // last test finishes, instead of waiting for the whole project's onEnd
+    // to flip every suite back to 'idle' at once. Without this, every suite
+    // shows the RUN badge for the entire duration of the playwright run.
+    this._pendingByFile = new Map();
   }
 
   async onBegin(_config, suite) {
@@ -52,6 +57,10 @@ export default class ForgePlaywrightLiveReporter {
       const tier = tierForFile(file);
       if (!filesByTier.has(tier)) filesByTier.set(tier, new Set());
       filesByTier.get(tier).add(file);
+      const fullName = fullNameOf(test);
+      let pending = this._pendingByFile.get(file);
+      if (!pending) { pending = new Set(); this._pendingByFile.set(file, pending); }
+      pending.add(fullName);
     }
     for (const [tier, files] of filesByTier) {
       this._activeTiers.add(tier);
@@ -61,7 +70,21 @@ export default class ForgePlaywrightLiveReporter {
 
   async onTestBegin(test) {
     const file = test.location?.file ?? '';
-    await post(tierForFile(file), { type: 'module-start', file });
+    const tier = tierForFile(file);
+    await post(tier, { type: 'module-start', file });
+    // Also emit a 'running' placeholder so the dashboard renders this test
+    // as a RUN row immediately, instead of it being invisible until
+    // onTestEnd fires. Makes it clear what's currently being executed.
+    // The test-result event fired by onTestEnd will overwrite this entry
+    // with the real status by fullName.
+    await post(tier, {
+      type: 'test-result',
+      file,
+      fullName: fullNameOf(test),
+      status: 'running',
+      durationMs: 0,
+      failureMessages: [],
+    });
   }
 
   async onTestEnd(test, result) {
@@ -84,6 +107,22 @@ export default class ForgePlaywrightLiveReporter {
       failureMessages,
       screenshots,
     });
+    // Mark this test as done; if it was the last pending one for this file,
+    // emit module-end so the suite header flips from RUN to its outcome
+    // immediately. Skips when the test is being retried (more attempts to
+    // come) — Playwright fires onTestEnd per attempt, so we wait for the
+    // final one before declaring the file done.
+    const moreRetries = result.retry < (test.retries ?? 0) && status !== 'passed';
+    if (!moreRetries) {
+      const pending = this._pendingByFile.get(file);
+      if (pending) {
+        pending.delete(fullNameOf(test));
+        if (pending.size === 0) {
+          this._pendingByFile.delete(file);
+          await post(tier, { type: 'module-end', file });
+        }
+      }
+    }
   }
 
   async onEnd(result) {
