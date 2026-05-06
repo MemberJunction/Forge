@@ -458,6 +458,16 @@ async function handleControlHarnessDown(_req, res) {
 
 // Wrapper that runs a docker compose action and refreshes the infra poll
 // when it finishes (success or failure). Shape: `runHarness(label)(asyncFn)`.
+// Map of opKind → the harnessState we should observe before declaring the op
+// complete. Without this, `docker compose up --wait` can return before the
+// daemon has transitioned every container to 'running' (we'd see 'partial'
+// for a moment, the Up button would re-enable, then the 2s poll would
+// finally catch up). Polling until the observed state matches keeps the
+// button busy through that settling window.
+const HARNESS_TARGET_STATE = { up: 'up', reset: 'up', down: 'down' };
+const HARNESS_SETTLE_TIMEOUT_MS = 30_000;
+const HARNESS_SETTLE_INTERVAL_MS = 750;
+
 function runHarness(label, opKind) {
   // opKind: 'up' | 'down' | 'reset' (purely for the dashboard's busy
   // indicator). Always cleared on completion so a stuck error doesn't leave
@@ -473,13 +483,50 @@ function runHarness(label, opKind) {
       broadcastInfra();
     };
     fn()
-      .then(() => pollDockerOnce())
+      .then(() => waitForHarnessState(opKind))
       .catch((err) => {
         console.error(`[control] harness ${label} failed:`, err);
         infra.lastError = `${label} failed: ${err?.message ?? err}`;
       })
       .finally(finish);
   };
+}
+
+async function waitForHarnessState(opKind) {
+  // No specific target → just one poll and we're done (legacy callers).
+  const target = HARNESS_TARGET_STATE[opKind];
+  if (!target) {
+    await pollDockerOnce();
+    return;
+  }
+  const deadline = Date.now() + HARNESS_SETTLE_TIMEOUT_MS;
+  // Bound the loop with both a deadline AND an explicit max iteration count
+  // so a bug in pollDockerOnce can't spin us forever.
+  const maxIters = Math.ceil(HARNESS_SETTLE_TIMEOUT_MS / HARNESS_SETTLE_INTERVAL_MS) + 2;
+  for (let i = 0; i < maxIters; i += 1) {
+    await pollDockerOnce();
+    if (currentHarnessState() === target) return;
+    if (Date.now() >= deadline) {
+      console.warn(`[control] harness ${opKind} did not settle to '${target}' within ${HARNESS_SETTLE_TIMEOUT_MS}ms (last: ${currentHarnessState()})`);
+      return;
+    }
+    await delay(HARNESS_SETTLE_INTERVAL_MS);
+  }
+}
+
+function currentHarnessState() {
+  // Mirrors the calculation in serializeInfrastructure so the settle loop
+  // and the wire payload always agree on what 'up'/'down'/'partial' means.
+  const containers = Array.from(infra.containers.values());
+  const total = containers.length;
+  if (total === 0) return 'down';
+  const running = containers.filter((c) => c.state === 'running').length;
+  if (running === total) return 'up';
+  return 'partial';
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function markTierStale(tier) {
