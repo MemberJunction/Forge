@@ -173,7 +173,7 @@ export function renderInfrastructure(infra) {
         <div class="section-label">
           <span>Infrastructure</span>
           <span class="section-line"></span>
-          ${renderHarnessControls()}
+          ${renderHarnessControls(infra.harnessState)}
         </div>
         <div class="infra-empty">Awaiting Docker — run <span class="mono">npm run test:harness:up</span></div>
       </section>
@@ -188,18 +188,22 @@ export function renderInfrastructure(infra) {
         <span>Infrastructure</span>
         ${polled}
         <span class="section-line"></span>
-        ${renderHarnessControls()}
+        ${renderHarnessControls(infra.harnessState)}
       </div>
       <div class="infra-grid">${cards}</div>
     </section>
   `;
 }
 
-function renderHarnessControls() {
+function renderHarnessControls(harnessState = 'partial') {
+  const upDisabled = harnessState === 'up' ? 'disabled' : '';
+  const downDisabled = harnessState === 'down' ? 'disabled' : '';
+  const upTitle = harnessState === 'up' ? 'Already up' : 'Bring containers up (idempotent)';
+  const downTitle = harnessState === 'down' ? 'Already down' : 'Stop containers (volumes preserved)';
   return `
     <span class="section-controls">
-      <button type="button" class="ctrl-btn ctrl-up"    data-action="harness-up"    title="Bring containers up (idempotent)"><span class="material-symbols-outlined ctrl-icon">power_settings_new</span><span class="ctrl-label">Up</span></button>
-      <button type="button" class="ctrl-btn ctrl-down"  data-action="harness-down"  title="Stop containers (volumes preserved)"><span class="material-symbols-outlined ctrl-icon">stop</span><span class="ctrl-label">Down</span></button>
+      <button type="button" class="ctrl-btn ctrl-up"    data-action="harness-up"    title="${upTitle}"   ${upDisabled}><span class="material-symbols-outlined ctrl-icon">power_settings_new</span><span class="ctrl-label">Up</span></button>
+      <button type="button" class="ctrl-btn ctrl-down"  data-action="harness-down"  title="${downTitle}" ${downDisabled}><span class="material-symbols-outlined ctrl-icon">stop</span><span class="ctrl-label">Down</span></button>
       <button type="button" class="ctrl-btn ctrl-reset" data-action="harness-reset" title="Tear all containers down (with volumes) and bring them back up"><span class="material-symbols-outlined ctrl-icon">restart_alt</span><span class="ctrl-label">Reset</span></button>
     </span>
   `;
@@ -1279,10 +1283,10 @@ pre {
   box-shadow: 0 0 10px rgba(126, 217, 87, 0.28);
 }
 .ctrl-down:hover {
-  color: var(--info);
-  border-color: var(--info);
-  background: rgba(95, 180, 214, 0.10);
-  box-shadow: 0 0 10px rgba(95, 180, 214, 0.28);
+  color: var(--fail);
+  border-color: var(--fail);
+  background: rgba(255, 94, 94, 0.10);
+  box-shadow: 0 0 10px rgba(255, 94, 94, 0.30);
 }
 .ctrl-reset:hover {
   color: var(--warn);
@@ -1293,6 +1297,20 @@ pre {
 .ctrl-reset:hover .ctrl-icon { transform: rotate(360deg); }
 
 .ctrl-up:active, .ctrl-down:active, .ctrl-reset:active { transform: translateY(1px); }
+
+/* Disabled state for harness controls — when the action would be a no-op
+   (Up while already up, Down while nothing is running) the button visually
+   recedes and stops responding to hover. */
+.ctrl-up[disabled], .ctrl-down[disabled], .ctrl-reset[disabled] {
+  cursor: not-allowed;
+  opacity: 0.35;
+  pointer-events: none;
+  background: transparent;
+  border-color: var(--line-soft);
+  color: var(--ink-faint);
+  box-shadow: none;
+  transform: none;
+}
 
 /* Busy state — replaces the icon with a spinning ring + pulses the button */
 .ctrl-btn.is-busy {

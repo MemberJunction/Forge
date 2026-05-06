@@ -741,10 +741,20 @@ function serializeInfrastructure() {
     if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     return a.name.localeCompare(b.name);
   });
+  // Derive overall harness state so the dashboard can disable buttons
+  // that wouldn't do anything (Up when already up, Down when nothing to stop).
+  // 'partial' covers e.g. one container manually stopped — both buttons stay
+  // enabled so the user can recover with either action.
+  const totalCount = containers.length;
+  const runningCount = containers.filter((c) => c.state === 'running').length;
+  let harnessState = 'partial';
+  if (totalCount === 0) harnessState = 'down';
+  else if (runningCount === totalCount) harnessState = 'up';
   return {
     lastPolledAt: infra.lastPolledAt,
     pollIntervalMs: INFRA_POLL_MS,
     error: infra.lastError,
+    harnessState,
     containers,
   };
 }
@@ -1103,6 +1113,22 @@ function applyInfra(payload) {
   if (meta && payload.pollIntervalMs) {
     const sec = Math.round(payload.pollIntervalMs / 1000);
     meta.textContent = 'polled every ' + sec + 's';
+  }
+
+  // Toggle Up/Down disabled state based on harness state. Reset is always
+  // enabled — it's a recovery action that should work from any state.
+  const upBtn = infraHost.querySelector('.ctrl-up');
+  const downBtn = infraHost.querySelector('.ctrl-down');
+  const harnessState = payload.harnessState;
+  if (upBtn) {
+    const shouldDisable = harnessState === 'up';
+    upBtn.disabled = shouldDisable;
+    upBtn.title = shouldDisable ? 'Already up' : 'Bring containers up (idempotent)';
+  }
+  if (downBtn) {
+    const shouldDisable = harnessState === 'down';
+    downBtn.disabled = shouldDisable;
+    downBtn.title = shouldDisable ? 'Already down' : 'Stop containers (volumes preserved)';
   }
 }
 
