@@ -924,10 +924,16 @@ function handleEvent(event) {
     tier.testsCompleted = 0;
     tier.note = undefined;
     tier.stale = false;
-    // Mark every file in this run as 'running'. New files get an empty suite.
+    // Mark every file in this run as 'running' AND clear its tests Map so
+    // results from a prior run (especially deleted/renamed tests) don't
+    // hang around forever. New test-result events from this run will
+    // repopulate. Without this clear the dashboard would show ghost PASS
+    // / FAIL rows for tests that no longer exist in the spec file.
     for (const file of event.files ?? []) {
       const suite = tier.suites.get(file) ?? makeSuite(file);
       suite.runState = 'running';
+      suite.tests = new Map();
+      suite.totals = { passed: 0, failed: 0, skipped: 0, total: 0 };
       tier.suites.set(file, suite);
     }
     if (tier.status === 'initializing') tier.status = 'ok';

@@ -58,10 +58,11 @@ test.describe('Forge — query toolbar', () => {
       await window.waitForTimeout(800);
 
       const toolbar = window.locator('.query-toolbar:visible').first();
-      // Export button is icon-only — its label lives on the matTooltip
-      // attribute, which Material renders as the button's aria-label too.
-      // Match by accessible name rather than visible text.
-      const exportTrigger = toolbar.getByRole('button', { name: /^export$/i }).first();
+      // Export button is icon-only with a matTooltip — but matTooltip uses
+      // aria-describedby (not aria-label), so getByRole can't see it. The
+      // most stable identifier is the mat-icon ligature ("download"), which
+      // renders as text content inside the icon element.
+      const exportTrigger = toolbar.locator('button:has(mat-icon:text-is("download"))').first();
       await exportTrigger.click({ timeout: 5000 });
 
       // Forge wires three options: csv / json / sql. Match by accessible
