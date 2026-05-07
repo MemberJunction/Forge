@@ -62,6 +62,36 @@ export class ConnectionStateService implements OnDestroy {
     return tab.databaseName ?? null;
   });
 
+  // The connection a user-driven action like Cmd+N should target by default.
+  // Three-stage resolution:
+  //   1. The currently-focused query tab's connection — what they're "in".
+  //   2. The most-recently-opened query tab whose connection is still live.
+  //      Set iteration order in `tabState.tabs()` is creation order, so the
+  //      last query tab is the one the user most recently spawned. Survives
+  //      the user closing the active tab as long as they have other tabs
+  //      against the same connection.
+  //   3. Most-recently-added entry of `_connectedProfileIds` (last connect()).
+  // Returns null only when nothing is connected.
+  readonly mostRecentConnectionId = computed<string | null>(() => {
+    const focused = this.focusedConnectionId();
+    if (focused && this._connectedProfileIds().has(focused)) return focused;
+
+    const tabs = this.tabState.tabs();
+    for (let i = tabs.length - 1; i >= 0; i--) {
+      const tab = tabs[i];
+      if (
+        tab.type === 'query' &&
+        tab.connectionId &&
+        this._connectedProfileIds().has(tab.connectionId)
+      ) {
+        return tab.connectionId;
+      }
+    }
+
+    const ids = [...this._connectedProfileIds()];
+    return ids.length > 0 ? ids[ids.length - 1] : null;
+  });
+
   readonly profiles$ = toObservable(this.profiles);
   readonly isConnected$ = toObservable(this.hasAnyConnection);
 
@@ -88,6 +118,25 @@ export class ConnectionStateService implements OnDestroy {
   profileFor(connectionId: string | null): ConnectionProfile | null {
     if (!connectionId) return null;
     return this._profiles().find(p => p.id === connectionId) ?? null;
+  }
+
+  // The database a "new query" action should target for this connection.
+  // Resolution order:
+  //   1. The user's last-selected database for this connection.
+  //   2. The profile's configured default database (if it's actually in the
+  //      loaded list — guards against a stale profile.database value pointing
+  //      at a now-deleted db).
+  //   3. The first database the server returned, as a last-resort default.
+  // Returns null only when the connection has zero databases.
+  defaultDatabaseFor(connectionId: string): string | null {
+    const selected = this.selectedDatabaseFor(connectionId);
+    if (selected) return selected;
+    const profile = this.profileFor(connectionId);
+    const databases = this.databasesFor(connectionId);
+    if (profile?.database && databases.some(d => d.name === profile.database)) {
+      return profile.database;
+    }
+    return databases[0]?.name ?? null;
   }
 
   async loadProfiles(): Promise<void> {

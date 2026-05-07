@@ -12,6 +12,7 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
+import { keyHint } from '../../core/utils/platform';
 import { ChatStateService } from '../../core/state/chat.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { TablePropertiesService } from '../../core/services/table-properties.service';
@@ -100,10 +101,10 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                 <button
                   mat-menu-item
                   (click)="selectConnection(profile.id)"
-                  [class.active]="profile.id === connectionState.focusedConnectionId()"
+                  [class.active]="profile.id === connectionState.mostRecentConnectionId()"
                   matTooltip="Switch focus to this connection"
                 >
-                  @if (profile.id === connectionState.focusedConnectionId()) {
+                  @if (profile.id === connectionState.mostRecentConnectionId()) {
                     <mat-icon>check</mat-icon>
                   } @else {
                     <i
@@ -664,17 +665,18 @@ export class SidebarComponent {
   private pendingDeleteDatabase: string | null = null;
   private pendingRenameDatabase: string | null = null;
 
-  // Focused-connection accessors. The sidebar's UI is anchored to the focused
-  // tab's connection (cloud icon, database dropdown, dropdown highlight). These
-  // wrap the per-connection state lookups so templates stay readable.
+  // Sidebar UI accessors anchor to the most-recently-used connection — the
+  // focused query tab's connection if one is focused, falling back to the
+  // last-touched connection (or most-recently-added if we have no history).
+  // mostRecentConnectionId() is null only when zero connections are open.
   readonly focusedProfile = computed(() =>
-    this.connectionState.profileFor(this.connectionState.focusedConnectionId())
+    this.connectionState.profileFor(this.connectionState.mostRecentConnectionId())
   );
   readonly focusedDatabases = computed(() =>
-    this.connectionState.databasesFor(this.connectionState.focusedConnectionId())
+    this.connectionState.databasesFor(this.connectionState.mostRecentConnectionId())
   );
   readonly focusedSelectedDatabase = computed(() =>
-    this.connectionState.selectedDatabaseFor(this.connectionState.focusedConnectionId())
+    this.connectionState.selectedDatabaseFor(this.connectionState.mostRecentConnectionId())
   );
 
   /** Get devicon CSS class for the connection host (cloud provider or docker) */
@@ -805,7 +807,7 @@ export class SidebarComponent {
   }
 
   selectDatabase(name: string): void {
-    const focusId = this.connectionState.focusedConnectionId();
+    const focusId = this.connectionState.mostRecentConnectionId();
     if (focusId) {
       this.connectionState.selectDatabase(focusId, name);
     }
@@ -861,16 +863,16 @@ export class SidebarComponent {
   }
 
   newQuery(): void {
-    const connectionId = this.connectionState.focusedConnectionId();
-    const databaseName = this.focusedSelectedDatabase();
-    if (connectionId && databaseName) {
-      this.tabState.openQueryTab(connectionId, databaseName);
-      this.router.navigate(['/query']);
-    }
+    const connectionId = this.connectionState.mostRecentConnectionId();
+    if (!connectionId) return;
+    const databaseName = this.connectionState.defaultDatabaseFor(connectionId);
+    if (!databaseName) return;
+    this.tabState.openQueryTab(connectionId, databaseName, undefined, false, false);
+    this.router.navigate(['/query']);
   }
 
   async refresh(): Promise<void> {
-    const focusId = this.connectionState.focusedConnectionId();
+    const focusId = this.connectionState.mostRecentConnectionId();
     if (focusId) {
       await this.connectionState.loadDatabases(focusId);
     }
@@ -890,7 +892,7 @@ export class SidebarComponent {
   }
 
   openBackup(databaseName?: string): void {
-    const connectionId = this.connectionState.focusedConnectionId();
+    const connectionId = this.connectionState.mostRecentConnectionId();
     const dbName = databaseName || this.focusedSelectedDatabase();
 
     if (!connectionId) {
@@ -925,7 +927,7 @@ export class SidebarComponent {
   }
 
   openRestore(databaseName?: string): void {
-    const connectionId = this.connectionState.focusedConnectionId();
+    const connectionId = this.connectionState.mostRecentConnectionId();
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -1055,7 +1057,7 @@ export class SidebarComponent {
         id: 'new-query',
         label: 'New Query',
         icon: 'code',
-        shortcut: 'Ctrl+N',
+        shortcut: keyHint('N'),
         action: () => {
           if (node.connectionId && node.databaseName) {
             this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
@@ -1866,7 +1868,7 @@ ORDER BY __mj_CreatedAt DESC`;
   // Database create/rename/delete dialog methods
   /** Public wrapper – uses the focused connection when called from the database dropdown menu */
   openCreateDatabaseDialog(connectionId?: string): void {
-    const connId = connectionId || this.connectionState.focusedConnectionId();
+    const connId = connectionId || this.connectionState.mostRecentConnectionId();
     if (!connId) {
       this.notification.error('No active connection');
       return;
@@ -1968,7 +1970,7 @@ ORDER BY __mj_CreatedAt DESC`;
 
     if (!oldName) return;
 
-    const connectionId = this.connectionState.focusedConnectionId();
+    const connectionId = this.connectionState.mostRecentConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
@@ -2008,7 +2010,7 @@ ORDER BY __mj_CreatedAt DESC`;
 
     if (!databaseName) return;
 
-    const connectionId = this.connectionState.focusedConnectionId();
+    const connectionId = this.connectionState.mostRecentConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;

@@ -306,17 +306,17 @@ export class TabBarComponent {
   }
 
   newQueryTab(): void {
-    const connId = this.connectionState.focusedConnectionId();
-    const db = this.connectionState.selectedDatabaseFor(connId);
-    if (connId && db) {
-      this.tabState.openQueryTab(connId, db);
-      this.router.navigate(['/query']);
-    }
+    const connId = this.connectionState.mostRecentConnectionId();
+    if (!connId) return;
+    const db = this.connectionState.defaultDatabaseFor(connId);
+    if (!db) return;
+    this.tabState.openQueryTab(connId, db, undefined, false, false);
+    this.router.navigate(['/query']);
   }
 
   canCreateQuery(): boolean {
-    const connId = this.connectionState.focusedConnectionId();
-    return !!connId && !!this.connectionState.selectedDatabaseFor(connId);
+    const connId = this.connectionState.mostRecentConnectionId();
+    return !!connId && !!this.connectionState.defaultDatabaseFor(connId);
   }
 
   private navigateToTab(tab: Tab): void {

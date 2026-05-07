@@ -283,16 +283,24 @@ export class MenuService implements OnDestroy {
   }
 
   private newQuery(): void {
-    const connectionId = this.connectionState.focusedConnectionId();
-    const databaseName = this.connectionState.selectedDatabaseFor(connectionId);
-
-    if (connectionId && databaseName) {
-      this.tabState.openQueryTab(connectionId, databaseName);
-      this.router.navigate(['/query']);
-    } else {
-      // Navigate to connections if not connected
+    // Cmd+N / menu New Query: target the most-recently-used connection
+    // (last queried, falling back to most-recently-added) and always open
+    // a fresh tab — even when the active tab is an empty query, the user
+    // pressed Cmd+N to get a new one.
+    const connectionId = this.connectionState.mostRecentConnectionId();
+    if (!connectionId) {
       this.router.navigate(['/connections']);
+      return;
     }
+
+    const databaseName = this.connectionState.defaultDatabaseFor(connectionId);
+    if (!databaseName) {
+      this.router.navigate(['/connections']);
+      return;
+    }
+
+    this.tabState.openQueryTab(connectionId, databaseName, undefined, false, false);
+    this.router.navigate(['/query']);
   }
 
   private async openQueryFromFile(): Promise<void> {

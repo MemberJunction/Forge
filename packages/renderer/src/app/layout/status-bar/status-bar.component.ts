@@ -398,17 +398,26 @@ export class StatusBarComponent implements OnInit, OnDestroy {
   readonly cursorLine = signal(0);
   readonly cursorColumn = signal(0);
 
-  /** The profile for the currently focused query tab. */
+  /** The profile shown in the status bar. Anchors to the focused query tab,
+   *  falling back to the most-recently-used connection so the status bar
+   *  stays informative right after a fresh connect (when no query tab exists
+   *  yet) and after the user switches to a non-query tab like welcome. */
   readonly displayedProfile = computed(() =>
-    this.connectionState.profileFor(this.connectionState.focusedConnectionId())
+    this.connectionState.profileFor(this.connectionState.mostRecentConnectionId())
   );
 
-  readonly displayedDatabase = computed(() => this.connectionState.focusedDatabaseName());
+  /** The database shown in the status bar. Falls back like displayedProfile so
+   *  it doesn't blank out when the focused tab is non-query. */
+  readonly displayedDatabase = computed(() => {
+    const focused = this.connectionState.focusedDatabaseName();
+    if (focused) return focused;
+    return this.connectionState.selectedDatabaseFor(this.connectionState.mostRecentConnectionId());
+  });
 
-  /** Health for the focused connection. Treats "no focus" as healthy so the icon
-   *  doesn't flicker red between tab switches. */
+  /** Health for the displayed connection. Treats "no connection at all" as
+   *  healthy so the icon doesn't flicker red between tab switches. */
   readonly focusedHealthy = computed(() =>
-    this.connectionState.healthFor(this.connectionState.focusedConnectionId())
+    this.connectionState.healthFor(this.connectionState.mostRecentConnectionId())
   );
 
   readonly connectionColorBorder = computed(() => {

@@ -295,11 +295,11 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         category: 'file',
         shortcut: '⌘N',
         action: () => {
-          const connId = this.connectionState.focusedConnectionId();
-          const db = this.connectionState.selectedDatabaseFor(connId);
-          if (connId && db) {
-            this.tabState.openQueryTab(connId, db);
-          }
+          const connId = this.connectionState.mostRecentConnectionId();
+          if (!connId) return;
+          const db = this.connectionState.defaultDatabaseFor(connId);
+          if (!db) return;
+          this.tabState.openQueryTab(connId, db, undefined, false, false);
         },
         isEnabled: () => this.connectionState.hasAnyConnection(),
       },
@@ -396,7 +396,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         icon: 'cloud_off',
         category: 'connection',
         action: () => {
-          const id = this.connectionState.focusedConnectionId();
+          const id = this.connectionState.mostRecentConnectionId();
           if (id) this.connectionState.disconnect(id);
         },
         isEnabled: () => this.connectionState.hasAnyConnection(),
@@ -569,11 +569,11 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         icon: 'account_tree',
         category: 'view',
         action: () => {
-          const connId = this.connectionState.focusedConnectionId();
-          const db = this.connectionState.selectedDatabaseFor(connId);
-          if (connId && db) {
-            this.tabState.openErdTab(connId, db);
-          }
+          const connId = this.connectionState.mostRecentConnectionId();
+          if (!connId) return;
+          const db = this.connectionState.defaultDatabaseFor(connId);
+          if (!db) return;
+          this.tabState.openErdTab(connId, db);
         },
         isEnabled: () => this.connectionState.hasAnyConnection(),
       },

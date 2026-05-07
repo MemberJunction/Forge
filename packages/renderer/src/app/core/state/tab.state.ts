@@ -226,12 +226,16 @@ export class TabStateService {
     connectionId: string,
     databaseName: string,
     initialSql?: string,
-    autoExecute = false
+    autoExecute = false,
+    reuseEmpty = true
   ): string {
     const queryTabs = this._tabs().filter(t => t.type === 'query');
 
-    // If no initial SQL, reuse the active tab if it's an empty, clean query tab
-    if (!initialSql) {
+    // Reuse the active tab if it's an empty, clean query tab — useful for
+    // explorer double-click flows that want to "land in" the active tab
+    // rather than spawn a new one. Cmd+N / menu New Query opt out via
+    // reuseEmpty=false so the user always sees a fresh tab.
+    if (!initialSql && reuseEmpty) {
       const activeTab = this.activeTab();
       if (
         activeTab &&
@@ -239,7 +243,6 @@ export class TabStateService {
         !activeTab.isDirty &&
         (!activeTab.content || activeTab.content.trim() === '')
       ) {
-        // Reuse the active empty query tab
         this.updateTab(activeTab.id, { connectionId, databaseName });
         return activeTab.id;
       }
