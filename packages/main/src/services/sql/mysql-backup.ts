@@ -152,6 +152,25 @@ export class MySQLBackupService extends BaseSingleton {
 
     const targetDb = request.targetDatabase || 'restored_db';
 
+    // Validate the target db name: backtick-quoting alone isn't enough
+    // because the value reaches the CLI both as a SQL identifier (in the
+    // CREATE DATABASE we prepend) and a positional arg path. Only allow
+    // names that are safe in both contexts; anything else suggests a typo
+    // or an attempt to inject. MySQL identifiers permit much more, but
+    // this is a Forge-managed flow with a freshly-typed value — we can
+    // afford to be conservative.
+    if (!/^[A-Za-z0-9_]+$/.test(targetDb)) {
+      throw new Error(
+        `Invalid target database name "${targetDb}". Use letters, digits, and underscores only.`
+      );
+    }
+
+    // Don't pass targetDb as a positional arg — the mysql CLI verifies it
+    // exists at connect time and errors out (ERROR 1049 (42000): Unknown
+    // database 'X') when the user is restoring into a *new* database. We
+    // connect without a default database and prepend CREATE DATABASE IF
+    // NOT EXISTS + USE statements to the dump stream so the target is
+    // created (or reused) on the fly.
     const args = [
       '-h',
       profile.server,
@@ -159,7 +178,6 @@ export class MySQLBackupService extends BaseSingleton {
       String(profile.port),
       '-u',
       profile.username || 'root',
-      targetDb,
     ];
 
     log.info(`Starting mysql restore for ${request.backupPath} → ${targetDb}`);
@@ -219,6 +237,13 @@ export class MySQLBackupService extends BaseSingleton {
     operation.pid = proc.pid;
 
     let stderr = '';
+
+    // Prepend a CREATE DATABASE IF NOT EXISTS + USE so the dump runs against
+    // a guaranteed-to-exist target. targetDb has been validated by
+    // startRestore to match /^[A-Za-z0-9_]+$/, so backtick-quoting alone is
+    // safe here. Writing this synchronously to stdin before piping the dump
+    // ensures the prelude reaches mysql first.
+    proc.stdin.write(`CREATE DATABASE IF NOT EXISTS \`${targetDb}\`;\nUSE \`${targetDb}\`;\n`);
 
     // Pipe the SQL file through a filter that strips SUPER-privilege statements
     const fileStream = createReadStream(backupPath);

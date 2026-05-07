@@ -159,4 +159,118 @@ describe('mysql backup/restore round-trip', () => {
       }
     });
   }, 60_000);
+
+  // Regression: MySQL CLI rejects connecting with a non-existent default
+  // database (ERROR 1049 (42000): Unknown database 'X'). startRestore used
+  // to pass the target db as a positional arg, which made the CLI fail
+  // before the dump could create the target. The fix prepends
+  // CREATE DATABASE IF NOT EXISTS / USE to the dump stream so a new target
+  // is created on the fly. This test fails without that fix.
+  it('restores into a target database that does not yet exist', async () => {
+    await withFreshDatabase('mysql', async db => {
+      const c = db.config;
+
+      const seedConn = await mysql.createConnection({
+        host: c.host,
+        port: c.port,
+        user: c.user,
+        password: c.password,
+        database: c.database,
+      });
+      try {
+        await seedConn.query('CREATE TABLE bar (id INT PRIMARY KEY, label VARCHAR(32) NOT NULL)');
+        await seedConn.query("INSERT INTO bar (id, label) VALUES (1, 'one'), (2, 'two')");
+      } finally {
+        await seedConn.end();
+      }
+
+      const connectionId = randomUUID();
+      fakeProfiles.set(connectionId, {
+        id: connectionId,
+        engine: 'mysql',
+        server: c.host,
+        port: c.port,
+        username: c.user,
+      });
+      fakePasswords.set(connectionId, c.password);
+
+      const backupPath = join(tmpdir(), `forge-mysql-newdb-${connectionId}.sql`);
+      tmpFiles.push(backupPath);
+
+      const service = MySQLBackupService.getInstance();
+
+      const backupOpId = await service.startBackup({
+        connectionId,
+        database: c.database,
+        backupPath,
+        backupType: 'full',
+      });
+      const backupResult = await waitForOperation(ipcCapture, backupOpId);
+      expect(backupResult.success, `backup failed: ${backupResult.error}`).toBe(true);
+
+      // Restore into a database name that doesn't exist yet on the server.
+      const newDb = `forge_restore_${randomUUID().slice(0, 8).replace(/-/g, '')}`;
+
+      const restoreOpId = await service.startRestore({
+        connectionId,
+        backupPath,
+        targetDatabase: newDb,
+      });
+      const restoreResult = await waitForOperation(ipcCapture, restoreOpId);
+      expect(restoreResult.success, `restore failed: ${restoreResult.error}`).toBe(true);
+
+      const verifyConn = await mysql.createConnection({
+        host: c.host,
+        port: c.port,
+        user: c.user,
+        password: c.password,
+        database: newDb,
+      });
+      try {
+        const [rows] = await verifyConn.query<mysql.RowDataPacket[]>(
+          'SELECT id, label FROM bar ORDER BY id'
+        );
+        expect(rows).toEqual([
+          { id: 1, label: 'one' },
+          { id: 2, label: 'two' },
+        ]);
+      } finally {
+        await verifyConn.end();
+        // Clean up the side-effect database the test created.
+        const cleanupConn = await mysql.createConnection({
+          host: c.host,
+          port: c.port,
+          user: c.user,
+          password: c.password,
+        });
+        try {
+          await cleanupConn.query(`DROP DATABASE IF EXISTS \`${newDb}\``);
+        } finally {
+          await cleanupConn.end();
+        }
+      }
+    });
+  }, 60_000);
+
+  it('rejects target database names that contain unsafe characters', async () => {
+    const connectionId = randomUUID();
+    fakeProfiles.set(connectionId, {
+      id: connectionId,
+      engine: 'mysql',
+      server: '127.0.0.1',
+      port: 13306,
+      username: 'forge',
+    });
+    fakePasswords.set(connectionId, 'forge');
+
+    const service = MySQLBackupService.getInstance();
+
+    await expect(
+      service.startRestore({
+        connectionId,
+        backupPath: '/tmp/whatever.sql',
+        targetDatabase: 'evil; DROP DATABASE prod; --',
+      })
+    ).rejects.toThrow(/Invalid target database name/);
+  });
 });

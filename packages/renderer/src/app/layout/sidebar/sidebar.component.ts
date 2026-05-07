@@ -926,8 +926,11 @@ export class SidebarComponent {
     });
   }
 
-  openRestore(databaseName?: string): void {
-    const connectionId = this.connectionState.mostRecentConnectionId();
+  openRestore(databaseName?: string, overrideConnectionId?: string): void {
+    // Server-node right-click can't rely on mostRecentConnectionId — the
+    // user might be acting on a *different* connection than the focused
+    // one. Honor an explicit override when supplied.
+    const connectionId = overrideConnectionId ?? this.connectionState.mostRecentConnectionId();
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -1032,12 +1035,26 @@ export class SidebarComponent {
       },
       { id: 'div1', label: '', divider: true },
       {
+        id: 'restore',
+        label: 'Restore Database...',
+        icon: 'restore',
+        // Restoring from a backup creates (or overwrites) a target
+        // database — so it makes sense at the server level, where the
+        // user hasn't picked a specific db yet, not just on existing dbs.
+        action: () => {
+          if (node.connectionId) {
+            this.openRestore(undefined, node.connectionId);
+          }
+        },
+      },
+      { id: 'div2', label: '', divider: true },
+      {
         id: 'refresh',
         label: 'Refresh',
         icon: 'refresh',
         action: () => this.explorerState.refreshNode(node.id),
       },
-      { id: 'div2', label: '', divider: true },
+      { id: 'div3', label: '', divider: true },
       {
         id: 'edit-connection',
         label: 'Edit Connection...',
