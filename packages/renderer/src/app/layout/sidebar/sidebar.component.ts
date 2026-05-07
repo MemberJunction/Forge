@@ -1039,6 +1039,16 @@ export class SidebarComponent {
       },
       { id: 'div2', label: '', divider: true },
       {
+        id: 'edit-connection',
+        label: 'Edit Connection...',
+        icon: 'edit',
+        action: () => {
+          if (node.connectionId) {
+            this.editConnection(node.connectionId);
+          }
+        },
+      },
+      {
         id: 'disconnect',
         label: 'Disconnect',
         icon: 'power_off',
@@ -1049,6 +1059,22 @@ export class SidebarComponent {
         },
       },
     ];
+  }
+
+  /**
+   * Open the connection dialog pre-populated with an existing profile so
+   * the user can fix typos / change creds without creating a duplicate.
+   * Reachable from the sidebar tree's server-node right-click menu and
+   * (eventually) any other "edit this connection" affordance.
+   */
+  editConnection(connectionId: string): void {
+    const profile = this.connectionState.getProfile(connectionId);
+    if (!profile) return;
+    this.dialog.open(ConnectionDialogComponent, {
+      data: { profile } as ConnectionDialogData,
+      width: '540px',
+      maxHeight: '90vh',
+    });
   }
 
   private getDatabaseContextMenu(node: TreeNode): ContextMenuItem[] {
