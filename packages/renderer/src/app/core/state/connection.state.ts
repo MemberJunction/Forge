@@ -4,6 +4,7 @@ import type { ConnectionProfile, DatabaseInfo, AppState } from '@mj-forge/shared
 import { IpcService } from '../services/ipc.service';
 import { NotificationService } from '../services/notification.service';
 import { ExplorerStateService } from './explorer.state';
+import { TabStateService } from './tab.state';
 import { firstValueFrom } from 'rxjs';
 
 export interface ConnectionState {
@@ -20,8 +21,11 @@ export class ConnectionStateService {
   private readonly ipc = inject(IpcService);
   private readonly notification = inject(NotificationService);
   private readonly explorerState = inject(ExplorerStateService);
+  private readonly tabState = inject(TabStateService);
 
-  // State signals
+  // Private backing fields. Public-facing readonly views below carry @deprecated tags
+  // so external consumers see the warning while internal mirrors don't fire on every
+  // self-reference. Phase 9 removes both the backing fields and their public views.
   private readonly _profiles = signal<ConnectionProfile[]>([]);
   private readonly _activeConnectionId = signal<string | null>(null);
   private readonly _connecting = signal(false);
@@ -33,29 +37,87 @@ export class ConnectionStateService {
   private _reconnecting = false;
   private readonly _databaseCache = new Map<string, DatabaseInfo[]>();
 
-  // Public readonly signals
+  // Multi-connection state (Phase 2 — additive). These are the authoritative answer
+  // to "what is connected" once consumers migrate in Phases 4-8.
+  private readonly _connectedProfileIds = signal<ReadonlySet<string>>(new Set());
+  private readonly _databasesByConnection = signal<ReadonlyMap<string, DatabaseInfo[]>>(new Map());
+  private readonly _selectedDatabaseByConnection = signal<ReadonlyMap<string, string | null>>(
+    new Map()
+  );
+  private readonly _heartbeatByConnection = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly _healthByConnection = signal<ReadonlyMap<string, boolean>>(new Map());
+
   readonly profiles = this._profiles.asReadonly();
+  /** @deprecated Use `focusedConnectionId` instead. Removed in Phase 9. */
   readonly activeConnectionId = this._activeConnectionId.asReadonly();
   readonly connecting = this._connecting.asReadonly();
+  /** @deprecated Use `databasesFor(focusedConnectionId())` instead. Removed in Phase 9. */
   readonly databases = this._databases.asReadonly();
   readonly loadingDatabases = this._loadingDatabases.asReadonly();
+  /** @deprecated Use `selectedDatabaseFor(focusedConnectionId())` instead. Removed in Phase 9. */
   readonly selectedDatabase = this._selectedDatabase.asReadonly();
+  /** @deprecated Use `healthFor(focusedConnectionId())` instead. Removed in Phase 9. */
   readonly connectionHealthy = this._connectionHealthy.asReadonly();
+  readonly connectedProfileIds = this._connectedProfileIds.asReadonly();
 
-  // Computed signals
+  /** @deprecated Use `profileFor(focusedConnectionId())` instead. Removed in Phase 9. */
   readonly activeProfile = computed(() => {
     const id = this._activeConnectionId();
     return this._profiles().find(p => p.id === id) ?? null;
   });
 
-  readonly isConnected = computed(() => this._activeConnectionId() !== null);
-
   readonly hasProfiles = computed(() => this._profiles().length > 0);
 
-  // Observable versions for components that need them
+  // True when at least one connection is open. The sidebar tree visibility key.
+  readonly hasAnyConnection = computed(() => this._connectedProfileIds().size > 0);
+
+  // Focus is derived from the active query tab — never set directly. When the active
+  // tab is null or non-query, focus is null and the cloud icon shows disconnected.
+  readonly focusedConnectionId = computed(() => {
+    const tab = this.tabState.activeTab();
+    if (!tab || tab.type !== 'query') return null;
+    return tab.connectionId ?? null;
+  });
+
+  readonly focusedDatabaseName = computed(() => {
+    const tab = this.tabState.activeTab();
+    if (!tab || tab.type !== 'query') return null;
+    return tab.databaseName ?? null;
+  });
+
   readonly profiles$ = toObservable(this.profiles);
-  readonly activeProfile$ = toObservable(this.activeProfile);
-  readonly isConnected$ = toObservable(this.isConnected);
+  readonly isConnected$ = toObservable(this.hasAnyConnection);
+
+  /** @deprecated No-arg form removed in Phase 9. Prefer `hasAnyConnection()`. */
+  isConnected(): boolean;
+  isConnected(connectionId: string): boolean;
+  isConnected(connectionId?: string): boolean {
+    if (connectionId === undefined) {
+      return this.hasAnyConnection();
+    }
+    return this._connectedProfileIds().has(connectionId);
+  }
+
+  databasesFor(connectionId: string | null): DatabaseInfo[] {
+    if (!connectionId) return [];
+    return this._databasesByConnection().get(connectionId) ?? [];
+  }
+
+  selectedDatabaseFor(connectionId: string | null): string | null {
+    if (!connectionId) return null;
+    return this._selectedDatabaseByConnection().get(connectionId) ?? null;
+  }
+
+  healthFor(connectionId: string | null): boolean {
+    if (!connectionId) return true;
+    // Absent entry = treat as healthy (no heartbeat result yet).
+    return this._healthByConnection().get(connectionId) ?? true;
+  }
+
+  profileFor(connectionId: string | null): ConnectionProfile | null {
+    if (!connectionId) return null;
+    return this._profiles().find(p => p.id === connectionId) ?? null;
+  }
 
   async loadProfiles(): Promise<void> {
     try {
@@ -140,14 +202,15 @@ export class ConnectionStateService {
 
     try {
       this._connecting.set(true);
-      // Clear stale databases from any previous connection before switching
+      // Old singleton-style clear — kept until consumers migrate (Phases 4-5).
       this._databases.set([]);
       this._selectedDatabase.set(null);
       await firstValueFrom(this.ipc.connect(profileId));
       this._activeConnectionId.set(profileId);
+      this.addConnectedProfileId(profileId);
+      this.setHealth(profileId, true);
       this.notification.success(`Connected to ${profile.name}`);
       await this.loadDatabases();
-      // Save connection state for persistence
       this.saveState();
       this.startHeartbeat();
       return true;
@@ -160,6 +223,10 @@ export class ConnectionStateService {
     }
   }
 
+  // Phase 2 transitional shape: the no-arg form targets `_activeConnectionId` so
+  // existing callers still work. Phase 4 changes the signature to require an
+  // explicit `connectionId` (no overload). The body already routes per-connection
+  // state through `cleanupConnectionState`, so Phase 4 will be a small targeted edit.
   async disconnect(): Promise<void> {
     this.stopHeartbeat();
     const connectionId = this._activeConnectionId();
@@ -167,23 +234,12 @@ export class ConnectionStateService {
 
     try {
       await firstValueFrom(this.ipc.disconnect(connectionId));
-      this._activeConnectionId.set(null);
-      this._databases.set([]);
-      this._selectedDatabase.set(null);
-      this.clearDatabaseCache(connectionId);
-      this.explorerState.removeServerNode(connectionId);
-      this.notification.info('Disconnected');
-      // Clear saved connection state
-      this.saveState();
     } catch (error) {
       console.error('Error disconnecting:', error);
-      // Still clear state even if disconnect fails
-      this._activeConnectionId.set(null);
-      this._databases.set([]);
-      this._selectedDatabase.set(null);
-      this.clearDatabaseCache(connectionId);
-      this.explorerState.removeServerNode(connectionId);
     }
+    this.cleanupConnectionState(connectionId);
+    this.notification.info('Disconnected');
+    this.saveState();
   }
 
   async loadDatabases(): Promise<void> {
@@ -195,6 +251,7 @@ export class ConnectionStateService {
       const databases = await firstValueFrom(this.ipc.listDatabases(connectionId));
       this._databases.set(databases);
       this._databaseCache.set(connectionId, databases);
+      this.setDatabasesFor(connectionId, databases);
     } catch (error) {
       this.notification.error('Failed to load databases');
       console.error('Failed to load databases:', error);
@@ -213,16 +270,21 @@ export class ConnectionStateService {
 
     const databases = await firstValueFrom(this.ipc.listDatabases(connectionId));
     this._databaseCache.set(connectionId, databases);
+    this.setDatabasesFor(connectionId, databases);
     return databases;
   }
 
   clearDatabaseCache(connectionId: string): void {
     this._databaseCache.delete(connectionId);
+    this.deleteDatabasesFor(connectionId);
   }
 
   selectDatabase(name: string | null): void {
     this._selectedDatabase.set(name);
-    // Save database selection for persistence
+    const focusId = this._activeConnectionId();
+    if (focusId) {
+      this.setSelectedDatabaseFor(focusId, name);
+    }
     this.saveState();
   }
 
@@ -284,13 +346,16 @@ export class ConnectionStateService {
       try {
         await firstValueFrom(this.ipc.listDatabases(connectionId));
         this._connectionHealthy.set(true);
+        this.setHealth(connectionId, true);
       } catch {
         this._connectionHealthy.set(false);
+        this.setHealth(connectionId, false);
         // Try to reconnect once, guarded against concurrent attempts
         this._reconnecting = true;
         try {
           await firstValueFrom(this.ipc.connect(connectionId));
           this._connectionHealthy.set(true);
+          this.setHealth(connectionId, true);
           this.notification.info('Connection restored');
         } catch {
           // Stay unhealthy, user can manually reconnect
@@ -323,5 +388,100 @@ export class ConnectionStateService {
     } catch (error) {
       console.error('Failed to save connection state:', error);
     }
+  }
+
+  // Per-connection signal-map helpers — encapsulated to keep call sites linear.
+  // Signals require a fresh reference to fire change detection; clone-on-write.
+
+  private addConnectedProfileId(connectionId: string): void {
+    this._connectedProfileIds.update(prev => {
+      if (prev.has(connectionId)) return prev;
+      const next = new Set(prev);
+      next.add(connectionId);
+      return next;
+    });
+  }
+
+  private removeConnectedProfileId(connectionId: string): void {
+    this._connectedProfileIds.update(prev => {
+      if (!prev.has(connectionId)) return prev;
+      const next = new Set(prev);
+      next.delete(connectionId);
+      return next;
+    });
+  }
+
+  private setDatabasesFor(connectionId: string, databases: DatabaseInfo[]): void {
+    this._databasesByConnection.update(prev => {
+      const next = new Map(prev);
+      next.set(connectionId, databases);
+      return next;
+    });
+  }
+
+  private deleteDatabasesFor(connectionId: string): void {
+    this._databasesByConnection.update(prev => {
+      if (!prev.has(connectionId)) return prev;
+      const next = new Map(prev);
+      next.delete(connectionId);
+      return next;
+    });
+  }
+
+  private setSelectedDatabaseFor(connectionId: string, name: string | null): void {
+    this._selectedDatabaseByConnection.update(prev => {
+      const next = new Map(prev);
+      next.set(connectionId, name);
+      return next;
+    });
+  }
+
+  private deleteSelectedDatabaseFor(connectionId: string): void {
+    this._selectedDatabaseByConnection.update(prev => {
+      if (!prev.has(connectionId)) return prev;
+      const next = new Map(prev);
+      next.delete(connectionId);
+      return next;
+    });
+  }
+
+  private setHealth(connectionId: string, healthy: boolean): void {
+    this._healthByConnection.update(prev => {
+      const next = new Map(prev);
+      next.set(connectionId, healthy);
+      return next;
+    });
+  }
+
+  private deleteHealth(connectionId: string): void {
+    this._healthByConnection.update(prev => {
+      if (!prev.has(connectionId)) return prev;
+      const next = new Map(prev);
+      next.delete(connectionId);
+      return next;
+    });
+  }
+
+  // Centralised teardown — both happy and error paths route here so per-connection
+  // resources never leak. `disconnect()` (current and future) is the only caller.
+  private cleanupConnectionState(connectionId: string): void {
+    this._activeConnectionId.set(null);
+    this._databases.set([]);
+    this._selectedDatabase.set(null);
+    this.removeConnectedProfileId(connectionId);
+    this.clearDatabaseCache(connectionId);
+    this.deleteSelectedDatabaseFor(connectionId);
+    this.deleteHealth(connectionId);
+    this.stopHeartbeatFor(connectionId);
+    this.explorerState.removeServerNode(connectionId);
+  }
+
+  // Per-connection heartbeat teardown. Phase 2 leaves _heartbeatByConnection empty;
+  // T7 will populate it via startHeartbeatFor(). Calling this on an absent key no-ops.
+  private stopHeartbeatFor(connectionId: string): void {
+    const handle = this._heartbeatByConnection.get(connectionId);
+    if (!handle) return;
+    clearInterval(handle);
+    this._heartbeatByConnection.delete(connectionId);
   }
 }
