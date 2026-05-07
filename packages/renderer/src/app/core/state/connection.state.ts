@@ -151,9 +151,8 @@ export class ConnectionStateService {
 
   async deleteProfile(profileId: string): Promise<boolean> {
     try {
-      // Disconnect if this is the active connection
-      if (this._activeConnectionId() === profileId) {
-        await this.disconnect();
+      if (this._connectedProfileIds().has(profileId)) {
+        await this.disconnect(profileId);
       }
       await firstValueFrom(this.ipc.deleteConnection(profileId));
       await this.loadProfiles();
@@ -223,20 +222,35 @@ export class ConnectionStateService {
     }
   }
 
-  // Phase 2 transitional shape: the no-arg form targets `_activeConnectionId` so
-  // existing callers still work. Phase 4 changes the signature to require an
-  // explicit `connectionId` (no overload). The body already routes per-connection
-  // state through `cleanupConnectionState`, so Phase 4 will be a small targeted edit.
-  async disconnect(): Promise<void> {
-    this.stopHeartbeat();
-    const connectionId = this._activeConnectionId();
-    if (!connectionId) return;
+  // Disconnect the connection identified by `connectionId`. No default — calling
+  // bare `disconnect()` is now a TypeScript compile error (spec scenario:
+  // "Calling disconnect without an argument is a type error"). Other open
+  // connections — heartbeats, caches, server nodes — are untouched.
+  async disconnect(connectionId: string): Promise<void> {
+    if (!this._connectedProfileIds().has(connectionId)) return;
+
+    // Heartbeat is still a singleton in Phase 4 — only stop it when the id we
+    // are disconnecting is the one the singleton timer is pinging. T7 replaces
+    // this with a per-connection `stopHeartbeatFor(connectionId)` map lookup.
+    if (this._activeConnectionId() === connectionId) {
+      this.stopHeartbeat();
+    }
 
     try {
       await firstValueFrom(this.ipc.disconnect(connectionId));
     } catch (error) {
       console.error('Error disconnecting:', error);
     }
+
+    // Legacy globals point at the focused connection. Clear them only when
+    // the disconnected id WAS the focused one — disconnecting a non-focused
+    // server must leave the focused server's globals intact.
+    if (this._activeConnectionId() === connectionId) {
+      this._activeConnectionId.set(null);
+      this._databases.set([]);
+      this._selectedDatabase.set(null);
+    }
+
     this.cleanupConnectionState(connectionId);
     this.notification.info('Disconnected');
     this.saveState();
@@ -462,12 +476,11 @@ export class ConnectionStateService {
     });
   }
 
-  // Centralised teardown — both happy and error paths route here so per-connection
-  // resources never leak. `disconnect()` (current and future) is the only caller.
+  // Strictly per-connection teardown — touches only the targeted id's state.
+  // Legacy singleton clears live in `disconnect()` itself, gated on whether
+  // the disconnected id was the focused one. Both happy and error paths in
+  // `disconnect()` route here so per-connection resources never leak.
   private cleanupConnectionState(connectionId: string): void {
-    this._activeConnectionId.set(null);
-    this._databases.set([]);
-    this._selectedDatabase.set(null);
     this.removeConnectedProfileId(connectionId);
     this.clearDatabaseCache(connectionId);
     this.deleteSelectedDatabaseFor(connectionId);
