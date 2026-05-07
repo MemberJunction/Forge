@@ -163,7 +163,11 @@ export class ConnectionStateService implements OnDestroy {
       this.notification.success('Connection saved successfully');
       return savedProfile;
     } catch (error) {
-      this.notification.error('Failed to save connection');
+      // Main-process errors (e.g. duplicate-name rejection) carry a useful
+      // user-facing message; surface it instead of the generic fallback so
+      // users know how to fix the problem.
+      const message = error instanceof Error ? error.message : null;
+      this.notification.error(message || 'Failed to save connection');
       console.error('Failed to save profile:', error);
       return null;
     }

@@ -8,10 +8,16 @@ import { ConnectionProfilesStore } from './connection-profiles';
 describe('ConnectionProfilesStore', () => {
   let store: ConnectionProfilesStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Reset singleton for each test
     ConnectionProfilesStore.resetInstance();
     store = ConnectionProfilesStore.getInstance();
+    // electron-store persists to disk by default, so the singleton reset
+    // alone leaves previous-run profiles in place. Wipe them so tests don't
+    // collide on the now-enforced duplicate-name guard.
+    for (const p of store.getAll()) {
+      await store.delete(p.id);
+    }
   });
 
   describe('backward compatibility', () => {
@@ -134,6 +140,70 @@ describe('ConnectionProfilesStore', () => {
     it('returns false when deleting non-existent profile', async () => {
       const deleted = await store.delete('non-existent-id');
       expect(deleted).toBe(false);
+    });
+  });
+
+  describe('duplicate-name guard', () => {
+    const baseProfile = {
+      engine: 'mssql' as const,
+      server: 'localhost',
+      port: 1433,
+      authenticationType: 'sql' as const,
+      encrypt: true,
+      trustServerCertificate: true,
+      connectionTimeout: 30,
+    };
+
+    it('rejects creating a new profile whose name matches an existing profile', async () => {
+      await store.save({ profile: { ...baseProfile, name: 'Prod DB' } });
+
+      await expect(store.save({ profile: { ...baseProfile, name: 'Prod DB' } })).rejects.toThrow(
+        /already exists/
+      );
+
+      // Original is preserved; no second profile was created.
+      const all = store.getAll();
+      expect(all.filter(p => p.name === 'Prod DB')).toHaveLength(1);
+    });
+
+    it('matches the name comparison case-insensitively and trims whitespace', async () => {
+      await store.save({ profile: { ...baseProfile, name: 'Prod DB' } });
+
+      await expect(
+        store.save({ profile: { ...baseProfile, name: '  prod db  ' } })
+      ).rejects.toThrow(/already exists/);
+    });
+
+    it('still allows updating the same profile (id matches the conflicting name)', async () => {
+      const saved = await store.save({ profile: { ...baseProfile, name: 'Prod DB' } });
+
+      // Same id, same name — this is an update, not a duplicate.
+      const updated = await store.save({
+        profile: { ...baseProfile, id: saved.id, name: 'Prod DB', port: 1434 },
+      });
+
+      expect(updated.id).toBe(saved.id);
+      expect(updated.port).toBe(1434);
+    });
+
+    it('allows renaming a profile to a name no other profile uses', async () => {
+      const saved = await store.save({ profile: { ...baseProfile, name: 'Prod DB' } });
+      await store.save({ profile: { ...baseProfile, name: 'Other DB' } });
+
+      const renamed = await store.save({
+        profile: { ...baseProfile, id: saved.id, name: 'Prod Database' },
+      });
+
+      expect(renamed.name).toBe('Prod Database');
+    });
+
+    it('still rejects renaming a profile to collide with another profile', async () => {
+      await store.save({ profile: { ...baseProfile, name: 'Prod DB' } });
+      const other = await store.save({ profile: { ...baseProfile, name: 'Other DB' } });
+
+      await expect(
+        store.save({ profile: { ...baseProfile, id: other.id, name: 'Prod DB' } })
+      ).rejects.toThrow(/already exists/);
     });
   });
 
