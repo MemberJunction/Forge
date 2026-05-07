@@ -189,7 +189,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
 
       <!-- Explorer tree -->
       <div class="explorer-tree">
-        @if (!connectionState.isConnected()) {
+        @if (!explorerState.hasNodes()) {
           <div class="empty-state">
             <mat-icon>cloud_off</mat-icon>
             <p>No connection</p>
