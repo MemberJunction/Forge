@@ -65,9 +65,14 @@ export async function waitForOperation(
   const POLL_MS = 50;
   const MAX_ITER = Math.ceil(timeoutMs / POLL_MS);
   for (let i = 0; i < MAX_ITER; i++) {
+    // Different services use different id field names: PG/MySQL use
+    // `operationId`, the MSSQL BackupRestoreService uses `backupId` /
+    // `restoreId`. Match all three so this helper works across engines.
     const hit = capture.events.find(
       e =>
-        e.payload?.operationId === operationId &&
+        (e.payload?.operationId === operationId ||
+          e.payload?.backupId === operationId ||
+          e.payload?.restoreId === operationId) &&
         (e.payload?.status === 'completed' || e.payload?.status === 'failed')
     );
     if (hit) {

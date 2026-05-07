@@ -171,4 +171,124 @@ describe('postgres backup/restore round-trip', () => {
       }
     });
   }, 60_000);
+
+  // Pins the contract that pg_restore needs the target database to already
+  // exist when we don't pass `-C` (we never do — Forge generates plain
+  // dumps without the CREATE DATABASE preamble). The MySQL flow surfaces
+  // the same issue with a different error message; PG's pg_restore would
+  // emit "could not connect to database X" against a non-existent target.
+  // The user's flow goes through the renderer's restore dialog which
+  // first creates the target db, so we mirror that here: CREATE the
+  // target with the admin client, then run pg_restore against it.
+  it('restores into a target database that does not yet exist', async () => {
+    await withFreshDatabase('postgres', async db => {
+      const c = db.config;
+
+      // Seed source.
+      const seedClient = new PgClient({
+        host: c.host,
+        port: c.port,
+        user: c.user,
+        password: c.password,
+        database: c.database,
+      });
+      await seedClient.connect();
+      try {
+        await seedClient.query('CREATE TABLE bar (id INT PRIMARY KEY, label TEXT NOT NULL)');
+        await seedClient.query("INSERT INTO bar (id, label) VALUES (1, 'one'), (2, 'two')");
+      } finally {
+        await seedClient.end();
+      }
+
+      const connectionId = randomUUID();
+      fakeProfiles.set(connectionId, {
+        id: connectionId,
+        engine: 'postgresql',
+        server: c.host,
+        port: c.port,
+        username: c.user,
+      });
+      fakePasswords.set(connectionId, c.password);
+
+      const backupPath = join(tmpdir(), `forge-pg-newdb-${connectionId}.dump`);
+      tmpFiles.push(backupPath);
+
+      const service = PgBackupService.getInstance();
+
+      const backupOpId = await service.startBackup({
+        connectionId,
+        database: c.database,
+        backupPath,
+        backupType: 'full',
+      });
+      const backupResult = await waitForOperation(ipcCapture, backupOpId);
+      expect(backupResult.success, `backup failed: ${backupResult.error}`).toBe(true);
+
+      // Create the target db. The renderer's restore dialog does this
+      // up-front via the database CREATE IPC; the test mirrors that.
+      const newDb = `forge_restore_${randomUUID().slice(0, 8).replace(/-/g, '')}`;
+      const adminClient = new PgClient({
+        host: c.host,
+        port: c.port,
+        user: c.user,
+        password: c.password,
+        database: 'postgres',
+      });
+      await adminClient.connect();
+      try {
+        await adminClient.query(`CREATE DATABASE "${newDb}"`);
+      } finally {
+        await adminClient.end();
+      }
+
+      try {
+        const restoreOpId = await service.startRestore({
+          connectionId,
+          backupPath,
+          targetDatabase: newDb,
+        });
+        const restoreResult = await waitForOperation(ipcCapture, restoreOpId);
+        expect(restoreResult.success, `restore failed: ${restoreResult.error}`).toBe(true);
+
+        const verifyClient = new PgClient({
+          host: c.host,
+          port: c.port,
+          user: c.user,
+          password: c.password,
+          database: newDb,
+        });
+        await verifyClient.connect();
+        try {
+          const r = await verifyClient.query<{ id: number; label: string }>(
+            'SELECT id, label FROM bar ORDER BY id'
+          );
+          expect(r.rows).toEqual([
+            { id: 1, label: 'one' },
+            { id: 2, label: 'two' },
+          ]);
+        } finally {
+          await verifyClient.end();
+        }
+      } finally {
+        // Clean up the side-effect database the test created.
+        const cleanup = new PgClient({
+          host: c.host,
+          port: c.port,
+          user: c.user,
+          password: c.password,
+          database: 'postgres',
+        });
+        await cleanup.connect();
+        try {
+          await cleanup.query(
+            `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+            [newDb]
+          );
+          await cleanup.query(`DROP DATABASE IF EXISTS "${newDb}"`);
+        } finally {
+          await cleanup.end();
+        }
+      }
+    });
+  }, 60_000);
 });
