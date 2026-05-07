@@ -10,6 +10,7 @@ import { createReadStream } from 'fs';
 import { Transform } from 'stream';
 import { BrowserWindow } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
+import mysql from 'mysql2/promise';
 import type {
   BackupProgress,
   BackupRequest,
@@ -185,8 +186,24 @@ export class MySQLBackupService extends BaseSingleton {
     const env = { ...process.env };
     if (password) env.MYSQL_PWD = password;
 
+    // Connection config we'll re-use for the post-restore verify step.
+    const verifyConfig = {
+      host: profile.server,
+      port: profile.port,
+      user: profile.username || 'root',
+      password: password ?? undefined,
+    };
+
     // Fire and forget — run in background, report via IPC events
-    this.runRestoreProcess(operationId, targetDb, request.backupPath, args, env, operation);
+    this.runRestoreProcess(
+      operationId,
+      targetDb,
+      request.backupPath,
+      args,
+      env,
+      operation,
+      verifyConfig
+    );
 
     return operationId;
   }
@@ -231,7 +248,13 @@ export class MySQLBackupService extends BaseSingleton {
     backupPath: string,
     args: string[],
     env: NodeJS.ProcessEnv,
-    operation: MySQLBackupOperation
+    operation: MySQLBackupOperation,
+    verifyConfig: {
+      host: string;
+      port: number;
+      user: string;
+      password?: string;
+    }
   ): void {
     const proc = spawn('mysql', args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
     operation.pid = proc.pid;
@@ -267,14 +290,42 @@ export class MySQLBackupService extends BaseSingleton {
       this.activeOperations.delete(operationId);
       if (operation.cancelled) {
         this.sendComplete(operationId, 'restore', false, 'Restore cancelled');
-      } else if (code === 0) {
-        log.info(`mysql restore completed successfully → ${targetDb}`);
-        this.sendComplete(operationId, 'restore', true);
-      } else {
+        return;
+      }
+      if (code !== 0) {
         const errMsg = `mysql restore failed with exit code ${code}: ${stderr.slice(-500)}`;
         log.error(errMsg);
         this.sendComplete(operationId, 'restore', false, errMsg);
+        return;
       }
+      // mysql exited 0, but that's not enough to claim success on its own.
+      // Failure modes that all yield exit 0:
+      //   - Empty / trivial dump (mysql ran zero meaningful statements; the
+      //     prepended CREATE DATABASE may have been silently rejected).
+      //   - User lacks CREATE DATABASE privilege; mysql's batch mode may
+      //     continue past errors depending on flags, leaving target absent.
+      //   - mysql connected but the prelude write was lost in some pipe
+      //     timing / version-specific quirk we don't control.
+      // Verify the target database actually exists before reporting success.
+      this.verifyDatabaseExists(targetDb, verifyConfig)
+        .then(exists => {
+          if (exists) {
+            log.info(`mysql restore completed successfully → ${targetDb}`);
+            this.sendComplete(operationId, 'restore', true);
+          } else {
+            const errMsg =
+              `mysql exited 0 but target database "${targetDb}" was not created. ` +
+              `Likely causes: empty/invalid dump file, or the connecting user lacks ` +
+              `CREATE privilege. mysql stderr: ${stderr.slice(-500) || '(none)'}`;
+            log.error(errMsg);
+            this.sendComplete(operationId, 'restore', false, errMsg);
+          }
+        })
+        .catch(err => {
+          const errMsg = `mysql exited 0 but post-restore verification failed: ${(err as Error).message}`;
+          log.error(errMsg);
+          this.sendComplete(operationId, 'restore', false, errMsg);
+        });
     });
 
     proc.on('error', err => {
@@ -285,6 +336,33 @@ export class MySQLBackupService extends BaseSingleton {
       log.error(`mysql restore error: ${errMsg}`);
       this.sendComplete(operationId, 'restore', false, errMsg);
     });
+  }
+
+  /**
+   * Verify a database exists by querying information_schema.SCHEMATA on a
+   * fresh connection. Used by the restore flow to catch the false-positive
+   * case where mysql CLI exits 0 but the target database wasn't actually
+   * created (empty dump, privilege error, prelude write lost, etc.).
+   */
+  private async verifyDatabaseExists(
+    name: string,
+    config: { host: string; port: number; user: string; password?: string }
+  ): Promise<boolean> {
+    const conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+    });
+    try {
+      const [rows] = await conn.query<mysql.RowDataPacket[]>(
+        'SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?',
+        [name]
+      );
+      return rows.length === 1;
+    } finally {
+      await conn.end();
+    }
   }
 
   /**
