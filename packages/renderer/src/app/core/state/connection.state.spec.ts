@@ -103,8 +103,19 @@ function makeTabStub(): TabHarness {
   const active = signal<{ type: string; connectionId?: string; databaseName?: string } | null>(
     null
   );
+  // `tabs()` and `openQueryTab()` are exercised by `connect()`'s auto-open-tab
+  // path. The stub keeps a real signal-backed list so `openQueryTab` writes are
+  // observable to `tabs()` reads in the same test.
+  const allTabs = signal<{ id: string; connectionId?: string; databaseName?: string }[]>([]);
   const service = {
     activeTab: active,
+    tabs: allTabs,
+    openQueryTab: (connectionId: string, databaseName: string): string => {
+      const id = `tab-${allTabs().length + 1}`;
+      allTabs.update(prev => [...prev, { id, connectionId, databaseName }]);
+      active.set({ type: 'query', connectionId, databaseName });
+      return id;
+    },
   } as unknown as TabStateService;
   return {
     service,
