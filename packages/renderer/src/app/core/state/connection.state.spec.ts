@@ -687,7 +687,7 @@ describe('ConnectionStateService — persistence migration edge cases (spec 1.8 
     // the post-connect-B state.
     const lastCall = ipc.setAppState.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(lastCall).toBeDefined();
-    expect(lastCall.lastConnectedProfileIds).toEqual(
+    expect(lastCall['lastConnectedProfileIds']).toEqual(
       expect.arrayContaining([profileA.id, profileB.id])
     );
     // No code path should still be writing the legacy key.
