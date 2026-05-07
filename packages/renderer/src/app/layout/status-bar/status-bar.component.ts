@@ -33,22 +33,18 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
   template: `
     <div class="status-bar-container">
       <div class="status-left">
-        @if (connectionState.isConnected()) {
+        @if (connectionState.hasAnyConnection()) {
           <div
             class="status-item"
-            [class.connected]="connectionState.connectionHealthy()"
-            [class.unhealthy]="!connectionState.connectionHealthy()"
+            [class.connected]="focusedHealthy()"
+            [class.unhealthy]="!focusedHealthy()"
             [matTooltip]="
-              connectionState.connectionHealthy()
-                ? 'Connected'
-                : 'Connection lost — attempting to reconnect...'
+              focusedHealthy() ? 'Connected' : 'Connection lost — attempting to reconnect...'
             "
           >
-            <mat-icon>{{
-              connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off'
-            }}</mat-icon>
+            <mat-icon>{{ focusedHealthy() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
             <span>{{ displayedProfile()?.name }}</span>
-            @if (!connectionState.connectionHealthy()) {
+            @if (!focusedHealthy()) {
               <mat-icon class="health-warning spinning">sync</mat-icon>
             }
           </div>
@@ -402,22 +398,18 @@ export class StatusBarComponent implements OnInit, OnDestroy {
   readonly cursorLine = signal(0);
   readonly cursorColumn = signal(0);
 
-  /** Show the focused tab's connection when available, otherwise the global active connection. */
-  readonly displayedProfile = computed(() => {
-    const activeTab = this.tabState.activeTab();
-    if (activeTab?.connectionId) {
-      return (
-        this.connectionState.getProfile(activeTab.connectionId) ??
-        this.connectionState.activeProfile()
-      );
-    }
-    return this.connectionState.activeProfile();
-  });
+  /** The profile for the currently focused query tab. */
+  readonly displayedProfile = computed(() =>
+    this.connectionState.profileFor(this.connectionState.focusedConnectionId())
+  );
 
-  readonly displayedDatabase = computed(() => {
-    const activeTab = this.tabState.activeTab();
-    return activeTab?.databaseName ?? this.connectionState.selectedDatabase();
-  });
+  readonly displayedDatabase = computed(() => this.connectionState.focusedDatabaseName());
+
+  /** Health for the focused connection. Treats "no focus" as healthy so the icon
+   *  doesn't flicker red between tab switches. */
+  readonly focusedHealthy = computed(() =>
+    this.connectionState.healthFor(this.connectionState.focusedConnectionId())
+  );
 
   readonly connectionColorBorder = computed(() => {
     const profile = this.displayedProfile();

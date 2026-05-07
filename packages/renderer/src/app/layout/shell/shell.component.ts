@@ -258,7 +258,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   private async showServerProperties(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) {
       this.notification.warning('No active connection');
       return;
@@ -293,8 +293,8 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   private async showDatabaseProperties(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
     if (!connectionId || !database) {
       this.notification.warning('No active connection or database selected');
       return;
@@ -332,7 +332,8 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   private showNewDatabaseDialog(): void {
-    if (!this.connectionState.isConnected()) {
+    const connectionId = this.connectionState.focusedConnectionId();
+    if (!connectionId) {
       this.notification.warning('No active connection');
       return;
     }
@@ -341,7 +342,7 @@ export class ShellComponent implements OnInit, OnDestroy {
       mod => {
         this.dialog.open(mod.CreateDatabaseDialogComponent, {
           width: '480px',
-          data: { connectionId: this.connectionState.activeConnectionId() },
+          data: { connectionId },
         });
       }
     );

@@ -12,7 +12,14 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 @Component({
   selector: 'app-tab-bar',
   standalone: true,
-  imports: [CommonModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, MatDividerModule],
+  imports: [
+    CommonModule,
+    MatIconModule,
+    MatButtonModule,
+    MatTooltipModule,
+    MatMenuModule,
+    MatDividerModule,
+  ],
   template: `
     <div class="tab-bar-container">
       <div class="tabs-scroll">
@@ -299,8 +306,8 @@ export class TabBarComponent {
   }
 
   newQueryTab(): void {
-    const connId = this.connectionState.activeConnectionId();
-    const db = this.connectionState.selectedDatabase();
+    const connId = this.connectionState.focusedConnectionId();
+    const db = this.connectionState.selectedDatabaseFor(connId);
     if (connId && db) {
       this.tabState.openQueryTab(connId, db);
       this.router.navigate(['/query']);
@@ -308,7 +315,8 @@ export class TabBarComponent {
   }
 
   canCreateQuery(): boolean {
-    return this.connectionState.isConnected() && !!this.connectionState.selectedDatabase();
+    const connId = this.connectionState.focusedConnectionId();
+    return !!connId && !!this.connectionState.selectedDatabaseFor(connId);
   }
 
   private navigateToTab(tab: Tab): void {

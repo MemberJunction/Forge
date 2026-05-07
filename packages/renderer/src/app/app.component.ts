@@ -108,10 +108,12 @@ export class AppComponent implements OnInit {
       this.loadingMessage.set('Restoring session...');
       await this.connectionState.restoreState();
 
-      // Restore tabs if we have a connection
-      if (this.connectionState.isConnected() && this.connectionState.activeConnectionId()) {
+      // Restore tabs if we have a connection. Phase 8 will iterate over every
+      // restored profile; today restoreState only reconnects one, so pick that.
+      const restored = [...this.connectionState.connectedProfileIds()][0];
+      if (restored) {
         this.loadingMessage.set('Restoring tabs...');
-        await this.tabState.restoreTabs(this.connectionState.activeConnectionId()!);
+        await this.tabState.restoreTabs(restored);
       }
     } finally {
       // Always finish loading even if there's an error

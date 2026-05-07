@@ -283,8 +283,8 @@ export class MenuService implements OnDestroy {
   }
 
   private newQuery(): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const databaseName = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const databaseName = this.connectionState.selectedDatabaseFor(connectionId);
 
     if (connectionId && databaseName) {
       this.tabState.openQueryTab(connectionId, databaseName);
@@ -298,8 +298,8 @@ export class MenuService implements OnDestroy {
   private async openQueryFromFile(): Promise<void> {
     if (!this.ipc.isAvailable) return;
 
-    const connectionId = this.connectionState.activeConnectionId();
-    const databaseName = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const databaseName = this.connectionState.selectedDatabaseFor(connectionId);
     if (!connectionId || !databaseName) return;
 
     try {
@@ -323,7 +323,7 @@ export class MenuService implements OnDestroy {
   }
 
   private async refresh(): Promise<void> {
-    if (this.connectionState.isConnected()) {
+    if (this.connectionState.hasAnyConnection()) {
       await this.connectionState.loadDatabases();
       const selectedNode = this.explorerState.selectedNodeId();
       if (selectedNode) {
