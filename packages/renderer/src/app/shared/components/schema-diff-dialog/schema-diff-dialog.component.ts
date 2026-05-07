@@ -37,8 +37,8 @@ import { TabStateService } from '../../../core/state/tab.state';
 
       <mat-dialog-content>
         <p class="description">
-          Compare table and column schemas between two databases.
-          This generates a T-SQL comparison query in a new tab.
+          Compare table and column schemas between two databases. This generates a T-SQL comparison
+          query in a new tab.
         </p>
 
         <div class="form-row">
@@ -212,11 +212,12 @@ export class SchemaDiffDialogComponent implements OnInit {
   compareViews = true;
 
   ngOnInit(): void {
-    const dbs = this.connectionState.databases().map(d => d.name);
+    const focusId = this.connectionState.focusedConnectionId();
+    const dbs = this.connectionState.databasesFor(focusId).map(d => d.name);
     this.databases.set(dbs);
 
-    // Pre-select current database as source
-    const current = this.connectionState.selectedDatabase();
+    // Pre-select the focused tab's database as source
+    const current = this.connectionState.selectedDatabaseFor(focusId);
     if (current) {
       this.sourceDb = current;
     }
@@ -229,7 +230,7 @@ export class SchemaDiffDialogComponent implements OnInit {
   generateDiff(): void {
     if (!this.sourceDb || !this.targetDb) return;
 
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) return;
 
     const sql = this.buildDiffSql();

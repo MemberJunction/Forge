@@ -52,9 +52,7 @@ import { firstValueFrom } from 'rxjs';
           <div class="empty-state">
             <mat-icon>folder_off</mat-icon>
             <p>No folder open</p>
-            <button mat-stroked-button (click)="openFolder()">
-              Open Folder
-            </button>
+            <button mat-stroked-button (click)="openFolder()">Open Folder</button>
           </div>
         } @else {
           <div class="workspace-name">
@@ -63,7 +61,9 @@ import { firstValueFrom } from 'rxjs';
           </div>
           <div class="file-tree">
             @for (node of workspace()!.files; track node.path) {
-              <ng-container *ngTemplateOutlet="fileNode; context: { node: node, level: 0 }"></ng-container>
+              <ng-container
+                *ngTemplateOutlet="fileNode; context: { node: node, level: 0 }"
+              ></ng-container>
             }
           </div>
         }
@@ -92,7 +92,9 @@ import { firstValueFrom } from 'rxjs';
 
         @if (node.type === 'directory' && isExpanded(node.path) && node.children) {
           @for (child of node.children; track child.path) {
-            <ng-container *ngTemplateOutlet="fileNode; context: { node: child, level: level + 1 }"></ng-container>
+            <ng-container
+              *ngTemplateOutlet="fileNode; context: { node: child, level: level + 1 }"
+            ></ng-container>
           }
         }
       </ng-template>
@@ -263,9 +265,8 @@ export class WorkspacePanelComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     // Listen for file changes
-    if (this.ipc.isAvailable && (window as any).forge?.workspace?.onFileChanged) {
-      this.fileChangeUnsubscribe = (window as any).forge.workspace.onFileChanged((event: { filePath: string; type: string }) => {
-        // Refresh on file changes
+    if (this.ipc.isAvailable && window.forge?.workspace?.onFileChanged) {
+      this.fileChangeUnsubscribe = window.forge.workspace.onFileChanged(() => {
         if (this.workspace()) {
           this.refresh();
         }
@@ -309,7 +310,7 @@ export class WorkspacePanelComponent implements OnInit, OnDestroy {
     this.loading.set(true);
     try {
       const files = await firstValueFrom(this.ipc.getWorkspaceFiles(currentWorkspace.path));
-      this.workspace.update(ws => ws ? { ...ws, files } : null);
+      this.workspace.update(ws => (ws ? { ...ws, files } : null));
     } catch (error) {
       this.notification.error('Failed to refresh');
       console.error('Failed to refresh:', error);
@@ -345,8 +346,8 @@ export class WorkspacePanelComponent implements OnInit, OnDestroy {
 
     try {
       const content = await firstValueFrom(this.ipc.readWorkspaceFile(node.path));
-      const connectionId = this.connectionState.activeConnectionId();
-      const database = this.connectionState.selectedDatabase();
+      const connectionId = this.connectionState.focusedConnectionId();
+      const database = this.connectionState.selectedDatabaseFor(connectionId);
 
       if (connectionId && database) {
         this.tabState.openQueryTab(connectionId, database, content, false);
@@ -366,7 +367,7 @@ export class WorkspacePanelComponent implements OnInit, OnDestroy {
     }
   }
 
-  onContextMenu(event: MouseEvent, node: FileTreeNode): void {
+  onContextMenu(event: MouseEvent, _node: FileTreeNode): void {
     event.preventDefault();
     // Could emit to context menu service
   }
@@ -376,8 +377,8 @@ export class WorkspacePanelComponent implements OnInit, OnDestroy {
     if (!currentWorkspace || !this.ipc.isAvailable) return;
 
     // For now, just create a new query tab
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
 
     if (connectionId && database) {
       this.tabState.openQueryTab(connectionId, database, '', false);

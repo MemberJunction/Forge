@@ -5,7 +5,7 @@
 
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { MatDialogModule, MatDialogRef, MatDialog } from '@angular/material/dialog';
+import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
@@ -48,10 +48,7 @@ import {
         } @else {
           <div class="connection-list">
             @for (profile of connectionState.profiles(); track profile.id) {
-              <div
-                class="connection-item"
-                [class.active]="profile.id === connectionState.activeConnectionId()"
-              >
+              <div class="connection-item" [class.active]="connectionState.isConnected(profile.id)">
                 <div class="connection-info">
                   @if (profile.color) {
                     <span class="color-dot" [style.background]="profile.color"></span>
@@ -67,12 +64,12 @@ import {
                     <span class="connection-name">{{ profile.name }}</span>
                     <span class="connection-server">{{ profile.server }}:{{ profile.port }}</span>
                   </div>
-                  @if (profile.id === connectionState.activeConnectionId()) {
+                  @if (connectionState.isConnected(profile.id)) {
                     <span class="connected-badge">Connected</span>
                   }
                 </div>
                 <div class="connection-actions">
-                  @if (profile.id !== connectionState.activeConnectionId()) {
+                  @if (!connectionState.isConnected(profile.id)) {
                     <button mat-icon-button matTooltip="Connect" (click)="connectTo(profile.id)">
                       <mat-icon>power</mat-icon>
                     </button>
@@ -298,7 +295,6 @@ import {
 export class ConnectionManagerDialogComponent {
   readonly connectionState = inject(ConnectionStateService);
   private readonly explorerState = inject(ExplorerStateService);
-  private readonly dialogRef = inject(MatDialogRef<ConnectionManagerDialogComponent>);
   private readonly dialog = inject(MatDialog);
 
   readonly confirmDeleteId = signal<string | null>(null);

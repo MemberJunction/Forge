@@ -295,13 +295,13 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         category: 'file',
         shortcut: '⌘N',
         action: () => {
-          const connId = this.connectionState.activeConnectionId();
-          const db = this.connectionState.selectedDatabase();
+          const connId = this.connectionState.focusedConnectionId();
+          const db = this.connectionState.selectedDatabaseFor(connId);
           if (connId && db) {
             this.tabState.openQueryTab(connId, db);
           }
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
       {
         id: 'close-tab',
@@ -353,7 +353,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:execute-query'));
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
       {
         id: 'format-sql',
@@ -399,7 +399,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
           const id = this.connectionState.focusedConnectionId();
           if (id) this.connectionState.disconnect(id);
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
       {
         id: 'refresh',
@@ -410,7 +410,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:refresh-explorer'));
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
 
       // Settings commands
@@ -534,7 +534,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:open-backup'));
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
       {
         id: 'restore-database',
@@ -545,7 +545,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:open-restore'));
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
 
       // Schema Diff
@@ -558,7 +558,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => {
           this.dialog.open(SchemaDiffDialogComponent, { width: '520px' });
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
 
       // ERD
@@ -569,13 +569,13 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         icon: 'account_tree',
         category: 'view',
         action: () => {
-          const connId = this.connectionState.activeConnectionId();
-          const db = this.connectionState.selectedDatabase();
+          const connId = this.connectionState.focusedConnectionId();
+          const db = this.connectionState.selectedDatabaseFor(connId);
           if (connId && db) {
             this.tabState.openErdTab(connId, db);
           }
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
 
       // Snippets
@@ -598,7 +598,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         action: () => {
           window.dispatchEvent(new CustomEvent('forge:save-snippet'));
         },
-        isEnabled: () => this.connectionState.isConnected(),
+        isEnabled: () => this.connectionState.hasAnyConnection(),
       },
 
       // Theme toggle

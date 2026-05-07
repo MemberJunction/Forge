@@ -54,12 +54,14 @@ interface SearchableObject {
           </div>
 
           <div class="results-container">
-            @if (!connectionState.isConnected()) {
+            @if (!connectionState.hasAnyConnection()) {
               <div class="message-state">
                 <mat-icon>cloud_off</mat-icon>
                 <span>Connect to a server first</span>
               </div>
-            } @else if (!connectionState.selectedDatabase()) {
+            } @else if (
+              !connectionState.selectedDatabaseFor(connectionState.focusedConnectionId())
+            ) {
               <div class="message-state">
                 <mat-icon>storage</mat-icon>
                 <span>Select a database first</span>
@@ -97,7 +99,10 @@ interface SearchableObject {
             }
           </div>
 
-          @if (connectionState.isConnected() && connectionState.selectedDatabase()) {
+          @if (
+            connectionState.hasAnyConnection() &&
+            connectionState.selectedDatabaseFor(connectionState.focusedConnectionId())
+          ) {
             <div class="search-footer">
               <span class="count">
                 {{ filteredObjects().length }} of {{ allObjects().length }} objects
@@ -288,7 +293,10 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
       return [];
     }
 
-    return this.fuse.search(query).slice(0, 50).map(r => r.item);
+    return this.fuse
+      .search(query)
+      .slice(0, 50)
+      .map(r => r.item);
   });
 
   private keydownHandler = (event: KeyboardEvent) => {
@@ -335,8 +343,9 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
     }, 0);
 
     // Load objects if connected and database selected
-    const db = this.connectionState.selectedDatabase();
-    if (this.connectionState.isConnected() && db && db !== this.cachedDatabase) {
+    const focusId = this.connectionState.focusedConnectionId();
+    const db = this.connectionState.selectedDatabaseFor(focusId);
+    if (focusId && db && db !== this.cachedDatabase) {
       await this.loadObjects();
     }
   }
@@ -347,8 +356,8 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
   }
 
   private async loadObjects(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
 
     if (!connectionId || !database) return;
 
@@ -419,7 +428,9 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
       type,
       displayType,
       icon: iconMap[type] || 'description',
-      database: this.connectionState.selectedDatabase()!,
+      database: this.connectionState.selectedDatabaseFor(
+        this.connectionState.focusedConnectionId()
+      )!,
     };
   }
 
@@ -444,20 +455,21 @@ export class ObjectSearchComponent implements OnInit, OnDestroy {
         event.preventDefault();
         this.selectedIndex.update(i => Math.max(i - 1, 0));
         break;
-      case 'Enter':
+      case 'Enter': {
         event.preventDefault();
         const selected = objects[this.selectedIndex()];
         if (selected) {
           this.selectObject(selected);
         }
         break;
+      }
     }
   }
 
   selectObject(obj: SearchableObject): void {
     this.close();
 
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) return;
 
     // Open a query tab with SELECT statement for tables/views
