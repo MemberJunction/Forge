@@ -1,4 +1,4 @@
-import { Component, inject, ViewChild } from '@angular/core';
+import { Component, computed, inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
@@ -78,17 +78,19 @@ import type { DatabaseEngine } from '@mj-forge/shared';
       @if (connectionState.hasProfiles()) {
         <div class="connection-selector">
           <button mat-button [matMenuTriggerFor]="connectionMenu" class="connection-button">
-            @if (getConnectionIconClass(connectionState.activeProfile())) {
+            @if (getConnectionIconClass(focusedProfile())) {
               <i
                 class="devicon-btn"
-                [ngClass]="getConnectionIconClass(connectionState.activeProfile())!"
-                [style.color]="connectionState.activeProfile()?.color"
+                [ngClass]="getConnectionIconClass(focusedProfile())!"
+                [style.color]="focusedProfile()?.color"
               ></i>
             } @else {
-              <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+              <mat-icon>{{
+                connectionState.hasAnyConnection() ? 'cloud_done' : 'cloud_off'
+              }}</mat-icon>
             }
             <span class="connection-name">
-              {{ connectionState.activeProfile()?.name || 'Select Connection' }}
+              {{ focusedProfile()?.name || 'Select Connection' }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
@@ -97,9 +99,9 @@ import type { DatabaseEngine } from '@mj-forge/shared';
               <button
                 mat-menu-item
                 (click)="connectTo(profile.id)"
-                [class.active]="profile.id === connectionState.activeConnectionId()"
+                [class.active]="profile.id === connectionState.focusedConnectionId()"
               >
-                @if (profile.id === connectionState.activeConnectionId()) {
+                @if (profile.id === connectionState.focusedConnectionId()) {
                   <mat-icon>check</mat-icon>
                 } @else {
                   <i
@@ -128,7 +130,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
       }
 
       <!-- Database selector -->
-      @if (connectionState.isConnected()) {
+      @if (connectionState.hasAnyConnection()) {
         <div class="database-selector">
           <button
             mat-button
@@ -142,35 +144,33 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             } @else {
               <i
                 class="devicon-btn"
-                [ngClass]="getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')"
-                [style.color]="connectionState.activeProfile()?.color"
+                [ngClass]="getEngineIconClass(focusedProfile()?.engine || 'mssql')"
+                [style.color]="focusedProfile()?.color"
               ></i>
             }
             <span class="database-name">
               {{
                 connectionState.loadingDatabases()
                   ? 'Loading...'
-                  : connectionState.selectedDatabase() || 'Select Database'
+                  : focusedSelectedDatabase() || 'Select Database'
               }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
           <mat-menu #databaseMenu="matMenu">
-            @for (db of connectionState.databases(); track db.name) {
+            @for (db of focusedDatabases(); track db.name) {
               <button
                 mat-menu-item
                 (click)="selectDatabase(db.name)"
-                [class.active]="db.name === connectionState.selectedDatabase()"
+                [class.active]="db.name === focusedSelectedDatabase()"
               >
-                @if (db.name === connectionState.selectedDatabase()) {
+                @if (db.name === focusedSelectedDatabase()) {
                   <mat-icon>check</mat-icon>
                 } @else {
                   <i
                     class="devicon-menu"
-                    [ngClass]="
-                      getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')
-                    "
-                    [style.color]="connectionState.activeProfile()?.color"
+                    [ngClass]="getEngineIconClass(focusedProfile()?.engine || 'mssql')"
+                    [style.color]="focusedProfile()?.color"
                   ></i>
                 }
                 <span>{{ db.name }}</span>
@@ -290,7 +290,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="New Query"
             aria-label="New Query"
             (click)="newQuery()"
-            [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
+            [disabled]="!connectionState.hasAnyConnection() || !focusedSelectedDatabase()"
           >
             <mat-icon>code</mat-icon>
           </button>
@@ -299,7 +299,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="Refresh"
             aria-label="Refresh Explorer"
             (click)="refresh()"
-            [disabled]="!connectionState.isConnected()"
+            [disabled]="!connectionState.hasAnyConnection()"
           >
             <mat-icon>refresh</mat-icon>
           </button>
@@ -308,7 +308,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="Backup Database"
             aria-label="Backup Database"
             (click)="openBackup()"
-            [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
+            [disabled]="!connectionState.hasAnyConnection() || !focusedSelectedDatabase()"
           >
             <mat-icon>backup</mat-icon>
           </button>
@@ -317,7 +317,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="Restore Database"
             aria-label="Restore Database"
             (click)="openRestore()"
-            [disabled]="!connectionState.isConnected()"
+            [disabled]="!connectionState.hasAnyConnection()"
           >
             <mat-icon>restore</mat-icon>
           </button>
@@ -649,6 +649,19 @@ export class SidebarComponent {
   private pendingDeleteDatabase: string | null = null;
   private pendingRenameDatabase: string | null = null;
 
+  // Focused-connection accessors. The sidebar's UI is anchored to the focused
+  // tab's connection (cloud icon, database dropdown, dropdown highlight). These
+  // wrap the per-connection state lookups so templates stay readable.
+  readonly focusedProfile = computed(() =>
+    this.connectionState.profileFor(this.connectionState.focusedConnectionId())
+  );
+  readonly focusedDatabases = computed(() =>
+    this.connectionState.databasesFor(this.connectionState.focusedConnectionId())
+  );
+  readonly focusedSelectedDatabase = computed(() =>
+    this.connectionState.selectedDatabaseFor(this.connectionState.focusedConnectionId())
+  );
+
   /** Get devicon CSS class for the connection host (cloud provider or docker) */
   getConnectionIconClass(profile?: { server?: string; isDocker?: boolean } | null): string | null {
     if (!profile) return null;
@@ -685,7 +698,7 @@ export class SidebarComponent {
       const profile = this.connectionState.getProfile(connectionId);
       if (profile) return profile.engine;
     }
-    return this.connectionState.activeProfile()?.engine || 'mssql';
+    return this.focusedProfile()?.engine || 'mssql';
   }
 
   /** Quote an identifier appropriately for the database engine */
@@ -808,8 +821,8 @@ export class SidebarComponent {
   }
 
   newQuery(): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const databaseName = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const databaseName = this.focusedSelectedDatabase();
     if (connectionId && databaseName) {
       this.tabState.openQueryTab(connectionId, databaseName);
       this.router.navigate(['/query']);
@@ -824,9 +837,9 @@ export class SidebarComponent {
     }
   }
 
-  /** Check if the active connection's engine supports a feature */
+  /** Check if the focused connection's engine supports a feature */
   engineSupports(feature: 'backupRestore' | 'serverFileBrowsing' | 'extendedProperties'): boolean {
-    const engine = this.connectionState.activeProfile()?.engine;
+    const engine = this.focusedProfile()?.engine;
     if (!engine || engine === 'mssql') return true; // MSSQL supports all
     // MySQL supports backup/restore via mysqldump CLI
     if (feature === 'backupRestore' && engine === 'mysql') return true;
@@ -834,8 +847,8 @@ export class SidebarComponent {
   }
 
   openBackup(databaseName?: string): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const dbName = databaseName || this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const dbName = databaseName || this.focusedSelectedDatabase();
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -852,7 +865,7 @@ export class SidebarComponent {
     const dialogData: BackupDialogData = {
       connectionId,
       databaseName: dbName,
-      engine: this.connectionState.activeProfile()?.engine,
+      engine: this.focusedProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(BackupDialogComponent, {
@@ -869,7 +882,7 @@ export class SidebarComponent {
   }
 
   openRestore(databaseName?: string): void {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -881,7 +894,7 @@ export class SidebarComponent {
     const dialogData: RestoreDialogData = {
       connectionId,
       databaseName,
-      engine: this.connectionState.activeProfile()?.engine,
+      engine: this.focusedProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(RestoreDialogComponent, {
@@ -1808,9 +1821,9 @@ ORDER BY __mj_CreatedAt DESC`;
   }
 
   // Database create/rename/delete dialog methods
-  /** Public wrapper – uses the active connection when called from the database dropdown menu */
+  /** Public wrapper – uses the focused connection when called from the database dropdown menu */
   openCreateDatabaseDialog(connectionId?: string): void {
-    const connId = connectionId || this.connectionState.activeConnectionId();
+    const connId = connectionId || this.connectionState.focusedConnectionId();
     if (!connId) {
       this.notification.error('No active connection');
       return;
@@ -1859,7 +1872,7 @@ ORDER BY __mj_CreatedAt DESC`;
         // Refresh the database list
         this.connectionState.loadDatabases();
         // If the renamed database was selected, update selection
-        if (this.connectionState.selectedDatabase() === databaseName) {
+        if (this.focusedSelectedDatabase() === databaseName) {
           this.connectionState.selectDatabase(result.newName);
         }
         // Refresh explorer tree
@@ -1912,7 +1925,7 @@ ORDER BY __mj_CreatedAt DESC`;
 
     if (!oldName) return;
 
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
@@ -1928,7 +1941,7 @@ ORDER BY __mj_CreatedAt DESC`;
         // Refresh the database list
         await this.connectionState.loadDatabases();
         // If the renamed database was selected, update selection
-        if (this.connectionState.selectedDatabase() === oldName) {
+        if (this.focusedSelectedDatabase() === oldName) {
           this.connectionState.selectDatabase(newName);
         }
         // Refresh explorer tree
@@ -1952,7 +1965,7 @@ ORDER BY __mj_CreatedAt DESC`;
 
     if (!databaseName) return;
 
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
@@ -1968,7 +1981,7 @@ ORDER BY __mj_CreatedAt DESC`;
         // Refresh the database list
         await this.connectionState.loadDatabases();
         // If the deleted database was selected, clear selection
-        if (this.connectionState.selectedDatabase() === databaseName) {
+        if (this.focusedSelectedDatabase() === databaseName) {
           this.connectionState.selectDatabase('');
         }
         // Refresh explorer tree
