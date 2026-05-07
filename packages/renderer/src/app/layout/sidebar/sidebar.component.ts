@@ -986,8 +986,7 @@ export class SidebarComponent {
         icon: 'power_off',
         action: async () => {
           if (node.connectionId) {
-            await this.connectionState.disconnect();
-            this.explorerState.removeServerNode(node.connectionId);
+            await this.connectionState.disconnect(node.connectionId);
           }
         },
       },

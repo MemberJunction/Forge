@@ -7,7 +7,6 @@ import {
   OnDestroy,
   ElementRef,
   ViewChild,
-  HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -397,7 +396,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         icon: 'cloud_off',
         category: 'connection',
         action: () => {
-          this.connectionState.disconnect();
+          const id = this.connectionState.focusedConnectionId();
+          if (id) this.connectionState.disconnect(id);
         },
         isEnabled: () => this.connectionState.isConnected(),
       },
@@ -692,13 +692,14 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         event.preventDefault();
         this.selectedIndex.update(i => Math.max(i - 1, 0));
         break;
-      case 'Enter':
+      case 'Enter': {
         event.preventDefault();
         const selected = commands[this.selectedIndex()];
         if (selected) {
           this.executeCommand(selected);
         }
         break;
+      }
     }
   }
 

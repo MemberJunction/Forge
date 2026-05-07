@@ -174,7 +174,10 @@ export class MenuService implements OnDestroy {
     // Server menu items
     this.unsubscribers.push(
       menu.onDisconnect(() => {
-        this.zone.run(() => this.connectionState.disconnect());
+        this.zone.run(() => {
+          const id = this.connectionState.focusedConnectionId();
+          if (id) this.connectionState.disconnect(id);
+        });
       })
     );
 
@@ -300,17 +303,18 @@ export class MenuService implements OnDestroy {
     if (!connectionId || !databaseName) return;
 
     try {
-      const result = await firstValueFrom(this.ipc.showOpenDialog({
-        title: 'Open Query',
-        filters: [
-          { name: 'SQL Files', extensions: ['sql'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
-        properties: ['openFile'],
-      }));
+      const result = await firstValueFrom(
+        this.ipc.showOpenDialog({
+          title: 'Open Query',
+          filters: [
+            { name: 'SQL Files', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+          properties: ['openFile'],
+        })
+      );
       if (result?.filePaths?.length) {
         const content = await firstValueFrom(this.ipc.readWorkspaceFile(result.filePaths[0]));
-        const fileName = result.filePaths[0].split('/').pop()?.replace('.sql', '') || 'Query';
         this.tabState.openQueryTab(connectionId, databaseName, content, false);
       }
     } catch {

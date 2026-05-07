@@ -77,7 +77,11 @@ import {
                       <mat-icon>power</mat-icon>
                     </button>
                   } @else {
-                    <button mat-icon-button matTooltip="Disconnect" (click)="disconnect()">
+                    <button
+                      mat-icon-button
+                      matTooltip="Disconnect"
+                      (click)="disconnect(profile.id)"
+                    >
                       <mat-icon>power_off</mat-icon>
                     </button>
                   }
@@ -342,7 +346,7 @@ export class ConnectionManagerDialogComponent {
     }
   }
 
-  async disconnect(): Promise<void> {
-    await this.connectionState.disconnect();
+  async disconnect(profileId: string): Promise<void> {
+    await this.connectionState.disconnect(profileId);
   }
 }
