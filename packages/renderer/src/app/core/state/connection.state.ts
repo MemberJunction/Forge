@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
 import type { ConnectionProfile, DatabaseInfo, AppState } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
@@ -17,7 +17,7 @@ export interface ConnectionState {
 }
 
 @Injectable({ providedIn: 'root' })
-export class ConnectionStateService {
+export class ConnectionStateService implements OnDestroy {
   private readonly ipc = inject(IpcService);
   private readonly notification = inject(NotificationService);
   private readonly explorerState = inject(ExplorerStateService);
@@ -32,20 +32,27 @@ export class ConnectionStateService {
   private readonly _databases = signal<DatabaseInfo[]>([]);
   private readonly _loadingDatabases = signal(false);
   private readonly _selectedDatabase = signal<string | null>(null);
-  private readonly _connectionHealthy = signal(true);
-  private _heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-  private _reconnecting = false;
   private readonly _databaseCache = new Map<string, DatabaseInfo[]>();
 
-  // Multi-connection state (Phase 2 — additive). These are the authoritative answer
-  // to "what is connected" once consumers migrate in Phases 4-8.
+  // Multi-connection state. Authoritative answer to "what is connected" and the
+  // per-id resources that track each connection's lifecycle.
   private readonly _connectedProfileIds = signal<ReadonlySet<string>>(new Set());
   private readonly _databasesByConnection = signal<ReadonlyMap<string, DatabaseInfo[]>>(new Map());
   private readonly _selectedDatabaseByConnection = signal<ReadonlyMap<string, string | null>>(
     new Map()
   );
   private readonly _heartbeatByConnection = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly _reconnectingByConnection = new Set<string>();
+  private readonly _consecutiveFailuresByConnection = new Map<string, number>();
   private readonly _healthByConnection = signal<ReadonlyMap<string, boolean>>(new Map());
+
+  // Heartbeat tuning. 30s tick interval; each tick has 10s to complete its IPC
+  // call before being treated as a failure (strictly less than INTERVAL so ticks
+  // can't overlap). After 3 consecutive failures we stop the heartbeat for that
+  // connection and surface a notification — bounded retry per CLAUDE.md.
+  private static readonly HEARTBEAT_INTERVAL_MS = 30_000;
+  private static readonly HEARTBEAT_TICK_TIMEOUT_MS = 10_000;
+  private static readonly HEARTBEAT_MAX_CONSECUTIVE_FAILURES = 3;
 
   readonly profiles = this._profiles.asReadonly();
   /** @deprecated Use `focusedConnectionId` instead. Removed in Phase 9. */
@@ -57,7 +64,7 @@ export class ConnectionStateService {
   /** @deprecated Use `selectedDatabaseFor(focusedConnectionId())` instead. Removed in Phase 9. */
   readonly selectedDatabase = this._selectedDatabase.asReadonly();
   /** @deprecated Use `healthFor(focusedConnectionId())` instead. Removed in Phase 9. */
-  readonly connectionHealthy = this._connectionHealthy.asReadonly();
+  readonly connectionHealthy = computed(() => this.healthFor(this.focusedConnectionId()));
   readonly connectedProfileIds = this._connectedProfileIds.asReadonly();
 
   /** @deprecated Use `profileFor(focusedConnectionId())` instead. Removed in Phase 9. */
@@ -211,7 +218,7 @@ export class ConnectionStateService {
       this.notification.success(`Connected to ${profile.name}`);
       await this.loadDatabases();
       this.saveState();
-      this.startHeartbeat();
+      this.startHeartbeat(profileId);
       return true;
     } catch (error) {
       this.notification.error('Failed to connect');
@@ -228,13 +235,6 @@ export class ConnectionStateService {
   // connections — heartbeats, caches, server nodes — are untouched.
   async disconnect(connectionId: string): Promise<void> {
     if (!this._connectedProfileIds().has(connectionId)) return;
-
-    // Heartbeat is still a singleton in Phase 4 — only stop it when the id we
-    // are disconnecting is the one the singleton timer is pinging. T7 replaces
-    // this with a per-connection `stopHeartbeatFor(connectionId)` map lookup.
-    if (this._activeConnectionId() === connectionId) {
-      this.stopHeartbeat();
-    }
 
     try {
       await firstValueFrom(this.ipc.disconnect(connectionId));
@@ -347,44 +347,121 @@ export class ConnectionStateService {
     }
   }
 
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this._connectionHealthy.set(true);
-    this._reconnecting = false;
-    this._heartbeatInterval = setInterval(async () => {
-      const connectionId = this._activeConnectionId();
-      if (!connectionId || this._reconnecting) {
-        if (!connectionId) this.stopHeartbeat();
-        return;
-      }
-      try {
-        await firstValueFrom(this.ipc.listDatabases(connectionId));
-        this._connectionHealthy.set(true);
-        this.setHealth(connectionId, true);
-      } catch {
-        this._connectionHealthy.set(false);
-        this.setHealth(connectionId, false);
-        // Try to reconnect once, guarded against concurrent attempts
-        this._reconnecting = true;
-        try {
-          await firstValueFrom(this.ipc.connect(connectionId));
-          this._connectionHealthy.set(true);
-          this.setHealth(connectionId, true);
-          this.notification.info('Connection restored');
-        } catch {
-          // Stay unhealthy, user can manually reconnect
-        } finally {
-          this._reconnecting = false;
-        }
-      }
-    }, 30000);
+  // Start a per-connection heartbeat. Idempotent — restarting an existing
+  // heartbeat for the same id replaces the prior interval handle. Each tick
+  // is bounded by HEARTBEAT_TICK_TIMEOUT_MS; consecutive failures are capped
+  // at HEARTBEAT_MAX_CONSECUTIVE_FAILURES, after which we stop the heartbeat
+  // and surface a notification.
+  private startHeartbeat(connectionId: string): void {
+    this.stopHeartbeat(connectionId);
+    this.setHealth(connectionId, true);
+    this._consecutiveFailuresByConnection.set(connectionId, 0);
+    const handle = setInterval(
+      () => void this.heartbeatTick(connectionId),
+      ConnectionStateService.HEARTBEAT_INTERVAL_MS
+    );
+    this._heartbeatByConnection.set(connectionId, handle);
   }
 
-  private stopHeartbeat(): void {
-    if (this._heartbeatInterval) {
-      clearInterval(this._heartbeatInterval);
-      this._heartbeatInterval = null;
+  private stopHeartbeat(connectionId: string): void {
+    const handle = this._heartbeatByConnection.get(connectionId);
+    if (handle) {
+      clearInterval(handle);
+      this._heartbeatByConnection.delete(connectionId);
     }
+    this._reconnectingByConnection.delete(connectionId);
+    this._consecutiveFailuresByConnection.delete(connectionId);
+  }
+
+  private async heartbeatTick(connectionId: string): Promise<void> {
+    // Reentrancy guard: if a previous tick is still mid-reconnect, skip this one.
+    if (this._reconnectingByConnection.has(connectionId)) return;
+    // If the connection has been removed since the interval was scheduled, stop.
+    if (!this._connectedProfileIds().has(connectionId)) {
+      this.stopHeartbeat(connectionId);
+      return;
+    }
+
+    const ok = await this.pingConnection(connectionId);
+    if (ok) {
+      this.setHealth(connectionId, true);
+      this._consecutiveFailuresByConnection.set(connectionId, 0);
+      return;
+    }
+
+    this.setHealth(connectionId, false);
+    await this.attemptReconnect(connectionId);
+  }
+
+  private async pingConnection(connectionId: string): Promise<boolean> {
+    try {
+      await this.withTimeout(
+        firstValueFrom(this.ipc.listDatabases(connectionId)),
+        ConnectionStateService.HEARTBEAT_TICK_TIMEOUT_MS,
+        `heartbeat ping for ${connectionId}`
+      );
+      return true;
+    } catch (error) {
+      console.warn(`Heartbeat ping failed for ${connectionId}:`, error);
+      return false;
+    }
+  }
+
+  // Single retry attempt per failed tick. After MAX_CONSECUTIVE_FAILURES the
+  // heartbeat stops itself and the user is notified — bounded retry per CLAUDE.md.
+  private async attemptReconnect(connectionId: string): Promise<void> {
+    this._reconnectingByConnection.add(connectionId);
+    try {
+      await this.withTimeout(
+        firstValueFrom(this.ipc.connect(connectionId)),
+        ConnectionStateService.HEARTBEAT_TICK_TIMEOUT_MS,
+        `heartbeat reconnect for ${connectionId}`
+      );
+      this.setHealth(connectionId, true);
+      this._consecutiveFailuresByConnection.set(connectionId, 0);
+      this.notification.info('Connection restored');
+    } catch (error) {
+      console.warn(`Heartbeat reconnect failed for ${connectionId}:`, error);
+      const failures = (this._consecutiveFailuresByConnection.get(connectionId) ?? 0) + 1;
+      this._consecutiveFailuresByConnection.set(connectionId, failures);
+      if (failures >= ConnectionStateService.HEARTBEAT_MAX_CONSECUTIVE_FAILURES) {
+        const profileName = this.profileFor(connectionId)?.name ?? connectionId;
+        this.notification.error(
+          `Lost connection to ${profileName} after ${failures} attempts. Reconnect manually to retry.`
+        );
+        this.stopHeartbeat(connectionId);
+      }
+    } finally {
+      this._reconnectingByConnection.delete(connectionId);
+    }
+  }
+
+  // Bounds an async operation by racing it against a timer. Rejects if the
+  // operation does not settle within `ms`; the underlying promise is left to
+  // resolve/reject on its own (best-effort — the IPC API has no cancellation).
+  private async withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // Service-shutdown teardown. Angular fires ngOnDestroy on root-providers when
+  // the platform is destroyed (e.g., window close / hot-reload). Every interval
+  // handle owned by this service must be cleared here so timers don't outlive
+  // the renderer process unexpectedly.
+  ngOnDestroy(): void {
+    for (const handle of this._heartbeatByConnection.values()) {
+      clearInterval(handle);
+    }
+    this._heartbeatByConnection.clear();
+    this._reconnectingByConnection.clear();
+    this._consecutiveFailuresByConnection.clear();
   }
 
   /**
@@ -485,16 +562,7 @@ export class ConnectionStateService {
     this.clearDatabaseCache(connectionId);
     this.deleteSelectedDatabaseFor(connectionId);
     this.deleteHealth(connectionId);
-    this.stopHeartbeatFor(connectionId);
+    this.stopHeartbeat(connectionId);
     this.explorerState.removeServerNode(connectionId);
-  }
-
-  // Per-connection heartbeat teardown. Phase 2 leaves _heartbeatByConnection empty;
-  // T7 will populate it via startHeartbeatFor(). Calling this on an absent key no-ops.
-  private stopHeartbeatFor(connectionId: string): void {
-    const handle = this._heartbeatByConnection.get(connectionId);
-    if (!handle) return;
-    clearInterval(handle);
-    this._heartbeatByConnection.delete(connectionId);
   }
 }
