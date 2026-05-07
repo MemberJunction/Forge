@@ -246,7 +246,10 @@ export function createMenu(): void {
         { type: 'separator' },
         {
           label: 'Refresh Object Explorer',
-          accelerator: isMac ? 'Cmd+Shift+R' : 'Ctrl+Shift+R',
+          // Cmd+R / Ctrl+R is the canonical refresh shortcut on every
+          // platform Forge ships on. Cmd+Shift+R was harder to discover
+          // and conflicted with browser intuitions for "hard reload".
+          accelerator: 'CmdOrCtrl+R',
           click: () => {
             const win = BrowserWindow.getFocusedWindow();
             win?.webContents.send('menu:refresh');

@@ -141,6 +141,16 @@ import type { DatabaseEngine } from '@mj-forge/shared';
               <mat-icon>settings</mat-icon>
               <span>Manage Connections</span>
             </button>
+            <mat-divider />
+            <button
+              mat-menu-item
+              [disabled]="!connectionState.hasAnyConnection()"
+              (click)="refresh()"
+            >
+              <mat-icon>refresh</mat-icon>
+              <span>Refresh</span>
+              <span class="shortcut-hint">{{ refreshKeyHint }}</span>
+            </button>
           </mat-menu>
         </div>
       }
@@ -669,6 +679,7 @@ export class SidebarComponent {
   // focused query tab's connection if one is focused, falling back to the
   // last-touched connection (or most-recently-added if we have no history).
   // mostRecentConnectionId() is null only when zero connections are open.
+  readonly refreshKeyHint = keyHint('R');
   readonly focusedProfile = computed(() =>
     this.connectionState.profileFor(this.connectionState.mostRecentConnectionId())
   );
