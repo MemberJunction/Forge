@@ -177,7 +177,6 @@ export class ConnectionStateService implements OnDestroy {
       this.setHealth(profileId, true);
       this.notification.success(`Connected to ${profile.name}`);
       await this.loadDatabases(profileId);
-      this.openInitialTab(profileId, profile);
       this.saveState();
       this.startHeartbeat(profileId);
       return true;
@@ -188,28 +187,6 @@ export class ConnectionStateService implements OnDestroy {
     } finally {
       this._connecting.set(false);
     }
-  }
-
-  // After a successful connect, open a query tab pointing at the new
-  // connection so focusedConnectionId() resolves to it. Without this, the
-  // sidebar's database picker, cloud icon, and connection-context-chip
-  // (all derived from focusedConnectionId) would render empty even though
-  // the connection is live. Matches design.md Decision 4 — "open a new
-  // query tab targeting that server's last-used database if no current
-  // tab points at it."
-  private openInitialTab(connectionId: string, profile: ConnectionProfile): void {
-    if (this.tabState.tabs().some(t => t.connectionId === connectionId)) return;
-
-    const databases = this.databasesFor(connectionId);
-    if (databases.length === 0) return;
-
-    const preferred =
-      profile.database && databases.some(d => d.name === profile.database)
-        ? profile.database
-        : databases[0].name;
-
-    this.setSelectedDatabaseFor(connectionId, preferred);
-    this.tabState.openQueryTab(connectionId, preferred);
   }
 
   // Disconnect the connection identified by `connectionId`. No default — calling
