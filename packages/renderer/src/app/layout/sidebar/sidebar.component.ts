@@ -114,9 +114,6 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                     ></i>
                   }
                   <span>{{ profile.name }}</span>
-                  <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
-                    profile.engine === 'postgresql' ? 'PG' : 'MY'
-                  }}</span>
                 </button>
               } @else {
                 <button
@@ -126,9 +123,6 @@ import type { DatabaseEngine } from '@mj-forge/shared';
                 >
                   <mat-icon>power</mat-icon>
                   <span>Connect: {{ profile.name }}</span>
-                  <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
-                    profile.engine === 'postgresql' ? 'PG' : 'MY'
-                  }}</span>
                 </button>
               }
             }
@@ -149,7 +143,6 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             >
               <mat-icon>refresh</mat-icon>
               <span>Refresh</span>
-              <span class="shortcut-hint">{{ refreshKeyHint }}</span>
             </button>
           </mat-menu>
         </div>
@@ -679,7 +672,6 @@ export class SidebarComponent {
   // focused query tab's connection if one is focused, falling back to the
   // last-touched connection (or most-recently-added if we have no history).
   // mostRecentConnectionId() is null only when zero connections are open.
-  readonly refreshKeyHint = keyHint('R');
   readonly focusedProfile = computed(() =>
     this.connectionState.profileFor(this.connectionState.mostRecentConnectionId())
   );
