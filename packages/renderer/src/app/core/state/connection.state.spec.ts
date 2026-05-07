@@ -20,7 +20,7 @@
 // `@Injectable` declarations are touched.
 import '@angular/compiler';
 import { Injector, signal, type WritableSignal } from '@angular/core';
-import { EMPTY, of } from 'rxjs';
+import { EMPTY, of, throwError } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `toObservable` requires `EffectScheduler` from a fully bootstrapped Angular
@@ -488,6 +488,210 @@ describe('ConnectionStateService — persistence migration (spec 1.8)', () => {
     expect(service.isConnected(profileA.id)).toBe(true);
     expect(service.isConnected(profileB.id)).toBe(true);
     expect(service.isConnected(profileC.id)).toBe(false);
+
+    service.ngOnDestroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 7 supplementary — failure / reentrancy / lifecycle edge cases
+//
+// These cover the bounded-retry contract from CLAUDE.md and the safety
+// guards the implementer built into `heartbeatTick`: reentrancy lock, stale
+// tick after disconnect, per-id (not global) reconnect lock.
+// ---------------------------------------------------------------------------
+
+describe('ConnectionStateService — heartbeat failure handling (spec 1.7 supplementary)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('three consecutive ping+reconnect failures self-stop the heartbeat for that id', async () => {
+    const { service, ipc, notification } = makeService({
+      profiles: [profileA, profileB],
+      databasesByProfile: { [profileA.id]: [], [profileB.id]: [] },
+    });
+
+    await service.connect(profileA.id);
+    await service.connect(profileB.id);
+
+    // From this point onward, every IPC call for profileA fails. Reconnect
+    // attempts also fail. profileB stays healthy.
+    ipc.listDatabases.mockImplementation((id: string) => {
+      if (id === profileA.id) return throwError(() => new Error('ping failed'));
+      return of([]);
+    });
+    ipc.connect.mockImplementation((id: string) => {
+      if (id === profileA.id) return throwError(() => new Error('reconnect failed'));
+      return of(undefined);
+    });
+
+    // Tick 1, 2, 3 — each fails for A, increments consecutive-failure counter.
+    // After the third tick, A's heartbeat self-stops and surfaces a notification.
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+
+    expect(service.healthFor(profileA.id)).toBe(false);
+    expect(notification.error).toHaveBeenCalledWith(expect.stringContaining(profileA.name));
+
+    // After the self-stop, additional ticks don't fire pings for A.
+    const callsAAfterStop = listDatabasesCallsFor(ipc, profileA.id);
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+    expect(listDatabasesCallsFor(ipc, profileA.id)).toBe(callsAAfterStop);
+
+    // B's heartbeat is unaffected — still healthy, still ticking.
+    expect(service.healthFor(profileB.id)).toBe(true);
+
+    service.ngOnDestroy();
+  });
+
+  it('a tick fired after disconnect is a no-op (stale-tick safety)', async () => {
+    const { service, ipc } = makeService({
+      profiles: [profileA, profileB],
+      databasesByProfile: { [profileA.id]: [], [profileB.id]: [] },
+    });
+
+    await service.connect(profileA.id);
+    await service.connect(profileB.id);
+    await service.disconnect(profileA.id);
+
+    // After disconnect, A's interval should be cleared. Advance time and
+    // confirm the call count is unchanged for A and grows for B.
+    const beforeA = listDatabasesCallsFor(ipc, profileA.id);
+    const beforeB = listDatabasesCallsFor(ipc, profileB.id);
+
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 2);
+
+    expect(listDatabasesCallsFor(ipc, profileA.id)).toBe(beforeA);
+    expect(listDatabasesCallsFor(ipc, profileB.id)).toBeGreaterThan(beforeB);
+
+    service.ngOnDestroy();
+  });
+
+  it('reconnect lock is per-id — A reconnecting does not block B from ticking', async () => {
+    const { service, ipc } = makeService({
+      profiles: [profileA, profileB],
+      databasesByProfile: { [profileA.id]: [], [profileB.id]: [] },
+    });
+
+    await service.connect(profileA.id);
+    await service.connect(profileB.id);
+
+    // A's ping fails — pushes A into the reconnecting state. A's reconnect
+    // attempt is also configured to fail, so A stays in the failure path; the
+    // service uses a per-id reconnect lock, so B's tick must still proceed.
+    ipc.listDatabases.mockImplementation((id: string) => {
+      if (id === profileA.id) return throwError(() => new Error('ping failed'));
+      return of([]);
+    });
+    ipc.connect.mockImplementation((id: string) => {
+      if (id === profileA.id) return throwError(() => new Error('reconnect failed'));
+      return of(undefined);
+    });
+
+    const beforeB = listDatabasesCallsFor(ipc, profileB.id);
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+
+    // B ticked exactly once during the same advance window — proves the
+    // reconnect lock is not a global gate.
+    expect(listDatabasesCallsFor(ipc, profileB.id)).toBe(beforeB + 1);
+    expect(service.healthFor(profileB.id)).toBe(true);
+
+    service.ngOnDestroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8 supplementary — failure isolation, restore cap, save shape
+// ---------------------------------------------------------------------------
+
+describe('ConnectionStateService — persistence migration edge cases (spec 1.8 supplementary)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('one failed reconnect does not block the others (Promise.allSettled semantics)', async () => {
+    const { service, ipc } = makeService({
+      profiles: [profileA, profileB, profileC],
+      databasesByProfile: { [profileA.id]: [], [profileB.id]: [], [profileC.id]: [] },
+      ipcAvailable: true,
+      appState: { lastConnectedProfileIds: [profileA.id, profileB.id, profileC.id] },
+    });
+
+    // B's reconnect fails; A and C succeed. The implementation routes through
+    // `connect(id)` which itself returns false on IPC failure — Promise.allSettled
+    // ensures A and C complete regardless.
+    ipc.connect.mockImplementation((id: string) => {
+      if (id === profileB.id) return throwError(() => new Error('B unreachable'));
+      return of(undefined);
+    });
+
+    await service.restoreState();
+
+    expect(service.isConnected(profileA.id)).toBe(true);
+    expect(service.isConnected(profileB.id)).toBe(false);
+    expect(service.isConnected(profileC.id)).toBe(true);
+
+    service.ngOnDestroy();
+  });
+
+  it('caps restore at MAX_RESTORE_CONNECTIONS (20) when the persisted list overflows', async () => {
+    // Build 25 profile ids; the first 20 should be reconnected, the last 5 ignored.
+    const manyProfiles = Array.from({ length: 25 }, (_, i) => ({
+      ...profileA,
+      id: `profile-${i.toString().padStart(2, '0')}`,
+      name: `Profile ${i}`,
+    }));
+    const dbs: Record<string, DatabaseInfo[]> = {};
+    for (const p of manyProfiles) dbs[p.id] = [];
+
+    const { service, ipc } = makeService({
+      profiles: manyProfiles,
+      databasesByProfile: dbs,
+      ipcAvailable: true,
+      appState: { lastConnectedProfileIds: manyProfiles.map(p => p.id) },
+    });
+
+    await service.restoreState();
+
+    const connectIds = ipc.connect.mock.calls.map(([id]) => id);
+    expect(connectIds).toHaveLength(20);
+    // First 20 ids are present.
+    for (let i = 0; i < 20; i++) {
+      expect(connectIds).toContain(manyProfiles[i].id);
+    }
+    // Last 5 ids are NOT attempted.
+    for (let i = 20; i < 25; i++) {
+      expect(connectIds).not.toContain(manyProfiles[i].id);
+    }
+
+    service.ngOnDestroy();
+  });
+
+  it('saveState writes lastConnectedProfileIds and never the legacy key', async () => {
+    const { service, ipc } = makeService({
+      profiles: [profileA, profileB],
+      databasesByProfile: { [profileA.id]: [], [profileB.id]: [] },
+      ipcAvailable: true,
+    });
+
+    await service.connect(profileA.id);
+    await service.connect(profileB.id);
+
+    // connect() calls saveState() internally — last call to setAppState reflects
+    // the post-connect-B state.
+    const lastCall = ipc.setAppState.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(lastCall).toBeDefined();
+    expect(lastCall.lastConnectedProfileIds).toEqual(
+      expect.arrayContaining([profileA.id, profileB.id])
+    );
+    // No code path should still be writing the legacy key.
+    expect(lastCall).not.toHaveProperty('lastConnectionId');
 
     service.ngOnDestroy();
   });
