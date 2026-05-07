@@ -244,17 +244,17 @@ declare const monaco: {
           <mat-icon>translate</mat-icon>
         </button>
         <mat-menu #convertMenu="matMenu">
-          @if (connectionState.activeProfile()?.engine !== 'mssql') {
+          @if (tabProfile()?.engine !== 'mssql') {
             <button mat-menu-item (click)="convertSqlTo('mssql')">
               <mat-icon>dns</mat-icon> To SQL Server
             </button>
           }
-          @if (connectionState.activeProfile()?.engine !== 'postgresql') {
+          @if (tabProfile()?.engine !== 'postgresql') {
             <button mat-menu-item (click)="convertSqlTo('postgresql')">
               <mat-icon>view_cozy</mat-icon> To PostgreSQL
             </button>
           }
-          @if (connectionState.activeProfile()?.engine !== 'mysql') {
+          @if (tabProfile()?.engine !== 'mysql') {
             <button mat-menu-item (click)="convertSqlTo('mysql')">
               <mat-icon>grid_on</mat-icon> To MySQL
             </button>
@@ -477,7 +477,7 @@ declare const monaco: {
                     }
                     <app-results-grid
                       [resultSet]="activeResultSet()"
-                      [connectionId]="connectionState.activeConnectionId()"
+                      [connectionId]="tabConnectionId()"
                       [database]="selectedDatabase"
                       [class.historical]="viewingHistoricalResult()"
                       (cellSelected)="onCellSelected($event)"
@@ -508,7 +508,7 @@ declare const monaco: {
                   <div class="tab-content-pane">
                     <app-result-history-panel
                       [tabId]="tabId"
-                      [connectionId]="connectionState.activeConnectionId() ?? undefined"
+                      [connectionId]="tabConnectionId() ?? undefined"
                       [database]="selectedDatabase ?? undefined"
                       [embedded]="true"
                       (viewResult)="onViewHistoryResult($event)"
@@ -534,7 +534,7 @@ declare const monaco: {
       <app-row-detail-panel
         [inputData]="rowDetailData()"
         [totalRows]="activeResultSet()?.rows?.length ?? 0"
-        [connectionId]="connectionState.activeConnectionId()"
+        [connectionId]="tabConnectionId()"
         [database]="selectedDatabase"
         (closed)="closeRowDetail()"
         (navigateRow)="navigateRowDetail($event)"
@@ -970,8 +970,10 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   readonly tabConnectionId = computed(() => {
     const tab = this.tabState.tabs().find(t => t.id === this.tabId);
-    return tab?.connectionId ?? this.connectionState.activeConnectionId();
+    return tab?.connectionId ?? this.connectionState.focusedConnectionId();
   });
+
+  readonly tabProfile = computed(() => this.connectionState.profileFor(this.tabConnectionId()));
 
   selectedDatabase: string | null = null;
   executing = signal(false);
@@ -1054,9 +1056,13 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.initMonaco();
-    // Initialize database from tab's own state, falling back to global
+    // Initialize database from this tab's bound (connectionId, databaseName).
+    // The tab carries the authoritative pair; only fall back to focused-tab
+    // state if the binding is somehow missing.
     const tab = this.tabState.tabs().find(t => t.id === this.tabId);
-    this.selectedDatabase = tab?.databaseName ?? this.connectionState.selectedDatabase();
+    const focusId = this.connectionState.focusedConnectionId();
+    this.selectedDatabase =
+      tab?.databaseName ?? this.connectionState.selectedDatabaseFor(focusId);
 
     // Listen for keyboard shortcuts
     document.addEventListener('keydown', this.handleKeydown);
@@ -1235,7 +1241,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   /** Get the Monaco language ID based on the active connection's database engine */
   private getEditorLanguage(): string {
-    const engine = this.connectionState.activeProfile()?.engine;
+    const engine = this.tabProfile()?.engine;
     if (engine === 'postgresql') return 'pgsql';
     if (engine === 'mysql') return 'mysql';
     return 'sql'; // T-SQL / default
@@ -1463,8 +1469,8 @@ export class QueryComponent implements OnInit, OnDestroy {
   }
 
   private async loadAutoCompleteObjects(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.selectedDatabase;
     if (!connectionId || !database) return;
 
     try {
@@ -1758,7 +1764,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     const currentTab = this.tabState.tabs().find(t => t.id === this.tabId);
-    const connectionId = currentTab?.connectionId ?? this.connectionState.activeConnectionId();
+    const connectionId = currentTab?.connectionId ?? this.tabConnectionId();
     const database = this.selectedDatabase || currentTab?.databaseName;
 
     if (!connectionId) {
@@ -2315,7 +2321,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     }
 
     try {
-      const engine = this.connectionState.activeProfile()?.engine;
+      const engine = this.tabProfile()?.engine;
       const language =
         engine === 'mysql' ? 'mysql' : engine === 'postgresql' ? 'postgresql' : 'tsql';
       const formatted = formatSQL(sql, {
@@ -2344,7 +2350,7 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const fromEngine = this.connectionState.activeProfile()?.engine || 'mssql';
+    const fromEngine = this.tabProfile()?.engine || 'mssql';
     try {
       const result = await firstValueFrom(this.ipc.convertSql(sql, fromEngine, targetEngine));
       if (result.success) {
@@ -2370,14 +2376,14 @@ export class QueryComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.tabConnectionId();
     const database = this.selectedDatabase;
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
     }
 
-    const engine = this.connectionState.activeProfile()?.engine || 'mssql';
+    const engine = this.tabProfile()?.engine || 'mssql';
     this.executing.set(true);
     this.planData.set(null);
     this.planMysqlExplainUrl.set(null);
@@ -2601,7 +2607,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   // Open a query in a new tab (from FK navigation)
   openQueryInNewTab(query: { sql: string; title: string }): void {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.tabConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;

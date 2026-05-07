@@ -50,7 +50,10 @@ import type { BackupProgress, BackupType, BackupRequest } from '@mj-forge/shared
                 <mat-form-field appearance="outline" class="full-width">
                   <mat-label>Database</mat-label>
                   <mat-select [(ngModel)]="formData.database">
-                    @for (db of connectionState.databases(); track db.name) {
+                    @for (
+                      db of connectionState.databasesFor(connectionState.focusedConnectionId());
+                      track db.name
+                    ) {
                       <mat-option [value]="db.name">{{ db.name }}</mat-option>
                     }
                   </mat-select>
@@ -368,8 +371,10 @@ export class BackupComponent implements OnInit, OnDestroy {
   progress = signal<BackupProgress | null>(null);
 
   ngOnInit(): void {
-    // Pre-select database if one is already selected
-    const selected = this.connectionState.selectedDatabase();
+    // Pre-select the focused tab's database when this dialog opens.
+    const selected = this.connectionState.selectedDatabaseFor(
+      this.connectionState.focusedConnectionId()
+    );
     if (selected) {
       this.formData.database = selected;
     }
@@ -446,7 +451,7 @@ export class BackupComponent implements OnInit, OnDestroy {
   }
 
   async startBackup(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;

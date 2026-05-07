@@ -563,7 +563,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
   }
 
   async loadBackupInfo(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId || !this.formData.backupPath) return;
 
     this.loadingFiles.set(true);
@@ -627,7 +627,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
   }
 
   async startRestore(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
