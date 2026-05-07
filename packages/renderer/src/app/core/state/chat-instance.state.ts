@@ -237,9 +237,11 @@ export class ChatInstanceState {
         this.ipc.sendChatMessage({
           conversationId,
           message: content.trim(),
-          connectionId: this.connectionState.activeConnectionId() || undefined,
-          databaseName: this.connectionState.selectedDatabase() || undefined,
-          databaseEngine: this.connectionState.activeProfile()?.engine || undefined,
+          connectionId: this.connectionState.focusedConnectionId() || undefined,
+          databaseName: this.connectionState.focusedDatabaseName() || undefined,
+          databaseEngine:
+            this.connectionState.profileFor(this.connectionState.focusedConnectionId())?.engine ||
+            undefined,
           activeEditorContent: activeEditorContent || undefined,
           vendorId: vendorId || undefined,
           modelApiName: modelApiName || undefined,
@@ -316,9 +318,9 @@ export class ChatInstanceState {
     const params = action.params || {};
     switch (action.type) {
       case 'open-query-tab': {
-        const connId = this.connectionState.activeConnectionId();
+        const connId = this.connectionState.focusedConnectionId();
         const db =
-          (params['database'] as string | undefined) || this.connectionState.selectedDatabase();
+          (params['database'] as string | undefined) || this.connectionState.focusedDatabaseName();
         if (connId && db) {
           this.tabState.openQueryTab(
             connId,
