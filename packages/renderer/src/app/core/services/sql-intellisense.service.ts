@@ -5,13 +5,57 @@ import { IpcService } from './ipc.service';
 import type { ObjectMetadata, ColumnInfo } from '@mj-forge/shared';
 import { firstValueFrom } from 'rxjs';
 
-interface CompletionItem {
+// Structural Monaco shapes used by this service. Avoids depending on the
+// monaco-editor type package directly: this service only consumes the parts
+// of Monaco's API it registers providers against.
+interface MonacoRange {
+  startLineNumber: number;
+  endLineNumber: number;
+  startColumn: number;
+  endColumn: number;
+}
+
+interface MonacoPosition {
+  lineNumber: number;
+  column: number;
+}
+
+interface MonacoWord {
+  startColumn: number;
+  endColumn: number;
+}
+
+interface MonacoModel {
+  getLineContent: (n: number) => string;
+  getWordUntilPosition: (p: MonacoPosition) => MonacoWord;
+  getValue: () => string;
+}
+
+interface MonacoCompletionItem {
   label: string;
-  kind: number; // Monaco CompletionItemKind
+  kind: number;
   detail?: string;
   documentation?: string;
   insertText: string;
+  insertTextRules?: number;
+  range: MonacoRange;
   sortText?: string;
+}
+
+interface MonacoCompletionProvider {
+  provideCompletionItems: (
+    model: MonacoModel,
+    position: MonacoPosition
+  ) => Promise<{ suggestions: MonacoCompletionItem[] }>;
+  triggerCharacters?: string[];
+}
+
+interface MonacoLanguagesApi {
+  registerCompletionItemProvider: (lang: string, provider: MonacoCompletionProvider) => unknown;
+}
+
+interface MonacoInstance {
+  languages?: MonacoLanguagesApi;
 }
 
 interface TableInfo {
@@ -50,22 +94,113 @@ export class SqlIntellisenseService {
 
   // SQL Keywords
   private readonly sqlKeywords = [
-    'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'LIKE',
-    'ORDER BY', 'GROUP BY', 'HAVING', 'DISTINCT', 'TOP', 'AS',
-    'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'CROSS JOIN', 'ON',
-    'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
-    'CREATE', 'ALTER', 'DROP', 'TABLE', 'VIEW', 'INDEX', 'PROCEDURE', 'FUNCTION',
-    'IF', 'ELSE', 'BEGIN', 'END', 'WHILE', 'RETURN', 'DECLARE',
-    'NULL', 'IS NULL', 'IS NOT NULL', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-    'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT',
-    'ASC', 'DESC', 'WITH', 'NOLOCK', 'COALESCE', 'NULLIF',
-    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'CONVERT', 'GETDATE', 'DATEADD',
-    'DATEDIFF', 'YEAR', 'MONTH', 'DAY', 'LEN', 'SUBSTRING', 'CHARINDEX', 'REPLACE',
-    'ISNULL', 'ROW_NUMBER', 'OVER', 'PARTITION BY', 'RANK', 'DENSE_RANK',
-    'EXEC', 'EXECUTE', 'PRINT', 'RAISERROR', 'TRY', 'CATCH', 'THROW',
-    'TRANSACTION', 'COMMIT', 'ROLLBACK', 'SAVEPOINT',
-    'PRIMARY KEY', 'FOREIGN KEY', 'REFERENCES', 'UNIQUE', 'CHECK', 'DEFAULT',
-    'CONSTRAINT', 'IDENTITY', 'NOT NULL', 'CLUSTERED', 'NONCLUSTERED',
+    'SELECT',
+    'FROM',
+    'WHERE',
+    'AND',
+    'OR',
+    'NOT',
+    'IN',
+    'BETWEEN',
+    'LIKE',
+    'ORDER BY',
+    'GROUP BY',
+    'HAVING',
+    'DISTINCT',
+    'TOP',
+    'AS',
+    'JOIN',
+    'INNER JOIN',
+    'LEFT JOIN',
+    'RIGHT JOIN',
+    'FULL JOIN',
+    'CROSS JOIN',
+    'ON',
+    'INSERT',
+    'INTO',
+    'VALUES',
+    'UPDATE',
+    'SET',
+    'DELETE',
+    'CREATE',
+    'ALTER',
+    'DROP',
+    'TABLE',
+    'VIEW',
+    'INDEX',
+    'PROCEDURE',
+    'FUNCTION',
+    'IF',
+    'ELSE',
+    'BEGIN',
+    'END',
+    'WHILE',
+    'RETURN',
+    'DECLARE',
+    'NULL',
+    'IS NULL',
+    'IS NOT NULL',
+    'EXISTS',
+    'CASE',
+    'WHEN',
+    'THEN',
+    'ELSE',
+    'END',
+    'UNION',
+    'UNION ALL',
+    'EXCEPT',
+    'INTERSECT',
+    'ASC',
+    'DESC',
+    'WITH',
+    'NOLOCK',
+    'COALESCE',
+    'NULLIF',
+    'COUNT',
+    'SUM',
+    'AVG',
+    'MIN',
+    'MAX',
+    'CAST',
+    'CONVERT',
+    'GETDATE',
+    'DATEADD',
+    'DATEDIFF',
+    'YEAR',
+    'MONTH',
+    'DAY',
+    'LEN',
+    'SUBSTRING',
+    'CHARINDEX',
+    'REPLACE',
+    'ISNULL',
+    'ROW_NUMBER',
+    'OVER',
+    'PARTITION BY',
+    'RANK',
+    'DENSE_RANK',
+    'EXEC',
+    'EXECUTE',
+    'PRINT',
+    'RAISERROR',
+    'TRY',
+    'CATCH',
+    'THROW',
+    'TRANSACTION',
+    'COMMIT',
+    'ROLLBACK',
+    'SAVEPOINT',
+    'PRIMARY KEY',
+    'FOREIGN KEY',
+    'REFERENCES',
+    'UNIQUE',
+    'CHECK',
+    'DEFAULT',
+    'CONSTRAINT',
+    'IDENTITY',
+    'NOT NULL',
+    'CLUSTERED',
+    'NONCLUSTERED',
   ];
 
   // Common snippets
@@ -98,17 +233,20 @@ export class SqlIntellisenseService {
     {
       label: 'create_table',
       detail: 'CREATE TABLE template',
-      insertText: 'CREATE TABLE ${1:table_name} (\n\t${2:column_name} ${3:datatype} ${4:constraints}\n)',
+      insertText:
+        'CREATE TABLE ${1:table_name} (\n\t${2:column_name} ${3:datatype} ${4:constraints}\n)',
     },
     {
       label: 'create_procedure',
       detail: 'CREATE PROCEDURE template',
-      insertText: 'CREATE PROCEDURE ${1:procedure_name}\n\t@${2:param} ${3:datatype}\nAS\nBEGIN\n\t${4:-- body}\nEND',
+      insertText:
+        'CREATE PROCEDURE ${1:procedure_name}\n\t@${2:param} ${3:datatype}\nAS\nBEGIN\n\t${4:-- body}\nEND',
     },
     {
       label: 'try_catch',
       detail: 'TRY CATCH block',
-      insertText: 'BEGIN TRY\n\t${1:-- statements}\nEND TRY\nBEGIN CATCH\n\tSELECT ERROR_MESSAGE() AS ErrorMessage\nEND CATCH',
+      insertText:
+        'BEGIN TRY\n\t${1:-- statements}\nEND TRY\nBEGIN CATCH\n\tSELECT ERROR_MESSAGE() AS ErrorMessage\nEND CATCH',
     },
     {
       label: 'cte',
@@ -118,20 +256,21 @@ export class SqlIntellisenseService {
     {
       label: 'merge',
       detail: 'MERGE statement',
-      insertText: 'MERGE INTO ${1:target_table} AS target\nUSING ${2:source_table} AS source\nON ${3:condition}\nWHEN MATCHED THEN\n\tUPDATE SET ${4:updates}\nWHEN NOT MATCHED THEN\n\tINSERT (${5:columns}) VALUES (${6:values});',
+      insertText:
+        'MERGE INTO ${1:target_table} AS target\nUSING ${2:source_table} AS source\nON ${3:condition}\nWHEN MATCHED THEN\n\tUPDATE SET ${4:updates}\nWHEN NOT MATCHED THEN\n\tINSERT (${5:columns}) VALUES (${6:values});',
     },
   ];
 
   /**
    * Register completion provider with Monaco
    */
-  registerCompletionProvider(monacoInstance: any): void {
+  registerCompletionProvider(monacoInstance: MonacoInstance): void {
     if (!monacoInstance?.languages) return;
 
     monacoInstance.languages.registerCompletionItemProvider('sql', {
-      provideCompletionItems: async (model: any, position: any) => {
+      provideCompletionItems: async (model: MonacoModel, position: MonacoPosition) => {
         const word = model.getWordUntilPosition(position);
-        const range = {
+        const range: MonacoRange = {
           startLineNumber: position.lineNumber,
           endLineNumber: position.lineNumber,
           startColumn: word.startColumn,
@@ -141,7 +280,7 @@ export class SqlIntellisenseService {
         const lineContent = model.getLineContent(position.lineNumber);
         const textBeforeCursor = lineContent.substring(0, position.column - 1);
 
-        const suggestions: any[] = [];
+        const suggestions: MonacoCompletionItem[] = [];
 
         // Context-aware completions
         if (this.isAfterFrom(textBeforeCursor) || this.isAfterJoin(textBeforeCursor)) {
@@ -174,8 +313,8 @@ export class SqlIntellisenseService {
    * Load metadata for the current database
    */
   async loadMetadata(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
 
     if (!connectionId || !database) return;
 
@@ -185,14 +324,19 @@ export class SqlIntellisenseService {
     await this.loadTables(connectionId, database, cacheKey);
   }
 
-  private async loadTables(connectionId: string, database: string, cacheKey: string): Promise<void> {
+  private async loadTables(
+    connectionId: string,
+    database: string,
+    cacheKey: string
+  ): Promise<void> {
     try {
       const tables = await firstValueFrom(
         this.ipc.getExplorerChildren(connectionId, database, 'Tables')
       );
 
       const tableInfos: TableInfo[] = [];
-      for (const table of tables.slice(0, 50)) { // Limit for performance
+      for (const table of tables.slice(0, 50)) {
+        // Limit for performance
         const columns = await this.loadTableColumns(connectionId, database, table);
         tableInfos.push({
           schema: table.schema || 'dbo',
@@ -221,7 +365,7 @@ export class SqlIntellisenseService {
     }
   }
 
-  private getKeywordCompletions(range: any): any[] {
+  private getKeywordCompletions(range: MonacoRange): MonacoCompletionItem[] {
     return this.sqlKeywords.map((keyword, index) => ({
       label: keyword,
       kind: this.CompletionItemKind.Keyword,
@@ -231,7 +375,7 @@ export class SqlIntellisenseService {
     }));
   }
 
-  private getSnippetCompletions(range: any): any[] {
+  private getSnippetCompletions(range: MonacoRange): MonacoCompletionItem[] {
     return this.snippets.map(snippet => ({
       label: snippet.label,
       kind: this.CompletionItemKind.Snippet,
@@ -243,9 +387,9 @@ export class SqlIntellisenseService {
     }));
   }
 
-  private async getTableCompletions(range: any): Promise<any[]> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+  private async getTableCompletions(range: MonacoRange): Promise<MonacoCompletionItem[]> {
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
     if (!connectionId || !database) return [];
 
     const cacheKey = `${connectionId}:${database}`;
@@ -261,9 +405,9 @@ export class SqlIntellisenseService {
     }));
   }
 
-  private async getViewCompletions(range: any): Promise<any[]> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+  private async getViewCompletions(range: MonacoRange): Promise<MonacoCompletionItem[]> {
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
     if (!connectionId || !database) return [];
 
     const cacheKey = `${connectionId}:${database}`;
@@ -279,9 +423,12 @@ export class SqlIntellisenseService {
     }));
   }
 
-  private async getColumnCompletions(tableName: string, range: any): Promise<any[]> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+  private async getColumnCompletions(
+    tableName: string,
+    range: MonacoRange
+  ): Promise<MonacoCompletionItem[]> {
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
     if (!connectionId || !database) return [];
 
     const cacheKey = `${connectionId}:${database}`;
@@ -289,11 +436,9 @@ export class SqlIntellisenseService {
 
     // Find the table (handle schema.table or just table)
     const parts = tableName.split('.');
-    const searchName = parts[parts.length - 1].replace(/[\[\]]/g, '');
+    const searchName = parts[parts.length - 1].replace(/[[\]]/g, '');
 
-    const table = tables.find(
-      t => t.name.toLowerCase() === searchName.toLowerCase()
-    );
+    const table = tables.find(t => t.name.toLowerCase() === searchName.toLowerCase());
 
     if (!table) return [];
 
@@ -308,9 +453,9 @@ export class SqlIntellisenseService {
     }));
   }
 
-  private async getProcedureCompletions(range: any): Promise<any[]> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+  private async getProcedureCompletions(range: MonacoRange): Promise<MonacoCompletionItem[]> {
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = this.connectionState.selectedDatabaseFor(connectionId);
     if (!connectionId || !database) return [];
 
     const cacheKey = `${connectionId}:${database}`;
@@ -361,7 +506,7 @@ export class SqlIntellisenseService {
     const pattern = /\b(?:FROM|JOIN)\s+(\[?\w+\]?(?:\.\[?\w+\]?)?)\s+(?:AS\s+)?(\w+)/gi;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(fullText)) !== null) {
-      const tableName = match[1].replace(/[\[\]]/g, '');
+      const tableName = match[1].replace(/[[\]]/g, '');
       const alias = match[2].toLowerCase();
       // Skip SQL keywords that might be mistaken for aliases
       if (!this.isKeyword(alias)) {
@@ -373,9 +518,38 @@ export class SqlIntellisenseService {
 
   private isKeyword(word: string): boolean {
     const kw = word.toUpperCase();
-    return ['WHERE', 'ON', 'SET', 'AND', 'OR', 'NOT', 'IN', 'AS', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
-      'FULL', 'CROSS', 'ORDER', 'GROUP', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT', 'INTO',
-      'VALUES', 'BEGIN', 'END', 'THEN', 'ELSE', 'WHEN', 'CASE', 'WITH', 'SELECT'].includes(kw);
+    return [
+      'WHERE',
+      'ON',
+      'SET',
+      'AND',
+      'OR',
+      'NOT',
+      'IN',
+      'AS',
+      'JOIN',
+      'INNER',
+      'LEFT',
+      'RIGHT',
+      'FULL',
+      'CROSS',
+      'ORDER',
+      'GROUP',
+      'HAVING',
+      'UNION',
+      'EXCEPT',
+      'INTERSECT',
+      'INTO',
+      'VALUES',
+      'BEGIN',
+      'END',
+      'THEN',
+      'ELSE',
+      'WHEN',
+      'CASE',
+      'WITH',
+      'SELECT',
+    ].includes(kw);
   }
 
   /**
@@ -384,10 +558,10 @@ export class SqlIntellisenseService {
   async getColumnCompletionsWithAlias(
     prefix: string,
     fullText: string,
-    range: unknown
-  ): Promise<unknown[]> {
+    range: MonacoRange
+  ): Promise<MonacoCompletionItem[]> {
     const aliases = this.extractAliases(fullText);
-    const cleanPrefix = prefix.replace(/[\[\]]/g, '').toLowerCase();
+    const cleanPrefix = prefix.replace(/[[\]]/g, '').toLowerCase();
 
     // Check if prefix is an alias
     const resolvedTable = aliases.get(cleanPrefix);
@@ -403,11 +577,11 @@ export class SqlIntellisenseService {
    * Context-aware completions using full query text
    */
   async getContextAwareCompletions(
-    model: { getValue: () => string; getLineContent: (n: number) => string; getWordUntilPosition: (p: unknown) => { startColumn: number; endColumn: number } },
-    position: { lineNumber: number; column: number }
-  ): Promise<{ suggestions: unknown[] }> {
+    model: MonacoModel,
+    position: MonacoPosition
+  ): Promise<{ suggestions: MonacoCompletionItem[] }> {
     const word = model.getWordUntilPosition(position);
-    const range = {
+    const range: MonacoRange = {
       startLineNumber: position.lineNumber,
       endLineNumber: position.lineNumber,
       startColumn: word.startColumn,
@@ -417,7 +591,7 @@ export class SqlIntellisenseService {
     const lineContent = model.getLineContent(position.lineNumber);
     const textBeforeCursor = lineContent.substring(0, position.column - 1);
     const fullText = model.getValue();
-    const suggestions: unknown[] = [];
+    const suggestions: MonacoCompletionItem[] = [];
 
     if (this.isAfterFrom(textBeforeCursor) || this.isAfterJoin(textBeforeCursor)) {
       suggestions.push(...(await this.getTableCompletions(range)));
@@ -463,7 +637,10 @@ export class SqlIntellisenseService {
   registerGhostTextProvider(monacoInstance: unknown): void {
     const m = monacoInstance as {
       languages: {
-        registerInlineCompletionsProvider: (lang: string, provider: unknown) => { dispose: () => void };
+        registerInlineCompletionsProvider: (
+          lang: string,
+          provider: unknown
+        ) => { dispose: () => void };
       };
     };
     if (!m?.languages?.registerInlineCompletionsProvider) return;
@@ -497,7 +674,7 @@ export class SqlIntellisenseService {
           clearTimeout(this.ghostTextDebounceTimer);
         }
 
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
           this.ghostTextDebounceTimer = setTimeout(async () => {
             if (token.isCancellationRequested) {
               resolve({ items: [] });
@@ -513,10 +690,10 @@ export class SqlIntellisenseService {
               const tableNames = [...aliases.values()].slice(0, 5);
 
               // Build a minimal context for the LLM
-              const connectionId = this.connectionState.activeConnectionId();
-              const database = this.connectionState.selectedDatabase();
+              const connectionId = this.connectionState.focusedConnectionId();
+              const database = this.connectionState.selectedDatabaseFor(connectionId);
               const cacheKey = connectionId && database ? `${connectionId}:${database}` : '';
-              const tables = cacheKey ? (this.tablesCache.get(cacheKey) || []) : [];
+              const tables = cacheKey ? this.tablesCache.get(cacheKey) || [] : [];
 
               // Only include schemas for referenced tables
               const relevantTables = tables.filter(t =>
@@ -527,9 +704,9 @@ export class SqlIntellisenseService {
                 })
               );
 
-              const schemaContext = relevantTables.map(t =>
-                `${t.schema}.${t.name}: ${t.columns.map(c => c.name).join(', ')}`
-              ).join('\n');
+              const schemaContext = relevantTables
+                .map(t => `${t.schema}.${t.name}: ${t.columns.map(c => c.name).join(', ')}`)
+                .join('\n');
 
               const result = await this.aiState.generateSQL({
                 prompt: `Complete this SQL query. Return ONLY the completion text (what comes after the cursor), no explanations:\n\nDatabase: ${database || 'unknown'}\nTables:\n${schemaContext}\n\nQuery so far:\n${fullText.substring(0, fullText.indexOf(textBeforeCursor) + textBeforeCursor.length)}█${textAfterCursor}`,
@@ -544,7 +721,10 @@ export class SqlIntellisenseService {
               // Clean up the suggestion
               let suggestion = result.sql.trim();
               // Remove any markdown code fences
-              suggestion = suggestion.replace(/^```sql\n?/i, '').replace(/\n?```$/i, '').trim();
+              suggestion = suggestion
+                .replace(/^```sql\n?/i, '')
+                .replace(/\n?```$/i, '')
+                .trim();
 
               if (!suggestion) {
                 resolve({ items: [] });
@@ -552,15 +732,17 @@ export class SqlIntellisenseService {
               }
 
               resolve({
-                items: [{
-                  insertText: suggestion,
-                  range: {
-                    startLineNumber: position.lineNumber,
-                    startColumn: position.column,
-                    endLineNumber: position.lineNumber,
-                    endColumn: position.column,
+                items: [
+                  {
+                    insertText: suggestion,
+                    range: {
+                      startLineNumber: position.lineNumber,
+                      startColumn: position.column,
+                      endLineNumber: position.lineNumber,
+                      endColumn: position.column,
+                    },
                   },
-                }],
+                ],
               });
             } catch {
               resolve({ items: [] });
