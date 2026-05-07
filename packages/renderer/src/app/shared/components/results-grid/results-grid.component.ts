@@ -1175,31 +1175,28 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
   private gridApi: GridApi | null = null;
   private fkSubscription: Subscription | null = null;
 
-  // Cmd+C / Ctrl+C copies through the existing settings-driven path (TSV /
-  // CSV / JSON per the user's `Copy Format` preference) — same as clicking
-  // the Copy button. We deliberately leave ag-grid's own clipboard support
-  // off (`copySelectedRows: false`) so its hard-coded TSV doesn't override
-  // the user's choice. We don't intercept the event when focus is in an
-  // input/textarea/contenteditable so native copy in the quick-filter or a
-  // cell-value editor still works.
-  @HostListener('keydown', ['$event'])
-  onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'c' && event.key !== 'C') return;
-    if (!(event.metaKey || event.ctrlKey)) return;
-    if (event.shiftKey || event.altKey) return;
+  // Edit > Copy (⌘C / Ctrl+C). MenuService's `forge:menu-copy` event is
+  // forwarded from the main-process menu (the renderer never sees the raw
+  // keystroke — Electron's menu accelerator captures it). We claim it
+  // when:
+  //   - the grid contains the active element (the user is "in" the grid)
+  //   - they don't have a native text selection (e.g., drag-selected
+  //     across cell text — they want that string, not the row)
+  //   - they're not in an editable surface inside the grid (quick-filter
+  //     input, future cell-value editor)
+  // When we claim, we prevent default and route through
+  // `copySelectedToClipboard()` which honors the user's Copy Format
+  // setting. Otherwise MenuService falls back to document.execCommand.
+  @HostListener('window:forge:menu-copy', ['$event'])
+  onMenuCopy(event: Event): void {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !this.host.nativeElement.contains(active)) return;
 
-    const target = event.target as HTMLElement | null;
-    if (target) {
-      const tag = target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
-      // If the user has a non-empty native selection (text drag-selected in
-      // a cell), let the browser's native copy run — they're trying to copy
-      // that string, not the row.
-      const sel = target.ownerDocument?.getSelection();
-      if (sel && sel.toString().length > 0) return;
-    }
+    const tag = active.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return;
 
-    if (!this.host.nativeElement.contains(target)) return;
+    const sel = document.getSelection();
+    if (sel && sel.toString().length > 0) return;
 
     event.preventDefault();
     this.copySelectedToClipboard();

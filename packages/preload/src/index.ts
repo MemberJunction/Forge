@@ -463,6 +463,7 @@ export interface ForgeAPI {
     onExportResults: (callback: () => void) => () => void;
 
     // Edit menu
+    onCopy: (callback: () => void) => () => void;
     onFind: (callback: () => void) => () => void;
     onReplace: (callback: () => void) => () => void;
     onFormatSql: (callback: () => void) => () => void;
@@ -520,6 +521,7 @@ const MENU_CHANNELS = {
   EXPORT_RESULTS: 'menu:export-results',
 
   // Edit menu
+  COPY: 'menu:copy',
   FIND: 'menu:find',
   REPLACE: 'menu:replace',
   FORMAT_SQL: 'menu:format-sql',
@@ -928,6 +930,7 @@ const forgeAPI: ForgeAPI = {
     onExportResults: callback => createEventListener(MENU_CHANNELS.EXPORT_RESULTS, callback),
 
     // Edit menu
+    onCopy: callback => createEventListener(MENU_CHANNELS.COPY, callback),
     onFind: callback => createEventListener(MENU_CHANNELS.FIND, callback),
     onReplace: callback => createEventListener(MENU_CHANNELS.REPLACE, callback),
     onFormatSql: callback => createEventListener(MENU_CHANNELS.FORMAT_SQL, callback),

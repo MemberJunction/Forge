@@ -449,6 +449,7 @@ interface ForgeAPI {
     onSaveQuery: (callback: () => void) => () => void;
     onSaveQueryAs: (callback: () => void) => () => void;
     onExportResults: (callback: () => void) => () => void;
+    onCopy: (callback: () => void) => () => void;
     onFind: (callback: () => void) => () => void;
     onReplace: (callback: () => void) => () => void;
     onFormatSql: (callback: () => void) => () => void;

@@ -114,7 +114,20 @@ export function createMenu(): void {
         { role: 'redo' },
         { type: 'separator' },
         { role: 'cut' },
-        { role: 'copy' },
+        // Edit > Copy is intercepted in the renderer so context-aware
+        // surfaces (the results grid, future copy-from-X handlers) can
+        // honor user settings — for the grid, that means the chosen Copy
+        // Format (TSV / CSV / JSON, headers on/off). The renderer falls
+        // back to document.execCommand('copy') when no surface claims it,
+        // matching the role:'copy' default for plain text selections.
+        {
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+C',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            win?.webContents.send('menu:copy');
+          },
+        },
         { role: 'paste' },
         { role: 'delete' },
         { type: 'separator' },
