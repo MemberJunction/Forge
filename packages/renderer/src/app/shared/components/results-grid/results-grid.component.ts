@@ -34,6 +34,7 @@ import { NotificationService } from '../../../core/services/notification.service
 import { IpcService } from '../../../core/services/ipc.service';
 import { SettingsService } from '../../../core/services/settings.service';
 import { Subscription, firstValueFrom } from 'rxjs';
+import { keyHint } from '../../../core/utils/platform';
 
 interface ColumnStats {
   column: string;
@@ -116,7 +117,7 @@ interface FkPreviewData {
           </button>
           <button
             class="grid-btn"
-            matTooltip="Copy selected (Ctrl+C)"
+            [matTooltip]="'Copy selected (' + copyKeyHint + ')'"
             (click)="copySelectedToClipboard()"
           >
             <mat-icon>content_copy</mat-icon>
@@ -1162,6 +1163,8 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
   @Output() cellSelected = new EventEmitter<{ row: number; column: string; value: unknown }>();
   @Output() exportRequested = new EventEmitter<'csv' | 'json' | 'sql'>();
   @Output() openQueryRequested = new EventEmitter<{ sql: string; title: string }>();
+
+  readonly copyKeyHint = keyHint('C');
 
   private readonly notification = inject(NotificationService);
   private readonly ipc = inject(IpcService);

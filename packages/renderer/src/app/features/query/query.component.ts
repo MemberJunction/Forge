@@ -26,6 +26,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { IpcService } from '../../core/services/ipc.service';
 import { ConnectionStateService } from '../../core/state/connection.state';
+import { keyHint } from '../../core/utils/platform';
 import { TabStateService } from '../../core/state/tab.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { QueryHistoryStateService } from '../../core/state/query-history.state';
@@ -165,7 +166,7 @@ declare const monaco: {
       <div class="query-toolbar" role="toolbar" aria-label="Query actions">
         <button
           mat-icon-button
-          matTooltip="Execute (F5 or Ctrl+E)"
+          [matTooltip]="'Execute (F5 or ' + executeKeyHint + ')'"
           aria-label="Execute query"
           [disabled]="executing()"
           (click)="executeQuery()"
@@ -977,6 +978,7 @@ export class QueryComponent implements OnInit, OnDestroy {
 
   selectedDatabase: string | null = null;
   executing = signal(false);
+  readonly executeKeyHint = keyHint('E');
   result = signal<QueryResult | null>(null);
   activeTab = signal('result-0');
   editorHeight = signal(50);
@@ -1528,8 +1530,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     overlay.style.cssText =
       'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
 
-    const isMac = navigator.platform.includes('Mac');
-    const shortcutLabel = isMac ? '⌘E' : 'Ctrl+E';
+    const shortcutLabel = this.executeKeyHint;
 
     const dialog = document.createElement('div');
     dialog.style.cssText = `
