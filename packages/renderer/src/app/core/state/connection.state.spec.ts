@@ -25,10 +25,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `toObservable` requires `EffectScheduler` from a fully bootstrapped Angular
 // platform. Tests here only exercise signals/computed/connect/disconnect — the
-// observable wrappers (`profiles$`, `activeProfile$`, `isConnected$`) are
-// untouched. Replace `toObservable` with an empty observable so the
-// constructor-time initialisation in `ConnectionStateService` doesn't pull in
-// the effect-scheduler graph.
+// observable wrappers (`profiles$`, `isConnected$`) are untouched. Replace
+// `toObservable` with an empty observable so the constructor-time
+// initialisation in `ConnectionStateService` doesn't pull in the
+// effect-scheduler graph.
 vi.mock('@angular/core/rxjs-interop', () => ({
   toObservable: () => EMPTY,
   toSignal: (source: unknown) => source,
