@@ -96,25 +96,40 @@ import type { DatabaseEngine } from '@mj-forge/shared';
           </button>
           <mat-menu #connectionMenu="matMenu">
             @for (profile of connectionState.profiles(); track profile.id) {
-              <button
-                mat-menu-item
-                (click)="connectTo(profile.id)"
-                [class.active]="profile.id === connectionState.focusedConnectionId()"
-              >
-                @if (profile.id === connectionState.focusedConnectionId()) {
-                  <mat-icon>check</mat-icon>
-                } @else {
-                  <i
-                    class="devicon-menu"
-                    [ngClass]="getEngineIconClass(profile.engine)"
-                    [style.color]="profile.color"
-                  ></i>
-                }
-                <span>{{ profile.name }}</span>
-                <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
-                  profile.engine === 'postgresql' ? 'PG' : 'MY'
-                }}</span>
-              </button>
+              @if (connectionState.isConnected(profile.id)) {
+                <button
+                  mat-menu-item
+                  (click)="selectConnection(profile.id)"
+                  [class.active]="profile.id === connectionState.focusedConnectionId()"
+                  matTooltip="Switch focus to this connection"
+                >
+                  @if (profile.id === connectionState.focusedConnectionId()) {
+                    <mat-icon>check</mat-icon>
+                  } @else {
+                    <i
+                      class="devicon-menu"
+                      [ngClass]="getEngineIconClass(profile.engine)"
+                      [style.color]="profile.color"
+                    ></i>
+                  }
+                  <span>{{ profile.name }}</span>
+                  <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
+                    profile.engine === 'postgresql' ? 'PG' : 'MY'
+                  }}</span>
+                </button>
+              } @else {
+                <button
+                  mat-menu-item
+                  (click)="connectTo(profile.id)"
+                  matTooltip="Open a connection to this server"
+                >
+                  <mat-icon>power</mat-icon>
+                  <span>Connect: {{ profile.name }}</span>
+                  <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
+                    profile.engine === 'postgresql' ? 'PG' : 'MY'
+                  }}</span>
+                </button>
+              }
             }
             <mat-divider />
             <button mat-menu-item (click)="openConnectionDialog()">
@@ -765,6 +780,28 @@ export class SidebarComponent {
         this.explorerState.expandNode(`server-${profileId}`);
       }
     }
+  }
+
+  /**
+   * Focus navigator for the sidebar connection dropdown. Highlights the
+   * matching server node in the tree (the multi-connection store) and, when
+   * the user has no query tab targeting this connection yet, opens a fresh
+   * one against the connection's last-used database. Per spec Decision 4
+   * this MUST NOT mutate connection state — focus follows the resulting
+   * tab activation, not a direct write to a global signal.
+   */
+  selectConnection(connectionId: string): void {
+    const serverNodeId = `server-${connectionId}`;
+    this.explorerState.expandNode(serverNodeId);
+    this.explorerState.selectNode(serverNodeId);
+
+    const hasTab = this.tabState.tabs().some(t => t.connectionId === connectionId);
+    if (hasTab) return;
+
+    const lastDb = this.connectionState.selectedDatabaseFor(connectionId);
+    if (!lastDb) return;
+    this.tabState.openQueryTab(connectionId, lastDb);
+    this.router.navigate(['/query']);
   }
 
   selectDatabase(name: string): void {
