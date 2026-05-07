@@ -1061,8 +1061,7 @@ export class QueryComponent implements OnInit, OnDestroy {
     // state if the binding is somehow missing.
     const tab = this.tabState.tabs().find(t => t.id === this.tabId);
     const focusId = this.connectionState.focusedConnectionId();
-    this.selectedDatabase =
-      tab?.databaseName ?? this.connectionState.selectedDatabaseFor(focusId);
+    this.selectedDatabase = tab?.databaseName ?? this.connectionState.selectedDatabaseFor(focusId);
 
     // Listen for keyboard shortcuts
     document.addEventListener('keydown', this.handleKeydown);
@@ -1336,9 +1335,9 @@ export class QueryComponent implements OnInit, OnDestroy {
         if (tab.autoExecute && tab.content) {
           this.tabState.clearAutoExecute(tab.id);
           // Sync database from tab before executing — the effect may not have fired yet
-          if (tab.databaseName) {
+          if (tab.databaseName && tab.connectionId) {
             this.selectedDatabase = tab.databaseName;
-            this.connectionState.selectDatabase(tab.databaseName);
+            this.connectionState.selectDatabase(tab.connectionId, tab.databaseName);
           }
           this.executeQuery();
         }
@@ -1355,9 +1354,9 @@ export class QueryComponent implements OnInit, OnDestroy {
         this.tabState.setCleanBaseline(activeTab.id, activeTab.content ?? '');
         if (activeTab.autoExecute && activeTab.content) {
           this.tabState.clearAutoExecute(activeTab.id);
-          if (activeTab.databaseName) {
+          if (activeTab.databaseName && activeTab.connectionId) {
             this.selectedDatabase = activeTab.databaseName;
-            this.connectionState.selectDatabase(activeTab.databaseName);
+            this.connectionState.selectDatabase(activeTab.connectionId, activeTab.databaseName);
           }
           this.executeQuery();
         }
@@ -1882,10 +1881,13 @@ export class QueryComponent implements OnInit, OnDestroy {
     if (this.editor) {
       this.editor.setValue(entry.sql);
     }
-    // Optionally switch to the database from history
-    if (entry.database && entry.database !== this.selectedDatabase) {
+    // Optionally switch to the database from history. Bind to this tab's
+    // connection — query history entries are global but the selection is
+    // a per-tab decision.
+    const connId = this.tabConnectionId();
+    if (entry.database && entry.database !== this.selectedDatabase && connId) {
       this.selectedDatabase = entry.database;
-      this.connectionState.selectDatabase(entry.database);
+      this.connectionState.selectDatabase(connId, entry.database);
     }
     this.notification.info('Query loaded from history');
   }

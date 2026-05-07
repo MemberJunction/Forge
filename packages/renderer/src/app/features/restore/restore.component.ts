@@ -513,7 +513,8 @@ export class RestoreComponent implements OnInit, OnDestroy {
       if (p.status === 'completed') {
         this.restoring.set(false);
         this.notification.success('Restore completed successfully');
-        this.connectionState.loadDatabases();
+        const focusId = this.connectionState.focusedConnectionId();
+        if (focusId) this.connectionState.loadDatabases(focusId);
       } else if (p.status === 'failed') {
         this.restoring.set(false);
         this.notification.error(p.error || 'Restore failed');

@@ -323,12 +323,13 @@ export class MenuService implements OnDestroy {
   }
 
   private async refresh(): Promise<void> {
-    if (this.connectionState.hasAnyConnection()) {
-      await this.connectionState.loadDatabases();
-      const selectedNode = this.explorerState.selectedNodeId();
-      if (selectedNode) {
-        await this.explorerState.refreshNode(selectedNode);
-      }
+    const focusId = this.connectionState.focusedConnectionId();
+    if (focusId) {
+      await this.connectionState.loadDatabases(focusId);
+    }
+    const selectedNode = this.explorerState.selectedNodeId();
+    if (selectedNode) {
+      await this.explorerState.refreshNode(selectedNode);
     }
   }
 

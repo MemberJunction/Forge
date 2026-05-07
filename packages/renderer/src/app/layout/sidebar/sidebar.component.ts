@@ -805,7 +805,10 @@ export class SidebarComponent {
   }
 
   selectDatabase(name: string): void {
-    this.connectionState.selectDatabase(name);
+    const focusId = this.connectionState.focusedConnectionId();
+    if (focusId) {
+      this.connectionState.selectDatabase(focusId, name);
+    }
   }
 
   onNodeClick(node: TreeNode): void {
@@ -867,7 +870,10 @@ export class SidebarComponent {
   }
 
   async refresh(): Promise<void> {
-    await this.connectionState.loadDatabases();
+    const focusId = this.connectionState.focusedConnectionId();
+    if (focusId) {
+      await this.connectionState.loadDatabases(focusId);
+    }
     const selectedNode = this.explorerState.selectedNodeId();
     if (selectedNode) {
       await this.explorerState.refreshNode(selectedNode);
@@ -943,7 +949,7 @@ export class SidebarComponent {
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success) {
         // Refresh the database list after restore
-        this.connectionState.loadDatabases();
+        this.connectionState.loadDatabases(connectionId);
         // Refresh explorer tree
         const serverNode = this.explorerState
           .rootNodes()
@@ -1052,7 +1058,7 @@ export class SidebarComponent {
         shortcut: 'Ctrl+N',
         action: () => {
           if (node.connectionId && node.databaseName) {
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName);
             this.router.navigate(['/query']);
           }
@@ -1141,7 +1147,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 1000, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
           }
@@ -1157,7 +1163,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 200, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
           }
@@ -1179,7 +1185,7 @@ export class SidebarComponent {
                 schema,
                 node.metadata.name
               );
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
               this.router.navigate(['/query']);
             } catch (err) {
@@ -1198,7 +1204,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = `SELECT * FROM ${tableRef}`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
           }
@@ -1219,7 +1225,7 @@ export class SidebarComponent {
                 schema,
                 node.metadata.name
               );
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
               this.router.navigate(['/query']);
             } catch (err) {
@@ -1237,7 +1243,7 @@ export class SidebarComponent {
           if (node.connectionId && node.databaseName && node.metadata) {
             const schema =
               node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openErdTab(
               node.connectionId,
               node.databaseName,
@@ -1289,7 +1295,7 @@ LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
 ORDER BY rc.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1317,7 +1323,7 @@ LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
 ORDER BY al.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1344,7 +1350,7 @@ ORDER BY al.CreatedAt DESC`;
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 1000, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
           }
@@ -1360,7 +1366,7 @@ ORDER BY al.CreatedAt DESC`;
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 200, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
           }
@@ -1384,7 +1390,7 @@ ORDER BY al.CreatedAt DESC`;
                 'view'
               );
               const sql = result.definition || '-- View definition not available';
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get view definition');
@@ -1410,7 +1416,7 @@ ORDER BY al.CreatedAt DESC`;
               );
               let sql = result.definition || '-- View definition not available';
               sql = sql.replace(/CREATE\s+VIEW\s+/i, 'ALTER VIEW ');
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get view definition');
@@ -1428,7 +1434,7 @@ ORDER BY al.CreatedAt DESC`;
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = `SELECT * FROM ${tableRef}`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1480,7 +1486,7 @@ ORDER BY al.CreatedAt DESC`;
                 'function'
               );
               const sql = result.definition || '-- Function definition not available';
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get function definition');
@@ -1506,7 +1512,7 @@ ORDER BY al.CreatedAt DESC`;
               );
               let sql = result.definition || '-- Function definition not available';
               sql = sql.replace(/CREATE\s+FUNCTION\s+/i, 'ALTER FUNCTION ');
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get function definition');
@@ -1559,7 +1565,7 @@ ORDER BY al.CreatedAt DESC`;
                 : engine === 'postgresql'
                   ? `CALL ${procRef}()`
                   : `EXEC ${procRef}`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1582,7 +1588,7 @@ ORDER BY al.CreatedAt DESC`;
                 'procedure'
               );
               const sql = result.definition || '-- Procedure definition not available';
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get procedure definition');
@@ -1608,7 +1614,7 @@ ORDER BY al.CreatedAt DESC`;
               );
               let sql = result.definition || '-- Procedure definition not available';
               sql = sql.replace(/CREATE\s+(PROCEDURE|PROC)\s+/i, 'ALTER $1 ');
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get procedure definition');
@@ -1656,7 +1662,7 @@ ORDER BY al.CreatedAt DESC`;
             const engine = this.getEngine(node.connectionId);
             const tableRef = this.qualifiedTable(node.schema, node.tableName, engine);
             const sql = this.selectWithLimit(tableRef, 1000, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1681,7 +1687,7 @@ LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
 ORDER BY rc.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1706,7 +1712,7 @@ LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
 ORDER BY al.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1718,7 +1724,7 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'account_tree',
         action: () => {
           if (node.connectionId && node.databaseName && node.schema && node.tableName) {
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openErdTab(
               node.connectionId,
               node.databaseName,
@@ -1740,7 +1746,7 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'code',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata?.definition) {
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(
               node.connectionId,
               node.databaseName,
@@ -1774,7 +1780,7 @@ FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 ORDER BY rc.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1810,7 +1816,7 @@ LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 ORDER BY al.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1843,7 +1849,7 @@ SELECT TOP 200
   Details
 FROM [__mj].[ErrorLog]
 ORDER BY __mj_CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1881,7 +1887,7 @@ ORDER BY __mj_CreatedAt DESC`;
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success && result.databaseName) {
         // Refresh the database list
-        this.connectionState.loadDatabases();
+        this.connectionState.loadDatabases(connectionId);
         // Refresh explorer tree
         const serverNode = this.explorerState
           .rootNodes()
@@ -1907,10 +1913,10 @@ ORDER BY __mj_CreatedAt DESC`;
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success && result.newName) {
         // Refresh the database list
-        this.connectionState.loadDatabases();
+        this.connectionState.loadDatabases(connectionId);
         // If the renamed database was selected, update selection
         if (this.focusedSelectedDatabase() === databaseName) {
-          this.connectionState.selectDatabase(result.newName);
+          this.connectionState.selectDatabase(connectionId, result.newName);
         }
         // Refresh explorer tree
         const serverNode = this.explorerState
@@ -1976,10 +1982,10 @@ ORDER BY __mj_CreatedAt DESC`;
       if (result?.success) {
         this.notification.success(`Database renamed to "${newName}"`);
         // Refresh the database list
-        await this.connectionState.loadDatabases();
+        await this.connectionState.loadDatabases(connectionId);
         // If the renamed database was selected, update selection
         if (this.focusedSelectedDatabase() === oldName) {
-          this.connectionState.selectDatabase(newName);
+          this.connectionState.selectDatabase(connectionId, newName);
         }
         // Refresh explorer tree
         const serverNode = this.explorerState
@@ -2016,10 +2022,10 @@ ORDER BY __mj_CreatedAt DESC`;
       if (result?.success) {
         this.notification.success(`Database "${databaseName}" deleted`);
         // Refresh the database list
-        await this.connectionState.loadDatabases();
+        await this.connectionState.loadDatabases(connectionId);
         // If the deleted database was selected, clear selection
         if (this.focusedSelectedDatabase() === databaseName) {
-          this.connectionState.selectDatabase('');
+          this.connectionState.selectDatabase(connectionId, '');
         }
         // Refresh explorer tree
         const serverNode = this.explorerState
