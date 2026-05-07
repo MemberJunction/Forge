@@ -955,10 +955,18 @@ export class SidebarComponent {
     });
 
     dialogRef.afterClosed().subscribe(result => {
-      if (result?.success) {
-        // Refresh the database list after restore
+      if (result?.success && result?.database) {
+        // We know the target db exists post-restore — push it into the
+        // local database list and tree directly. Idempotent if the db
+        // was already there (overwrite-existing case).
+        this.connectionState.addDatabaseLocal(connectionId, {
+          name: result.database,
+          state: 'online',
+        });
+        this.explorerState.addDatabaseNodeLocal(connectionId, result.database);
+      } else if (result?.success) {
+        // Success but no target name — fall back to a refetch.
         this.connectionState.loadDatabases(connectionId);
-        // Refresh explorer tree
         const serverNode = this.explorerState
           .rootNodes()
           .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
@@ -1934,15 +1942,12 @@ ORDER BY __mj_CreatedAt DESC`;
 
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success && result.databaseName) {
-        // Refresh the database list
-        this.connectionState.loadDatabases(connectionId);
-        // Refresh explorer tree
-        const serverNode = this.explorerState
-          .rootNodes()
-          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
-        if (serverNode) {
-          this.explorerState.refreshNode(serverNode.id);
-        }
+        // Successful create → push the new db into local state directly.
+        this.connectionState.addDatabaseLocal(connectionId, {
+          name: result.databaseName,
+          state: 'online',
+        });
+        this.explorerState.addDatabaseNodeLocal(connectionId, result.databaseName);
       }
     });
   }
@@ -1960,18 +1965,12 @@ ORDER BY __mj_CreatedAt DESC`;
 
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success && result.newName) {
-        // Refresh the database list
-        this.connectionState.loadDatabases(connectionId);
+        // Successful rename → mutate state directly.
+        this.connectionState.renameDatabaseLocal(connectionId, databaseName, result.newName);
+        this.explorerState.renameDatabaseNodeLocal(connectionId, databaseName, result.newName);
         // If the renamed database was selected, update selection
         if (this.focusedSelectedDatabase() === databaseName) {
           this.connectionState.selectDatabase(connectionId, result.newName);
-        }
-        // Refresh explorer tree
-        const serverNode = this.explorerState
-          .rootNodes()
-          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
-        if (serverNode) {
-          this.explorerState.refreshNode(serverNode.id);
         }
       }
     });
@@ -2069,21 +2068,24 @@ ORDER BY __mj_CreatedAt DESC`;
 
       if (result?.success) {
         this.notification.success(`Database "${databaseName}" deleted`);
-        // Refresh the database list
-        await this.connectionState.loadDatabases(connectionId);
-        // If the deleted database was selected, clear selection
+        // Successful delete → mutate state directly.
+        this.connectionState.removeDatabaseLocal(connectionId, databaseName);
+        this.explorerState.removeDatabaseNodeLocal(connectionId, databaseName);
+        // If the deleted database was selected, clear selection.
         if (this.focusedSelectedDatabase() === databaseName) {
           this.connectionState.selectDatabase(connectionId, '');
         }
-        // Refresh explorer tree
+      } else {
+        this.notification.error(result?.error || 'Failed to delete database');
+        // Failure path: re-sync from the server in case our optimistic
+        // local view is now wrong.
+        await this.connectionState.loadDatabases(connectionId);
         const serverNode = this.explorerState
           .rootNodes()
           .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
         if (serverNode) {
           await this.explorerState.refreshNode(serverNode.id);
         }
-      } else {
-        this.notification.error(result?.error || 'Failed to delete database');
       }
     } catch (error) {
       this.notification.error(error instanceof Error ? error.message : 'Failed to delete database');

@@ -537,6 +537,52 @@ export class ConnectionStateService implements OnDestroy {
     });
   }
 
+  /**
+   * Direct mutators for the per-connection database list. Use these from
+   * CRUD handlers (create / drop / rename / restore) when the operation
+   * succeeded and we know the new state — they avoid the IPC round-trip
+   * of loadDatabases() and let the picker / sidebar tree update
+   * synchronously. On *failure* the caller should fall back to
+   * loadDatabases() to re-sync from the server. All three are
+   * idempotent: adding an existing name is a no-op, removing a missing
+   * name is a no-op, renaming a missing name is a no-op.
+   */
+  addDatabaseLocal(connectionId: string, info: DatabaseInfo): void {
+    this._databasesByConnection.update(prev => {
+      const current = prev.get(connectionId) ?? [];
+      if (current.some(d => d.name === info.name)) return prev;
+      const next = new Map(prev);
+      next.set(connectionId, [...current, info]);
+      return next;
+    });
+  }
+
+  removeDatabaseLocal(connectionId: string, name: string): void {
+    this._databasesByConnection.update(prev => {
+      const current = prev.get(connectionId);
+      if (!current || !current.some(d => d.name === name)) return prev;
+      const next = new Map(prev);
+      next.set(
+        connectionId,
+        current.filter(d => d.name !== name)
+      );
+      return next;
+    });
+  }
+
+  renameDatabaseLocal(connectionId: string, oldName: string, newName: string): void {
+    this._databasesByConnection.update(prev => {
+      const current = prev.get(connectionId);
+      if (!current || !current.some(d => d.name === oldName)) return prev;
+      const next = new Map(prev);
+      next.set(
+        connectionId,
+        current.map(d => (d.name === oldName ? { ...d, name: newName } : d))
+      );
+      return next;
+    });
+  }
+
   private deleteDatabasesFor(connectionId: string): void {
     this._databasesByConnection.update(prev => {
       if (!prev.has(connectionId)) return prev;

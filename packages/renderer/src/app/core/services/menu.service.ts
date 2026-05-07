@@ -354,9 +354,13 @@ export class MenuService implements OnDestroy {
   }
 
   private async refresh(): Promise<void> {
-    const focusId = this.connectionState.focusedConnectionId();
-    if (focusId) {
-      await this.connectionState.loadDatabases(focusId);
+    // Cmd+R / Edit > Refresh: anchor on the most-recently-used connection
+    // so the menu works even when there's no focused query tab (welcome
+    // tab active, no tabs at all, etc.) — same anchor the sidebar's
+    // own Refresh button uses.
+    const connectionId = this.connectionState.mostRecentConnectionId();
+    if (connectionId) {
+      await this.connectionState.loadDatabases(connectionId);
     }
     const selectedNode = this.explorerState.selectedNodeId();
     if (selectedNode) {
