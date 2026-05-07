@@ -7,15 +7,6 @@ import { ExplorerStateService } from './explorer.state';
 import { TabStateService } from './tab.state';
 import { firstValueFrom } from 'rxjs';
 
-export interface ConnectionState {
-  profiles: ConnectionProfile[];
-  activeConnectionId: string | null;
-  connecting: boolean;
-  databases: DatabaseInfo[];
-  loadingDatabases: boolean;
-  selectedDatabase: string | null;
-}
-
 @Injectable({ providedIn: 'root' })
 export class ConnectionStateService implements OnDestroy {
   private readonly ipc = inject(IpcService);
@@ -23,16 +14,9 @@ export class ConnectionStateService implements OnDestroy {
   private readonly explorerState = inject(ExplorerStateService);
   private readonly tabState = inject(TabStateService);
 
-  // Private backing fields. Public-facing readonly views below carry @deprecated tags
-  // so external consumers see the warning while internal mirrors don't fire on every
-  // self-reference. Phase 9 removes both the backing fields and their public views.
   private readonly _profiles = signal<ConnectionProfile[]>([]);
-  private readonly _activeConnectionId = signal<string | null>(null);
   private readonly _connecting = signal(false);
-  private readonly _databases = signal<DatabaseInfo[]>([]);
   private readonly _loadingDatabases = signal(false);
-  private readonly _selectedDatabase = signal<string | null>(null);
-  private readonly _databaseCache = new Map<string, DatabaseInfo[]>();
 
   // Multi-connection state. Authoritative answer to "what is connected" and the
   // per-id resources that track each connection's lifecycle.
@@ -55,23 +39,9 @@ export class ConnectionStateService implements OnDestroy {
   private static readonly HEARTBEAT_MAX_CONSECUTIVE_FAILURES = 3;
 
   readonly profiles = this._profiles.asReadonly();
-  /** @deprecated Use `focusedConnectionId` instead. Removed in Phase 9. */
-  readonly activeConnectionId = this._activeConnectionId.asReadonly();
   readonly connecting = this._connecting.asReadonly();
-  /** @deprecated Use `databasesFor(focusedConnectionId())` instead. Removed in Phase 9. */
-  readonly databases = this._databases.asReadonly();
   readonly loadingDatabases = this._loadingDatabases.asReadonly();
-  /** @deprecated Use `selectedDatabaseFor(focusedConnectionId())` instead. Removed in Phase 9. */
-  readonly selectedDatabase = this._selectedDatabase.asReadonly();
-  /** @deprecated Use `healthFor(focusedConnectionId())` instead. Removed in Phase 9. */
-  readonly connectionHealthy = computed(() => this.healthFor(this.focusedConnectionId()));
   readonly connectedProfileIds = this._connectedProfileIds.asReadonly();
-
-  /** @deprecated Use `profileFor(focusedConnectionId())` instead. Removed in Phase 9. */
-  readonly activeProfile = computed(() => {
-    const id = this._activeConnectionId();
-    return this._profiles().find(p => p.id === id) ?? null;
-  });
 
   readonly hasProfiles = computed(() => this._profiles().length > 0);
 
@@ -95,13 +65,7 @@ export class ConnectionStateService implements OnDestroy {
   readonly profiles$ = toObservable(this.profiles);
   readonly isConnected$ = toObservable(this.hasAnyConnection);
 
-  /** @deprecated No-arg form removed in Phase 9. Prefer `hasAnyConnection()`. */
-  isConnected(): boolean;
-  isConnected(connectionId: string): boolean;
-  isConnected(connectionId?: string): boolean {
-    if (connectionId === undefined) {
-      return this.hasAnyConnection();
-    }
+  isConnected(connectionId: string): boolean {
     return this._connectedProfileIds().has(connectionId);
   }
 
@@ -208,15 +172,11 @@ export class ConnectionStateService implements OnDestroy {
 
     try {
       this._connecting.set(true);
-      // Old singleton-style clear — kept until consumers migrate (Phases 4-5).
-      this._databases.set([]);
-      this._selectedDatabase.set(null);
       await firstValueFrom(this.ipc.connect(profileId));
-      this._activeConnectionId.set(profileId);
       this.addConnectedProfileId(profileId);
       this.setHealth(profileId, true);
       this.notification.success(`Connected to ${profile.name}`);
-      await this.loadDatabases();
+      await this.loadDatabases(profileId);
       this.saveState();
       this.startHeartbeat(profileId);
       return true;
@@ -230,7 +190,7 @@ export class ConnectionStateService implements OnDestroy {
   }
 
   // Disconnect the connection identified by `connectionId`. No default — calling
-  // bare `disconnect()` is now a TypeScript compile error (spec scenario:
+  // bare `disconnect()` is a TypeScript compile error (spec scenario:
   // "Calling disconnect without an argument is a type error"). Other open
   // connections — heartbeats, caches, server nodes — are untouched.
   async disconnect(connectionId: string): Promise<void> {
@@ -242,29 +202,15 @@ export class ConnectionStateService implements OnDestroy {
       console.error('Error disconnecting:', error);
     }
 
-    // Legacy globals point at the focused connection. Clear them only when
-    // the disconnected id WAS the focused one — disconnecting a non-focused
-    // server must leave the focused server's globals intact.
-    if (this._activeConnectionId() === connectionId) {
-      this._activeConnectionId.set(null);
-      this._databases.set([]);
-      this._selectedDatabase.set(null);
-    }
-
     this.cleanupConnectionState(connectionId);
     this.notification.info('Disconnected');
     this.saveState();
   }
 
-  async loadDatabases(): Promise<void> {
-    const connectionId = this._activeConnectionId();
-    if (!connectionId) return;
-
+  async loadDatabases(connectionId: string): Promise<void> {
     try {
       this._loadingDatabases.set(true);
       const databases = await firstValueFrom(this.ipc.listDatabases(connectionId));
-      this._databases.set(databases);
-      this._databaseCache.set(connectionId, databases);
       this.setDatabasesFor(connectionId, databases);
     } catch (error) {
       this.notification.error('Failed to load databases');
@@ -276,29 +222,23 @@ export class ConnectionStateService implements OnDestroy {
 
   /**
    * Get databases for any connection (cached, fetched on demand).
-   * Used by per-tab database selectors that may reference non-active connections.
+   * Used by per-tab database selectors that may reference non-focused connections.
    */
   async getDatabasesForConnection(connectionId: string): Promise<DatabaseInfo[]> {
-    const cached = this._databaseCache.get(connectionId);
+    const cached = this._databasesByConnection().get(connectionId);
     if (cached) return cached;
 
     const databases = await firstValueFrom(this.ipc.listDatabases(connectionId));
-    this._databaseCache.set(connectionId, databases);
     this.setDatabasesFor(connectionId, databases);
     return databases;
   }
 
   clearDatabaseCache(connectionId: string): void {
-    this._databaseCache.delete(connectionId);
     this.deleteDatabasesFor(connectionId);
   }
 
-  selectDatabase(name: string | null): void {
-    this._selectedDatabase.set(name);
-    const focusId = this._activeConnectionId();
-    if (focusId) {
-      this.setSelectedDatabaseFor(focusId, name);
-    }
+  selectDatabase(connectionId: string, name: string | null): void {
+    this.setSelectedDatabaseFor(connectionId, name);
     this.saveState();
   }
 
@@ -330,7 +270,6 @@ export class ConnectionStateService implements OnDestroy {
       }
 
       await this.reconnectProfiles(idsToRestore);
-      this.restoreLastSelectedDatabase(state.lastDatabase);
     } catch (error) {
       console.error('Failed to restore connection state:', error);
       this.notification.warning('Could not restore previous connections');
@@ -378,17 +317,6 @@ export class ConnectionStateService implements OnDestroy {
       if (r.status === 'rejected') {
         console.error('Failed to restore connection:', r.reason);
       }
-    }
-  }
-
-  // Best-effort restore of the legacy single-connection database selection.
-  // Multi-database-per-tab will replace this in a follow-up; for now we
-  // restore the last-selected database if it exists in the focused
-  // connection's database list.
-  private restoreLastSelectedDatabase(lastDatabase: string | null): void {
-    if (!lastDatabase) return;
-    if (this._databases().some(db => db.name === lastDatabase)) {
-      this.selectDatabase(lastDatabase);
     }
   }
 
@@ -510,10 +438,9 @@ export class ConnectionStateService implements OnDestroy {
   }
 
   /**
-   * Save the set of currently-connected profile ids and the last-selected
-   * database. Stops writing the legacy `lastConnectionId` key — once the
-   * forward-migration runs (on first launch with the new keys) the legacy
-   * key is read but never refreshed.
+   * Persist the set of currently-connected profile ids. Per-tab `(connectionId,
+   * databaseName)` is persisted independently by TabStateService; the legacy
+   * `lastDatabase` global key is no longer written here (Phase 9 removal).
    */
   async saveState(): Promise<void> {
     if (!this.ipc.isAvailable) return;
@@ -521,7 +448,6 @@ export class ConnectionStateService implements OnDestroy {
     try {
       const stateUpdate: Partial<AppState> = {
         lastConnectedProfileIds: Array.from(this._connectedProfileIds()),
-        lastDatabase: this._selectedDatabase(),
       };
       await firstValueFrom(this.ipc.setAppState(stateUpdate));
     } catch (error) {

@@ -331,11 +331,13 @@ export class ChatStateService implements OnDestroy {
         }
         break;
       }
-      case 'navigate-database':
-        if (params['database']) {
-          this.connectionState.selectDatabase(params['database'] as string);
+      case 'navigate-database': {
+        const focused = this.connectionState.focusedConnectionId();
+        if (params['database'] && focused) {
+          this.connectionState.selectDatabase(focused, params['database'] as string);
         }
         break;
+      }
       case 'open-settings':
       case 'open-create-db-dialog':
       case 'open-backup-dialog':
