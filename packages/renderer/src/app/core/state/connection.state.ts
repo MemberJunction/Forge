@@ -306,44 +306,89 @@ export class ConnectionStateService implements OnDestroy {
     return this._profiles().find(p => p.id === id);
   }
 
+  // Hard cap on how many profiles we will attempt to reconnect on launch.
+  // 20 is well above any realistic user count; the cap is a CLAUDE.md
+  // "bound every loop" guard against pathological persisted state. If a user
+  // legitimately needs more, raise this — but it likely indicates a bug.
+  private static readonly MAX_RESTORE_CONNECTIONS = 20;
+
   /**
-   * Initialize state from saved app state
-   * Should be called on app startup
+   * Initialize state from saved app state. Called on app startup.
+   * Forward-migrates the legacy `lastConnectionId` to `lastConnectedProfileIds`
+   * on first launch after the multi-connection upgrade.
    */
   async restoreState(): Promise<void> {
     if (!this.ipc.isAvailable) return;
 
     try {
       const state = await firstValueFrom(this.ipc.getAppState());
+      const idsToRestore = this.resolveProfileIdsToRestore(state);
+      if (idsToRestore.length === 0) return;
 
-      // Restore connection if there was one
-      if (state.lastConnectionId) {
-        // First ensure profiles are loaded
-        if (this._profiles().length === 0) {
-          await this.loadProfiles();
-        }
-
-        // Check if the profile still exists
-        const profile = this._profiles().find(p => p.id === state.lastConnectionId);
-        if (profile) {
-          const connected = await this.connect(state.lastConnectionId);
-          if (connected) {
-            // Add server node to explorer and expand it
-            this.explorerState.addServerNode(state.lastConnectionId, profile.name);
-            this.explorerState.expandNode(`server-${state.lastConnectionId}`);
-
-            // Select the last database if it exists
-            if (state.lastDatabase) {
-              if (this._databases().some(db => db.name === state.lastDatabase)) {
-                this.selectDatabase(state.lastDatabase);
-              }
-            }
-          }
-        }
+      if (this._profiles().length === 0) {
+        await this.loadProfiles();
       }
+
+      await this.reconnectProfiles(idsToRestore);
+      this.restoreLastSelectedDatabase(state.lastDatabase);
     } catch (error) {
       console.error('Failed to restore connection state:', error);
-      this.notification.warning('Could not restore previous connection');
+      this.notification.warning('Could not restore previous connections');
+    }
+  }
+
+  // Prefer the new key. If it's absent (legacy state from before the upgrade)
+  // and the deprecated single-id key is set, treat it as a one-element list.
+  // Cap the result so a corrupted-or-malicious persisted state cannot trigger
+  // an unbounded reconnect loop.
+  private resolveProfileIdsToRestore(state: AppState): string[] {
+    const fromNewKey = state.lastConnectedProfileIds ?? [];
+    if (fromNewKey.length > 0) {
+      return fromNewKey.slice(0, ConnectionStateService.MAX_RESTORE_CONNECTIONS);
+    }
+    const legacyId = this.readLegacyConnectionId(state);
+    return legacyId ? [legacyId] : [];
+  }
+
+  // Single-purpose accessor for the legacy `lastConnectionId` field. Localised
+  // here so the migration read appears in exactly one place — this is the only
+  // path that reads the legacy single-connection persistence key, and it exists
+  // only for forward-migration on first launch after the multi-connection upgrade.
+  private readLegacyConnectionId(state: AppState): string | null {
+    return state.lastConnectionId ?? null;
+  }
+
+  // Reconnect each profile independently — Promise.allSettled so a single
+  // failed reconnect doesn't block the others. Each successful connect adds
+  // its server node to the explorer; failures surface via the notification
+  // path (connect() already handles its own error toast).
+  private async reconnectProfiles(profileIds: string[]): Promise<void> {
+    const profiles = this._profiles();
+    const tasks = profileIds.map(async id => {
+      const profile = profiles.find(p => p.id === id);
+      if (!profile) return { id, ok: false, reason: 'profile-missing' as const };
+      const connected = await this.connect(id);
+      if (!connected) return { id, ok: false, reason: 'connect-failed' as const };
+      this.explorerState.addServerNode(id, profile.name);
+      this.explorerState.expandNode(`server-${id}`);
+      return { id, ok: true as const };
+    });
+    const results = await Promise.allSettled(tasks);
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        console.error('Failed to restore connection:', r.reason);
+      }
+    }
+  }
+
+  // Best-effort restore of the legacy single-connection database selection.
+  // Multi-database-per-tab will replace this in a follow-up; for now we
+  // restore the last-selected database if it exists in the focused
+  // connection's database list.
+  private restoreLastSelectedDatabase(lastDatabase: string | null): void {
+    if (!lastDatabase) return;
+    if (this._databases().some(db => db.name === lastDatabase)) {
+      this.selectDatabase(lastDatabase);
     }
   }
 
@@ -465,14 +510,17 @@ export class ConnectionStateService implements OnDestroy {
   }
 
   /**
-   * Save current connection state
+   * Save the set of currently-connected profile ids and the last-selected
+   * database. Stops writing the legacy `lastConnectionId` key — once the
+   * forward-migration runs (on first launch with the new keys) the legacy
+   * key is read but never refreshed.
    */
   async saveState(): Promise<void> {
     if (!this.ipc.isAvailable) return;
 
     try {
       const stateUpdate: Partial<AppState> = {
-        lastConnectionId: this._activeConnectionId(),
+        lastConnectedProfileIds: Array.from(this._connectedProfileIds()),
         lastDatabase: this._selectedDatabase(),
       };
       await firstValueFrom(this.ipc.setAppState(stateUpdate));

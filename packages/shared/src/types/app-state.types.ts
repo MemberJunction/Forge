@@ -17,7 +17,20 @@ export interface TabState {
 }
 
 export interface AppState {
-  lastConnectionId: string | null;
+  /**
+   * Legacy single-connection persistence key. Replaced by
+   * `lastConnectedProfileIds` in the multi-connection-first-class change.
+   * Read only on first launch after the upgrade, for forward-migration:
+   * if `lastConnectedProfileIds` is absent and this is set, the renderer
+   * treats it as a one-element array and writes the new key on the way
+   * through. No new code writes to this field.
+   */
+  lastConnectionId?: string | null;
+  /**
+   * Profile ids that were connected when the app was last closed. Restored
+   * independently on launch; failures for one profile do not block others.
+   */
+  lastConnectedProfileIds: string[];
   lastDatabase: string | null;
   editorHeightPercent: number;
   sidebarWidth: number;
