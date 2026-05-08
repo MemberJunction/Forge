@@ -2076,22 +2076,14 @@ ORDER BY __mj_CreatedAt DESC`;
           this.connectionState.selectDatabase(connectionId, '');
         }
       } else {
-        const errorMsg = result?.error || 'Failed to delete database';
-        // Self-heal: if the server says the database doesn't exist, the
-        // sidebar is stale (likely from a previous restore that reported
-        // success but didn't actually create the db). Drop the entry
-        // from the local view so the user doesn't keep seeing a phantom.
-        if (/does not exist|doesn't exist/i.test(errorMsg)) {
-          this.notification.info(
-            `Database "${databaseName}" wasn't on the server — removed from view.`
-          );
-          this.connectionState.removeDatabaseLocal(connectionId, databaseName);
-          this.explorerState.removeDatabaseNodeLocal(connectionId, databaseName);
-        } else {
-          this.notification.error(errorMsg);
-        }
-        // Either way, re-sync from the server so we're not stuck on a
-        // divergent view.
+        // Don't second-guess the error message. Surface it as-is and
+        // refetch the list from the server — listDatabases is the
+        // authoritative answer for "does this db exist", not the error
+        // string of the failed DROP. If dd truly is gone, the refetch
+        // removes it from the view; if dd exists and the DROP failed
+        // for some other reason, the view stays accurate and the error
+        // toast tells the user what actually went wrong.
+        this.notification.error(result?.error || 'Failed to delete database');
         await this.connectionState.loadDatabases(connectionId);
         const serverNode = this.explorerState
           .rootNodes()
