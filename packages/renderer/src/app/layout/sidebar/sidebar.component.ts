@@ -2076,9 +2076,22 @@ ORDER BY __mj_CreatedAt DESC`;
           this.connectionState.selectDatabase(connectionId, '');
         }
       } else {
-        this.notification.error(result?.error || 'Failed to delete database');
-        // Failure path: re-sync from the server in case our optimistic
-        // local view is now wrong.
+        const errorMsg = result?.error || 'Failed to delete database';
+        // Self-heal: if the server says the database doesn't exist, the
+        // sidebar is stale (likely from a previous restore that reported
+        // success but didn't actually create the db). Drop the entry
+        // from the local view so the user doesn't keep seeing a phantom.
+        if (/does not exist|doesn't exist/i.test(errorMsg)) {
+          this.notification.info(
+            `Database "${databaseName}" wasn't on the server — removed from view.`
+          );
+          this.connectionState.removeDatabaseLocal(connectionId, databaseName);
+          this.explorerState.removeDatabaseNodeLocal(connectionId, databaseName);
+        } else {
+          this.notification.error(errorMsg);
+        }
+        // Either way, re-sync from the server so we're not stuck on a
+        // divergent view.
         await this.connectionState.loadDatabases(connectionId);
         const serverNode = this.explorerState
           .rootNodes()

@@ -354,13 +354,30 @@ export class MenuService implements OnDestroy {
   }
 
   private async refresh(): Promise<void> {
-    // Cmd+R / Edit > Refresh: anchor on the most-recently-used connection
+    // Cmd+R / Edit > Refresh anchors on the most-recently-used connection
     // so the menu works even when there's no focused query tab (welcome
     // tab active, no tabs at all, etc.) — same anchor the sidebar's
     // own Refresh button uses.
+    //
+    // Refreshes three things, in order, since each can be stale
+    // independently:
+    //   1. The per-connection database list (drives the database picker
+    //      and is the source of truth for "what databases exist").
+    //   2. The server node's children in the explorer tree (the visible
+    //      database list under the server). Without this, a stale local
+    //      mutation can persist in the tree even after the picker has
+    //      already corrected itself.
+    //   3. The currently-selected node, if any (refreshes whatever sub-
+    //      tree the user was looking at — table list, schema, etc.).
     const connectionId = this.connectionState.mostRecentConnectionId();
     if (connectionId) {
       await this.connectionState.loadDatabases(connectionId);
+      const serverNode = this.explorerState
+        .rootNodes()
+        .find(n => n.type === 'server' && n.connectionId === connectionId);
+      if (serverNode) {
+        await this.explorerState.refreshNode(serverNode.id);
+      }
     }
     const selectedNode = this.explorerState.selectedNodeId();
     if (selectedNode) {
