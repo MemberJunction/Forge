@@ -7,6 +7,7 @@
 
 import { spawn } from 'child_process';
 import { BrowserWindow } from 'electron';
+import { Client as PgClient } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   BackupProgress,
@@ -116,8 +117,19 @@ export class PgBackupService extends BaseSingleton {
     const env = { ...process.env };
     if (password) env.PGPASSWORD = password;
 
+    // Connection config for the post-restore verify step.
+    const verifyConfig = {
+      host: profile.server,
+      port: profile.port,
+      user: profile.username || 'postgres',
+      password: password ?? undefined,
+    };
+
     // Fire and forget — run in background, report via IPC events
-    this.runProcess(operationId, 'pg_restore', args, env, operation, 'restore');
+    this.runProcess(operationId, 'pg_restore', args, env, operation, 'restore', {
+      targetDb,
+      verifyConfig,
+    });
 
     return operationId;
   }
@@ -131,7 +143,11 @@ export class PgBackupService extends BaseSingleton {
     args: string[],
     env: NodeJS.ProcessEnv,
     operation: PgBackupOperation,
-    type: 'backup' | 'restore'
+    type: 'backup' | 'restore',
+    verify?: {
+      targetDb: string;
+      verifyConfig: { host: string; port: number; user: string; password?: string };
+    }
   ): void {
     const proc = spawn(command, args, { env });
     operation.pid = proc.pid;
@@ -144,24 +160,69 @@ export class PgBackupService extends BaseSingleton {
       this.sendProgress(operationId, type, msg.trim());
     });
 
+    const finishWithVerify = async (claimedSuccess: boolean): Promise<void> => {
+      if (!claimedSuccess || !verify) {
+        if (claimedSuccess) {
+          log.info(`${command} completed (${operationId})`);
+          this.sendComplete(operationId, type, true);
+        }
+        return;
+      }
+      // pg_restore is generous about exit codes (warnings vs errors blur)
+      // and we never pass --create — so a missing target db, a wrong
+      // host, or a permission gap can all leave the dump's statements
+      // un-applied while the CLI still reports a "successful with
+      // warnings" path. Pin success to "the target database is actually
+      // visible in pg_database after the dust settles."
+      try {
+        const exists = await this.verifyDatabaseExists(verify.targetDb, verify.verifyConfig);
+        if (exists) {
+          log.info(`${command} completed successfully → ${verify.targetDb} (${operationId})`);
+          this.sendComplete(operationId, type, true);
+        } else {
+          const errMsg =
+            `pg_restore exited cleanly but target database "${verify.targetDb}" was not found. ` +
+            `Likely causes: target db doesn't exist on the server (pg_restore won't create one without --create), ` +
+            `connecting user lacks privilege, or the dump is empty/corrupt. pg_restore stderr: ${stderr.slice(-500) || '(none)'}`;
+          log.error(errMsg);
+          this.sendComplete(operationId, type, false, errMsg);
+        }
+      } catch (err) {
+        const errMsg = `pg_restore exited cleanly but post-restore verification failed: ${(err as Error).message}`;
+        log.error(errMsg);
+        this.sendComplete(operationId, type, false, errMsg);
+      }
+    };
+
     proc.on('close', code => {
       this.activeOperations.delete(operationId);
       if (operation.cancelled) {
         this.sendComplete(operationId, type, false, `${command} cancelled`);
-      } else if (code === 0) {
-        log.info(`${command} completed successfully (${operationId})`);
-        this.sendComplete(operationId, type, true);
-      } else {
-        // pg_restore returns non-zero for warnings too; check stderr
-        if (command === 'pg_restore' && !stderr.includes('ERROR:')) {
-          log.info(`${command} completed with warnings (${operationId})`);
-          this.sendComplete(operationId, type, true);
-        } else {
-          const errMsg = `${command} failed with exit code ${code}: ${stderr.slice(-500)}`;
-          log.error(errMsg);
-          this.sendComplete(operationId, type, false, errMsg);
-        }
+        return;
       }
+      if (code === 0) {
+        // Even on a clean exit pg_restore can have done nothing useful
+        // (empty dump, --create missing, warnings-only path). Verify if
+        // we have a target.
+        void finishWithVerify(true);
+        return;
+      }
+      // Non-zero exit. pg_restore returns non-zero for warnings too —
+      // historically we treated stderr-without-"ERROR:" as warnings.
+      // That regex misses FATAL: messages (e.g. "FATAL: database X does
+      // not exist" from a missing target), so widen the failure check.
+      const looksLikeRealFailure =
+        command !== 'pg_restore' ||
+        /\b(ERROR|FATAL|fatal):/i.test(stderr) ||
+        /pg_restore:\s*error:/i.test(stderr);
+      if (!looksLikeRealFailure) {
+        log.info(`${command} completed with warnings (${operationId})`);
+        void finishWithVerify(true);
+        return;
+      }
+      const errMsg = `${command} failed with exit code ${code}: ${stderr.slice(-500)}`;
+      log.error(errMsg);
+      this.sendComplete(operationId, type, false, errMsg);
     });
 
     proc.on('error', err => {
@@ -207,6 +268,32 @@ export class PgBackupService extends BaseSingleton {
       log.info(`Shutdown: stopped PG ${op.type} operation ${id}`);
     }
     this.activeOperations.clear();
+  }
+
+  /**
+   * Verify a database exists by querying pg_database on a fresh connection.
+   * Used by the restore flow to catch the false-positive case where
+   * pg_restore exits cleanly but the target database wasn't actually
+   * present (empty dump, missing target, no --create flag, etc.).
+   */
+  private async verifyDatabaseExists(
+    name: string,
+    config: { host: string; port: number; user: string; password?: string }
+  ): Promise<boolean> {
+    const client = new PgClient({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: 'postgres', // verify connects to the management db
+    });
+    await client.connect();
+    try {
+      const r = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+      return r.rowCount === 1;
+    } finally {
+      await client.end();
+    }
   }
 
   private sendProgress(operationId: string, type: 'backup' | 'restore', message: string): void {

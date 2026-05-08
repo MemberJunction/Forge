@@ -70,8 +70,8 @@ export class QueryHistoryService {
    * Open a history entry in a new query tab
    */
   openInNewTab(entry: QueryHistoryEntry): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = entry.database || this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = entry.database || this.connectionState.selectedDatabaseFor(connectionId);
 
     if (!connectionId) {
       this.notification.warning('No active connection');
@@ -86,8 +86,8 @@ export class QueryHistoryService {
    * Open a history entry in a new tab and execute immediately
    */
   executeFromHistory(entry: QueryHistoryEntry): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = entry.database || this.connectionState.selectedDatabase();
+    const connectionId = this.connectionState.focusedConnectionId();
+    const database = entry.database || this.connectionState.selectedDatabaseFor(connectionId);
 
     if (!connectionId) {
       this.notification.warning('No active connection');

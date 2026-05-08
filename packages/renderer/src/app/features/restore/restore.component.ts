@@ -513,7 +513,8 @@ export class RestoreComponent implements OnInit, OnDestroy {
       if (p.status === 'completed') {
         this.restoring.set(false);
         this.notification.success('Restore completed successfully');
-        this.connectionState.loadDatabases();
+        const focusId = this.connectionState.focusedConnectionId();
+        if (focusId) this.connectionState.loadDatabases(focusId);
       } else if (p.status === 'failed') {
         this.restoring.set(false);
         this.notification.error(p.error || 'Restore failed');
@@ -563,7 +564,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
   }
 
   async loadBackupInfo(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId || !this.formData.backupPath) return;
 
     this.loadingFiles.set(true);
@@ -627,7 +628,7 @@ export class RestoreComponent implements OnInit, OnDestroy {
   }
 
   async startRestore(): Promise<void> {
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.focusedConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;

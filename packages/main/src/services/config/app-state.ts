@@ -8,7 +8,7 @@ import { BaseSingleton } from '../../utils/singleton';
 import type { AppState, TabState, LayoutConfig } from '@mj-forge/shared';
 
 const DEFAULT_APP_STATE: AppState = {
-  lastConnectionId: null,
+  lastConnectedProfileIds: [],
   lastDatabase: null,
   editorHeightPercent: 50,
   sidebarWidth: 280,
@@ -49,17 +49,27 @@ export class AppStateStore extends BaseSingleton {
   }
 
   /**
-   * Get last connection ID
+   * Returns the legacy single-connection key from disk if present. Used only
+   * for forward-migration during the first launch after the multi-connection
+   * upgrade — `getLastConnectedProfileIds()` is the supported accessor now.
    */
   getLastConnectionId(): string | null {
-    return this.getState().lastConnectionId;
+    return this.getState().lastConnectionId ?? null;
   }
 
   /**
-   * Set last connection ID
+   * Get the list of profile ids that were connected when the app was last
+   * closed. Empty array if never set.
    */
-  setLastConnectionId(connectionId: string | null): void {
-    this.setState({ lastConnectionId: connectionId });
+  getLastConnectedProfileIds(): string[] {
+    return this.getState().lastConnectedProfileIds;
+  }
+
+  /**
+   * Set the list of profile ids that are currently connected.
+   */
+  setLastConnectedProfileIds(connectionIds: string[]): void {
+    this.setState({ lastConnectedProfileIds: connectionIds });
   }
 
   /**

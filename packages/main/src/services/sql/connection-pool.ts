@@ -14,6 +14,7 @@ import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
 import { ConnectionProfilesStore } from '../config/connection-profiles';
 import { SshTunnelManager, type SshCredentials } from '../ssh/ssh-tunnel-manager';
+import { splitTopLevelStatements } from './sql-statement-splitter';
 import { getDialect, type SQLDialect } from './dialect';
 
 const log = createLogger('PoolManager');
@@ -788,7 +789,17 @@ export class ConnectionPoolManager extends BaseSingleton {
       const pool = await this.getPgPool(profileId, database);
       const client = await pool.connect();
       try {
-        await client.query(sql);
+        // Postgres' simple query protocol wraps a multi-statement string
+        // in a single implicit transaction, but DROP DATABASE / CREATE
+        // DATABASE / a few other commands cannot run inside a transaction
+        // block. The dialect emits multi-statement DDL for "kick connections
+        // then DROP DATABASE" and "kick connections then ALTER DATABASE
+        // RENAME", so we split on top-level ; and run each statement as its
+        // own client.query() call — every individual statement is then its
+        // own auto-commit transaction.
+        for (const statement of splitTopLevelStatements(sql)) {
+          await client.query(statement);
+        }
       } finally {
         client.release();
       }

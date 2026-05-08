@@ -33,22 +33,18 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
   template: `
     <div class="status-bar-container">
       <div class="status-left">
-        @if (connectionState.isConnected()) {
+        @if (connectionState.hasAnyConnection()) {
           <div
             class="status-item"
-            [class.connected]="connectionState.connectionHealthy()"
-            [class.unhealthy]="!connectionState.connectionHealthy()"
+            [class.connected]="focusedHealthy()"
+            [class.unhealthy]="!focusedHealthy()"
             [matTooltip]="
-              connectionState.connectionHealthy()
-                ? 'Connected'
-                : 'Connection lost — attempting to reconnect...'
+              focusedHealthy() ? 'Connected' : 'Connection lost — attempting to reconnect...'
             "
           >
-            <mat-icon>{{
-              connectionState.connectionHealthy() ? 'cloud_done' : 'cloud_off'
-            }}</mat-icon>
+            <mat-icon>{{ focusedHealthy() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
             <span>{{ displayedProfile()?.name }}</span>
-            @if (!connectionState.connectionHealthy()) {
+            @if (!focusedHealthy()) {
               <mat-icon class="health-warning spinning">sync</mat-icon>
             }
           </div>
@@ -402,22 +398,27 @@ export class StatusBarComponent implements OnInit, OnDestroy {
   readonly cursorLine = signal(0);
   readonly cursorColumn = signal(0);
 
-  /** Show the focused tab's connection when available, otherwise the global active connection. */
-  readonly displayedProfile = computed(() => {
-    const activeTab = this.tabState.activeTab();
-    if (activeTab?.connectionId) {
-      return (
-        this.connectionState.getProfile(activeTab.connectionId) ??
-        this.connectionState.activeProfile()
-      );
-    }
-    return this.connectionState.activeProfile();
+  /** The profile shown in the status bar. Anchors to the focused query tab,
+   *  falling back to the most-recently-used connection so the status bar
+   *  stays informative right after a fresh connect (when no query tab exists
+   *  yet) and after the user switches to a non-query tab like welcome. */
+  readonly displayedProfile = computed(() =>
+    this.connectionState.profileFor(this.connectionState.mostRecentConnectionId())
+  );
+
+  /** The database shown in the status bar. Falls back like displayedProfile so
+   *  it doesn't blank out when the focused tab is non-query. */
+  readonly displayedDatabase = computed(() => {
+    const focused = this.connectionState.focusedDatabaseName();
+    if (focused) return focused;
+    return this.connectionState.selectedDatabaseFor(this.connectionState.mostRecentConnectionId());
   });
 
-  readonly displayedDatabase = computed(() => {
-    const activeTab = this.tabState.activeTab();
-    return activeTab?.databaseName ?? this.connectionState.selectedDatabase();
-  });
+  /** Health for the displayed connection. Treats "no connection at all" as
+   *  healthy so the icon doesn't flicker red between tab switches. */
+  readonly focusedHealthy = computed(() =>
+    this.connectionState.healthFor(this.connectionState.mostRecentConnectionId())
+  );
 
   readonly connectionColorBorder = computed(() => {
     const profile = this.displayedProfile();

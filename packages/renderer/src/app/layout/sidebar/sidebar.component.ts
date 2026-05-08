@@ -1,4 +1,4 @@
-import { Component, inject, ViewChild } from '@angular/core';
+import { Component, computed, inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
@@ -12,6 +12,7 @@ import { ConnectionStateService } from '../../core/state/connection.state';
 import { ExplorerStateService, TreeNode } from '../../core/state/explorer.state';
 import { TabStateService } from '../../core/state/tab.state';
 import { ContextMenuService, ContextMenuItem } from '../../core/services/context-menu.service';
+import { keyHint } from '../../core/utils/platform';
 import { ChatStateService } from '../../core/state/chat.state';
 import { NotificationService } from '../../core/services/notification.service';
 import { TablePropertiesService } from '../../core/services/table-properties.service';
@@ -78,41 +79,52 @@ import type { DatabaseEngine } from '@mj-forge/shared';
       @if (connectionState.hasProfiles()) {
         <div class="connection-selector">
           <button mat-button [matMenuTriggerFor]="connectionMenu" class="connection-button">
-            @if (getConnectionIconClass(connectionState.activeProfile())) {
+            @if (getConnectionIconClass(focusedProfile())) {
               <i
                 class="devicon-btn"
-                [ngClass]="getConnectionIconClass(connectionState.activeProfile())!"
-                [style.color]="connectionState.activeProfile()?.color"
+                [ngClass]="getConnectionIconClass(focusedProfile())!"
+                [style.color]="focusedProfile()?.color"
               ></i>
             } @else {
-              <mat-icon>{{ connectionState.isConnected() ? 'cloud_done' : 'cloud_off' }}</mat-icon>
+              <mat-icon>{{
+                connectionState.hasAnyConnection() ? 'cloud_done' : 'cloud_off'
+              }}</mat-icon>
             }
             <span class="connection-name">
-              {{ connectionState.activeProfile()?.name || 'Select Connection' }}
+              {{ focusedProfile()?.name || 'Select Connection' }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
           <mat-menu #connectionMenu="matMenu">
             @for (profile of connectionState.profiles(); track profile.id) {
-              <button
-                mat-menu-item
-                (click)="connectTo(profile.id)"
-                [class.active]="profile.id === connectionState.activeConnectionId()"
-              >
-                @if (profile.id === connectionState.activeConnectionId()) {
-                  <mat-icon>check</mat-icon>
-                } @else {
-                  <i
-                    class="devicon-menu"
-                    [ngClass]="getEngineIconClass(profile.engine)"
-                    [style.color]="profile.color"
-                  ></i>
-                }
-                <span>{{ profile.name }}</span>
-                <span class="engine-badge" *ngIf="profile.engine && profile.engine !== 'mssql'">{{
-                  profile.engine === 'postgresql' ? 'PG' : 'MY'
-                }}</span>
-              </button>
+              @if (connectionState.isConnected(profile.id)) {
+                <button
+                  mat-menu-item
+                  (click)="selectConnection(profile.id)"
+                  [class.active]="profile.id === connectionState.mostRecentConnectionId()"
+                  matTooltip="Switch focus to this connection"
+                >
+                  @if (profile.id === connectionState.mostRecentConnectionId()) {
+                    <mat-icon>check</mat-icon>
+                  } @else {
+                    <i
+                      class="devicon-menu"
+                      [ngClass]="getEngineIconClass(profile.engine)"
+                      [style.color]="profile.color"
+                    ></i>
+                  }
+                  <span>{{ profile.name }}</span>
+                </button>
+              } @else {
+                <button
+                  mat-menu-item
+                  (click)="connectTo(profile.id)"
+                  matTooltip="Open a connection to this server"
+                >
+                  <mat-icon>power</mat-icon>
+                  <span>Connect: {{ profile.name }}</span>
+                </button>
+              }
             }
             <mat-divider />
             <button mat-menu-item (click)="openConnectionDialog()">
@@ -123,12 +135,21 @@ import type { DatabaseEngine } from '@mj-forge/shared';
               <mat-icon>settings</mat-icon>
               <span>Manage Connections</span>
             </button>
+            <mat-divider />
+            <button
+              mat-menu-item
+              [disabled]="!connectionState.hasAnyConnection()"
+              (click)="refresh()"
+            >
+              <mat-icon>refresh</mat-icon>
+              <span>Refresh</span>
+            </button>
           </mat-menu>
         </div>
       }
 
       <!-- Database selector -->
-      @if (connectionState.isConnected()) {
+      @if (connectionState.hasAnyConnection()) {
         <div class="database-selector">
           <button
             mat-button
@@ -142,35 +163,33 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             } @else {
               <i
                 class="devicon-btn"
-                [ngClass]="getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')"
-                [style.color]="connectionState.activeProfile()?.color"
+                [ngClass]="getEngineIconClass(focusedProfile()?.engine || 'mssql')"
+                [style.color]="focusedProfile()?.color"
               ></i>
             }
             <span class="database-name">
               {{
                 connectionState.loadingDatabases()
                   ? 'Loading...'
-                  : connectionState.selectedDatabase() || 'Select Database'
+                  : focusedSelectedDatabase() || 'Select Database'
               }}
             </span>
             <mat-icon class="dropdown-icon">arrow_drop_down</mat-icon>
           </button>
           <mat-menu #databaseMenu="matMenu">
-            @for (db of connectionState.databases(); track db.name) {
+            @for (db of focusedDatabases(); track db.name) {
               <button
                 mat-menu-item
                 (click)="selectDatabase(db.name)"
-                [class.active]="db.name === connectionState.selectedDatabase()"
+                [class.active]="db.name === focusedSelectedDatabase()"
               >
-                @if (db.name === connectionState.selectedDatabase()) {
+                @if (db.name === focusedSelectedDatabase()) {
                   <mat-icon>check</mat-icon>
                 } @else {
                   <i
                     class="devicon-menu"
-                    [ngClass]="
-                      getEngineIconClass(connectionState.activeProfile()?.engine || 'mssql')
-                    "
-                    [style.color]="connectionState.activeProfile()?.color"
+                    [ngClass]="getEngineIconClass(focusedProfile()?.engine || 'mssql')"
+                    [style.color]="focusedProfile()?.color"
                   ></i>
                 }
                 <span>{{ db.name }}</span>
@@ -189,7 +208,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
 
       <!-- Explorer tree -->
       <div class="explorer-tree">
-        @if (!connectionState.isConnected()) {
+        @if (!explorerState.hasNodes()) {
           <div class="empty-state">
             <mat-icon>cloud_off</mat-icon>
             <p>No connection</p>
@@ -290,7 +309,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="New Query"
             aria-label="New Query"
             (click)="newQuery()"
-            [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
+            [disabled]="!connectionState.hasAnyConnection() || !focusedSelectedDatabase()"
           >
             <mat-icon>code</mat-icon>
           </button>
@@ -299,7 +318,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="Refresh"
             aria-label="Refresh Explorer"
             (click)="refresh()"
-            [disabled]="!connectionState.isConnected()"
+            [disabled]="!connectionState.hasAnyConnection()"
           >
             <mat-icon>refresh</mat-icon>
           </button>
@@ -308,7 +327,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="Backup Database"
             aria-label="Backup Database"
             (click)="openBackup()"
-            [disabled]="!connectionState.isConnected() || !connectionState.selectedDatabase()"
+            [disabled]="!connectionState.hasAnyConnection() || !focusedSelectedDatabase()"
           >
             <mat-icon>backup</mat-icon>
           </button>
@@ -317,7 +336,7 @@ import type { DatabaseEngine } from '@mj-forge/shared';
             matTooltip="Restore Database"
             aria-label="Restore Database"
             (click)="openRestore()"
-            [disabled]="!connectionState.isConnected()"
+            [disabled]="!connectionState.hasAnyConnection()"
           >
             <mat-icon>restore</mat-icon>
           </button>
@@ -645,9 +664,29 @@ export class SidebarComponent {
   private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
 
-  // State for pending database operations
+  // State for pending database operations. The delete/rename dialogs are
+  // async (open dialog, wait for confirm event), so we stash both the
+  // target database and the connection it lives on. Without the
+  // connectionId stash, onDeleteConfirmed() falls back to
+  // mostRecentConnectionId() — the focused query tab — which is wrong
+  // when the user right-clicked a database under a *different* server.
   private pendingDeleteDatabase: string | null = null;
+  private pendingDeleteConnectionId: string | null = null;
   private pendingRenameDatabase: string | null = null;
+
+  // Sidebar UI accessors anchor to the most-recently-used connection — the
+  // focused query tab's connection if one is focused, falling back to the
+  // last-touched connection (or most-recently-added if we have no history).
+  // mostRecentConnectionId() is null only when zero connections are open.
+  readonly focusedProfile = computed(() =>
+    this.connectionState.profileFor(this.connectionState.mostRecentConnectionId())
+  );
+  readonly focusedDatabases = computed(() =>
+    this.connectionState.databasesFor(this.connectionState.mostRecentConnectionId())
+  );
+  readonly focusedSelectedDatabase = computed(() =>
+    this.connectionState.selectedDatabaseFor(this.connectionState.mostRecentConnectionId())
+  );
 
   /** Get devicon CSS class for the connection host (cloud provider or docker) */
   getConnectionIconClass(profile?: { server?: string; isDocker?: boolean } | null): string | null {
@@ -685,7 +724,7 @@ export class SidebarComponent {
       const profile = this.connectionState.getProfile(connectionId);
       if (profile) return profile.engine;
     }
-    return this.connectionState.activeProfile()?.engine || 'mssql';
+    return this.focusedProfile()?.engine || 'mssql';
   }
 
   /** Quote an identifier appropriately for the database engine */
@@ -754,8 +793,33 @@ export class SidebarComponent {
     }
   }
 
+  /**
+   * Focus navigator for the sidebar connection dropdown. Highlights the
+   * matching server node in the tree (the multi-connection store) and, when
+   * the user has no query tab targeting this connection yet, opens a fresh
+   * one against the connection's last-used database. Per spec Decision 4
+   * this MUST NOT mutate connection state — focus follows the resulting
+   * tab activation, not a direct write to a global signal.
+   */
+  selectConnection(connectionId: string): void {
+    const serverNodeId = `server-${connectionId}`;
+    this.explorerState.expandNode(serverNodeId);
+    this.explorerState.selectNode(serverNodeId);
+
+    const hasTab = this.tabState.tabs().some(t => t.connectionId === connectionId);
+    if (hasTab) return;
+
+    const lastDb = this.connectionState.selectedDatabaseFor(connectionId);
+    if (!lastDb) return;
+    this.tabState.openQueryTab(connectionId, lastDb);
+    this.router.navigate(['/query']);
+  }
+
   selectDatabase(name: string): void {
-    this.connectionState.selectDatabase(name);
+    const focusId = this.connectionState.mostRecentConnectionId();
+    if (focusId) {
+      this.connectionState.selectDatabase(focusId, name);
+    }
   }
 
   onNodeClick(node: TreeNode): void {
@@ -808,34 +872,41 @@ export class SidebarComponent {
   }
 
   newQuery(): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const databaseName = this.connectionState.selectedDatabase();
-    if (connectionId && databaseName) {
-      this.tabState.openQueryTab(connectionId, databaseName);
-      this.router.navigate(['/query']);
-    }
+    const connectionId = this.connectionState.mostRecentConnectionId();
+    if (!connectionId) return;
+    const databaseName = this.connectionState.defaultDatabaseFor(connectionId);
+    if (!databaseName) return;
+    this.tabState.openQueryTab(connectionId, databaseName, undefined, false, false);
+    this.router.navigate(['/query']);
   }
 
   async refresh(): Promise<void> {
-    await this.connectionState.loadDatabases();
+    const focusId = this.connectionState.mostRecentConnectionId();
+    if (focusId) {
+      await this.connectionState.loadDatabases(focusId);
+    }
     const selectedNode = this.explorerState.selectedNodeId();
     if (selectedNode) {
       await this.explorerState.refreshNode(selectedNode);
     }
   }
 
-  /** Check if the active connection's engine supports a feature */
+  /** Check if the focused connection's engine supports a feature */
   engineSupports(feature: 'backupRestore' | 'serverFileBrowsing' | 'extendedProperties'): boolean {
-    const engine = this.connectionState.activeProfile()?.engine;
+    const engine = this.focusedProfile()?.engine;
     if (!engine || engine === 'mssql') return true; // MSSQL supports all
     // MySQL supports backup/restore via mysqldump CLI
     if (feature === 'backupRestore' && engine === 'mysql') return true;
     return false; // PG/MySQL don't support server file browsing or extended properties
   }
 
-  openBackup(databaseName?: string): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const dbName = databaseName || this.connectionState.selectedDatabase();
+  openBackup(databaseName?: string, overrideConnectionId?: string): void {
+    // Prefer the connectionId of the right-clicked node (when invoked
+    // from the database-context-menu) so backup targets *that* server.
+    // The mostRecent fallback is only correct for the toolbar button,
+    // which has no node context.
+    const connectionId = overrideConnectionId ?? this.connectionState.mostRecentConnectionId();
+    const dbName = databaseName || this.focusedSelectedDatabase();
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -852,7 +923,7 @@ export class SidebarComponent {
     const dialogData: BackupDialogData = {
       connectionId,
       databaseName: dbName,
-      engine: this.connectionState.activeProfile()?.engine,
+      engine: this.focusedProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(BackupDialogComponent, {
@@ -868,8 +939,11 @@ export class SidebarComponent {
     });
   }
 
-  openRestore(databaseName?: string): void {
-    const connectionId = this.connectionState.activeConnectionId();
+  openRestore(databaseName?: string, overrideConnectionId?: string): void {
+    // Server-node right-click can't rely on mostRecentConnectionId — the
+    // user might be acting on a *different* connection than the focused
+    // one. Honor an explicit override when supplied.
+    const connectionId = overrideConnectionId ?? this.connectionState.mostRecentConnectionId();
 
     if (!connectionId) {
       this.notification.error('No active connection');
@@ -881,7 +955,7 @@ export class SidebarComponent {
     const dialogData: RestoreDialogData = {
       connectionId,
       databaseName,
-      engine: this.connectionState.activeProfile()?.engine,
+      engine: this.focusedProfile()?.engine,
     };
 
     const dialogRef = this.dialog.open(RestoreDialogComponent, {
@@ -891,10 +965,18 @@ export class SidebarComponent {
     });
 
     dialogRef.afterClosed().subscribe(result => {
-      if (result?.success) {
-        // Refresh the database list after restore
-        this.connectionState.loadDatabases();
-        // Refresh explorer tree
+      if (result?.success && result?.database) {
+        // We know the target db exists post-restore — push it into the
+        // local database list and tree directly. Idempotent if the db
+        // was already there (overwrite-existing case).
+        this.connectionState.addDatabaseLocal(connectionId, {
+          name: result.database,
+          state: 'online',
+        });
+        this.explorerState.addDatabaseNodeLocal(connectionId, result.database);
+      } else if (result?.success) {
+        // Success but no target name — fall back to a refetch.
+        this.connectionState.loadDatabases(connectionId);
         const serverNode = this.explorerState
           .rootNodes()
           .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
@@ -974,24 +1056,63 @@ export class SidebarComponent {
       },
       { id: 'div1', label: '', divider: true },
       {
+        id: 'restore',
+        label: 'Restore Database...',
+        icon: 'restore',
+        // Restoring from a backup creates (or overwrites) a target
+        // database — so it makes sense at the server level, where the
+        // user hasn't picked a specific db yet, not just on existing dbs.
+        action: () => {
+          if (node.connectionId) {
+            this.openRestore(undefined, node.connectionId);
+          }
+        },
+      },
+      { id: 'div2', label: '', divider: true },
+      {
         id: 'refresh',
         label: 'Refresh',
         icon: 'refresh',
         action: () => this.explorerState.refreshNode(node.id),
       },
-      { id: 'div2', label: '', divider: true },
+      { id: 'div3', label: '', divider: true },
+      {
+        id: 'edit-connection',
+        label: 'Edit Connection...',
+        icon: 'edit',
+        action: () => {
+          if (node.connectionId) {
+            this.editConnection(node.connectionId);
+          }
+        },
+      },
       {
         id: 'disconnect',
         label: 'Disconnect',
         icon: 'power_off',
         action: async () => {
           if (node.connectionId) {
-            await this.connectionState.disconnect();
-            this.explorerState.removeServerNode(node.connectionId);
+            await this.connectionState.disconnect(node.connectionId);
           }
         },
       },
     ];
+  }
+
+  /**
+   * Open the connection dialog pre-populated with an existing profile so
+   * the user can fix typos / change creds without creating a duplicate.
+   * Reachable from the sidebar tree's server-node right-click menu and
+   * (eventually) any other "edit this connection" affordance.
+   */
+  editConnection(connectionId: string): void {
+    const profile = this.connectionState.getProfile(connectionId);
+    if (!profile) return;
+    this.dialog.open(ConnectionDialogComponent, {
+      data: { profile } as ConnectionDialogData,
+      width: '540px',
+      maxHeight: '90vh',
+    });
   }
 
   private getDatabaseContextMenu(node: TreeNode): ContextMenuItem[] {
@@ -1000,10 +1121,10 @@ export class SidebarComponent {
         id: 'new-query',
         label: 'New Query',
         icon: 'code',
-        shortcut: 'Ctrl+N',
+        shortcut: keyHint('N'),
         action: () => {
           if (node.connectionId && node.databaseName) {
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName);
             this.router.navigate(['/query']);
           }
@@ -1016,7 +1137,10 @@ export class SidebarComponent {
         icon: 'backup',
         action: () => {
           if (node.databaseName) {
-            this.openBackup(node.databaseName);
+            // Pass node.connectionId so backup runs against *this* server,
+            // not the most-recently-used connection. Same routing class as
+            // the Restore/Delete fixes.
+            this.openBackup(node.databaseName, node.connectionId);
           }
         },
       },
@@ -1025,7 +1149,13 @@ export class SidebarComponent {
         label: 'Restore Database...',
         icon: 'restore',
         action: () => {
-          this.openRestore(node.databaseName);
+          // Pass the node's connectionId so the restore targets *this*
+          // server, not whichever connection happens to be the most-
+          // recently-used. Without the explicit override, right-clicking
+          // a database under server A while the focused tab points at
+          // server B would silently route the restore to B and the
+          // resulting db would land on the wrong server.
+          this.openRestore(node.databaseName, node.connectionId);
         },
       },
       { id: 'div2', label: '', divider: true },
@@ -1061,8 +1191,8 @@ export class SidebarComponent {
           node.databaseName === 'model' ||
           node.databaseName === 'tempdb',
         action: () => {
-          if (node.databaseName) {
-            this.openDeleteDialog(node.databaseName);
+          if (node.databaseName && node.connectionId) {
+            this.openDeleteDialog(node.connectionId, node.databaseName);
           }
         },
       },
@@ -1092,7 +1222,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 1000, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
           }
@@ -1108,7 +1238,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 200, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
           }
@@ -1130,7 +1260,7 @@ export class SidebarComponent {
                 schema,
                 node.metadata.name
               );
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
               this.router.navigate(['/query']);
             } catch (err) {
@@ -1149,7 +1279,7 @@ export class SidebarComponent {
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = `SELECT * FROM ${tableRef}`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
           }
@@ -1170,7 +1300,7 @@ export class SidebarComponent {
                 schema,
                 node.metadata.name
               );
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
               this.router.navigate(['/query']);
             } catch (err) {
@@ -1188,7 +1318,7 @@ export class SidebarComponent {
           if (node.connectionId && node.databaseName && node.metadata) {
             const schema =
               node.metadata.schema || this.defaultSchema(this.getEngine(node.connectionId));
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openErdTab(
               node.connectionId,
               node.databaseName,
@@ -1240,7 +1370,7 @@ LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
 ORDER BY rc.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1268,7 +1398,7 @@ LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.BaseTable = '${tableName}' AND e.SchemaName = '${schema}'
 ORDER BY al.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1295,7 +1425,7 @@ ORDER BY al.CreatedAt DESC`;
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 1000, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql, true);
             this.router.navigate(['/query']);
           }
@@ -1311,7 +1441,7 @@ ORDER BY al.CreatedAt DESC`;
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = this.selectWithLimit(tableRef, 200, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             this.router.navigate(['/query']);
           }
@@ -1335,7 +1465,7 @@ ORDER BY al.CreatedAt DESC`;
                 'view'
               );
               const sql = result.definition || '-- View definition not available';
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get view definition');
@@ -1361,7 +1491,7 @@ ORDER BY al.CreatedAt DESC`;
               );
               let sql = result.definition || '-- View definition not available';
               sql = sql.replace(/CREATE\s+VIEW\s+/i, 'ALTER VIEW ');
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get view definition');
@@ -1379,7 +1509,7 @@ ORDER BY al.CreatedAt DESC`;
             const schema = node.metadata.schema || this.defaultSchema(engine);
             const tableRef = this.qualifiedTable(schema, node.metadata.name, engine);
             const sql = `SELECT * FROM ${tableRef}`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1431,7 +1561,7 @@ ORDER BY al.CreatedAt DESC`;
                 'function'
               );
               const sql = result.definition || '-- Function definition not available';
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get function definition');
@@ -1457,7 +1587,7 @@ ORDER BY al.CreatedAt DESC`;
               );
               let sql = result.definition || '-- Function definition not available';
               sql = sql.replace(/CREATE\s+FUNCTION\s+/i, 'ALTER FUNCTION ');
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get function definition');
@@ -1510,7 +1640,7 @@ ORDER BY al.CreatedAt DESC`;
                 : engine === 'postgresql'
                   ? `CALL ${procRef}()`
                   : `EXEC ${procRef}`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1533,7 +1663,7 @@ ORDER BY al.CreatedAt DESC`;
                 'procedure'
               );
               const sql = result.definition || '-- Procedure definition not available';
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get procedure definition');
@@ -1559,7 +1689,7 @@ ORDER BY al.CreatedAt DESC`;
               );
               let sql = result.definition || '-- Procedure definition not available';
               sql = sql.replace(/CREATE\s+(PROCEDURE|PROC)\s+/i, 'ALTER $1 ');
-              this.connectionState.selectDatabase(node.databaseName);
+              this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
               this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
             } catch (err) {
               this.notification.error('Failed to get procedure definition');
@@ -1607,7 +1737,7 @@ ORDER BY al.CreatedAt DESC`;
             const engine = this.getEngine(node.connectionId);
             const tableRef = this.qualifiedTable(node.schema, node.tableName, engine);
             const sql = this.selectWithLimit(tableRef, 1000, engine);
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1632,7 +1762,7 @@ LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
 ORDER BY rc.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1657,7 +1787,7 @@ LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 WHERE e.Name = '${node.metadata.name}'
 ORDER BY al.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1669,7 +1799,7 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'account_tree',
         action: () => {
           if (node.connectionId && node.databaseName && node.schema && node.tableName) {
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openErdTab(
               node.connectionId,
               node.databaseName,
@@ -1691,7 +1821,7 @@ ORDER BY al.CreatedAt DESC`;
         icon: 'code',
         action: () => {
           if (node.connectionId && node.databaseName && node.metadata?.definition) {
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(
               node.connectionId,
               node.databaseName,
@@ -1725,7 +1855,7 @@ FROM [__mj].[RecordChange] rc
 LEFT JOIN [__mj].[Entity] e ON rc.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON rc.UserID = u.ID
 ORDER BY rc.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1761,7 +1891,7 @@ LEFT JOIN [__mj].[AuditLogType] alt ON al.AuditLogTypeID = alt.ID
 LEFT JOIN [__mj].[Entity] e ON al.EntityID = e.ID
 LEFT JOIN [__mj].[User] u ON al.UserID = u.ID
 ORDER BY al.CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1794,7 +1924,7 @@ SELECT TOP 200
   Details
 FROM [__mj].[ErrorLog]
 ORDER BY __mj_CreatedAt DESC`;
-            this.connectionState.selectDatabase(node.databaseName);
+            this.connectionState.selectDatabase(node.connectionId!, node.databaseName);
             this.tabState.openQueryTab(node.connectionId, node.databaseName, sql);
           }
         },
@@ -1809,9 +1939,9 @@ ORDER BY __mj_CreatedAt DESC`;
   }
 
   // Database create/rename/delete dialog methods
-  /** Public wrapper – uses the active connection when called from the database dropdown menu */
+  /** Public wrapper – uses the focused connection when called from the database dropdown menu */
   openCreateDatabaseDialog(connectionId?: string): void {
-    const connId = connectionId || this.connectionState.activeConnectionId();
+    const connId = connectionId || this.connectionState.mostRecentConnectionId();
     if (!connId) {
       this.notification.error('No active connection');
       return;
@@ -1831,15 +1961,12 @@ ORDER BY __mj_CreatedAt DESC`;
 
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success && result.databaseName) {
-        // Refresh the database list
-        this.connectionState.loadDatabases();
-        // Refresh explorer tree
-        const serverNode = this.explorerState
-          .rootNodes()
-          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
-        if (serverNode) {
-          this.explorerState.refreshNode(serverNode.id);
-        }
+        // Successful create → push the new db into local state directly.
+        this.connectionState.addDatabaseLocal(connectionId, {
+          name: result.databaseName,
+          state: 'online',
+        });
+        this.explorerState.addDatabaseNodeLocal(connectionId, result.databaseName);
       }
     });
   }
@@ -1857,45 +1984,19 @@ ORDER BY __mj_CreatedAt DESC`;
 
     dialogRef.afterClosed().subscribe(result => {
       if (result?.success && result.newName) {
-        // Refresh the database list
-        this.connectionState.loadDatabases();
+        // Successful rename → mutate state directly.
+        this.connectionState.renameDatabaseLocal(connectionId, databaseName, result.newName);
+        this.explorerState.renameDatabaseNodeLocal(connectionId, databaseName, result.newName);
         // If the renamed database was selected, update selection
-        if (this.connectionState.selectedDatabase() === databaseName) {
-          this.connectionState.selectDatabase(result.newName);
-        }
-        // Refresh explorer tree
-        const serverNode = this.explorerState
-          .rootNodes()
-          .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
-        if (serverNode) {
-          this.explorerState.refreshNode(serverNode.id);
+        if (this.focusedSelectedDatabase() === databaseName) {
+          this.connectionState.selectDatabase(connectionId, result.newName);
         }
       }
     });
   }
 
-  private openRenameDialog(databaseName: string): void {
-    this.pendingRenameDatabase = databaseName;
-    this.renameDialog.open({
-      title: 'Rename Database',
-      message: `Enter a new name for the database "${databaseName}".`,
-      inputLabel: 'New Database Name',
-      inputValue: databaseName,
-      inputPlaceholder: 'Enter new database name',
-      confirmText: 'Rename',
-      validate: (value: string) => {
-        if (!value.trim()) return 'Database name is required';
-        if (value === databaseName) return 'New name must be different';
-        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
-          return 'Invalid database name. Use letters, numbers, and underscores only.';
-        }
-        if (value.length > 128) return 'Database name is too long (max 128 characters)';
-        return null;
-      },
-    });
-  }
-
-  private openDeleteDialog(databaseName: string): void {
+  private openDeleteDialog(connectionId: string, databaseName: string): void {
+    this.pendingDeleteConnectionId = connectionId;
     this.pendingDeleteDatabase = databaseName;
     this.deleteDialog.open({
       title: 'Delete Database',
@@ -1913,7 +2014,7 @@ ORDER BY __mj_CreatedAt DESC`;
 
     if (!oldName) return;
 
-    const connectionId = this.connectionState.activeConnectionId();
+    const connectionId = this.connectionState.mostRecentConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
@@ -1927,10 +2028,10 @@ ORDER BY __mj_CreatedAt DESC`;
       if (result?.success) {
         this.notification.success(`Database renamed to "${newName}"`);
         // Refresh the database list
-        await this.connectionState.loadDatabases();
+        await this.connectionState.loadDatabases(connectionId);
         // If the renamed database was selected, update selection
-        if (this.connectionState.selectedDatabase() === oldName) {
-          this.connectionState.selectDatabase(newName);
+        if (this.focusedSelectedDatabase() === oldName) {
+          this.connectionState.selectDatabase(connectionId, newName);
         }
         // Refresh explorer tree
         const serverNode = this.explorerState
@@ -1949,11 +2050,17 @@ ORDER BY __mj_CreatedAt DESC`;
 
   async onDeleteConfirmed(): Promise<void> {
     const databaseName = this.pendingDeleteDatabase;
+    const overrideConnectionId = this.pendingDeleteConnectionId;
     this.pendingDeleteDatabase = null;
+    this.pendingDeleteConnectionId = null;
 
     if (!databaseName) return;
 
-    const connectionId = this.connectionState.activeConnectionId();
+    // Prefer the connectionId stashed when the dialog was opened — that's
+    // the server the user actually right-clicked on. Fall back to the
+    // most-recent connection only if the call site didn't supply one
+    // (older entry points / future refactors).
+    const connectionId = overrideConnectionId ?? this.connectionState.mostRecentConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;
@@ -1966,21 +2073,29 @@ ORDER BY __mj_CreatedAt DESC`;
 
       if (result?.success) {
         this.notification.success(`Database "${databaseName}" deleted`);
-        // Refresh the database list
-        await this.connectionState.loadDatabases();
-        // If the deleted database was selected, clear selection
-        if (this.connectionState.selectedDatabase() === databaseName) {
-          this.connectionState.selectDatabase('');
+        // Successful delete → mutate state directly.
+        this.connectionState.removeDatabaseLocal(connectionId, databaseName);
+        this.explorerState.removeDatabaseNodeLocal(connectionId, databaseName);
+        // If the deleted database was selected, clear selection.
+        if (this.focusedSelectedDatabase() === databaseName) {
+          this.connectionState.selectDatabase(connectionId, '');
         }
-        // Refresh explorer tree
+      } else {
+        // Don't second-guess the error message. Surface it as-is and
+        // refetch the list from the server — listDatabases is the
+        // authoritative answer for "does this db exist", not the error
+        // string of the failed DROP. If dd truly is gone, the refetch
+        // removes it from the view; if dd exists and the DROP failed
+        // for some other reason, the view stays accurate and the error
+        // toast tells the user what actually went wrong.
+        this.notification.error(result?.error || 'Failed to delete database');
+        await this.connectionState.loadDatabases(connectionId);
         const serverNode = this.explorerState
           .rootNodes()
           .find((n: TreeNode) => n.type === 'server' && n.connectionId === connectionId);
         if (serverNode) {
           await this.explorerState.refreshNode(serverNode.id);
         }
-      } else {
-        this.notification.error(result?.error || 'Failed to delete database');
       }
     } catch (error) {
       this.notification.error(error instanceof Error ? error.message : 'Failed to delete database');

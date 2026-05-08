@@ -13,6 +13,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { SettingsService } from '../../../core/services/settings.service';
 import { AIStateService } from '../../../core/state/ai.state';
 import type { ThemePreference } from '@mj-forge/shared';
+import { keyHint } from '../../../core/utils/platform';
 
 @Component({
   selector: 'app-settings-panel',
@@ -292,8 +293,8 @@ import type { ThemePreference } from '@mj-forge/shared';
               <div class="setting-info">
                 <label>Copy Format</label>
                 <span class="setting-description">
-                  Format used by the inline Copy button (Ctrl+C). The Export menu always offers the
-                  full set.
+                  Format used by the inline Copy button ({{ copyKeyHint }}). The Export menu always
+                  offers the full set.
                 </span>
               </div>
               <mat-form-field appearance="outline" class="select-input">
@@ -856,6 +857,7 @@ export class SettingsPanelComponent implements OnInit, OnDestroy {
   readonly settingsService = inject(SettingsService);
   readonly aiState = inject(AIStateService);
   readonly settings = this.settingsService.settings;
+  readonly copyKeyHint = keyHint('C');
 
   // Track API key inputs per vendor
   readonly apiKeyInputs = signal<Record<string, string>>({});

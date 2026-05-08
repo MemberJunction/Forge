@@ -579,6 +579,12 @@ export class ErdComponent implements OnInit {
 
   readonly activeTab = this.tabState.activeTab;
 
+  // The ERD always operates on its host tab's (connectionId, databaseName).
+  // Reading from the tab keeps actions correct when the user has multiple
+  // ERD tabs open against different connections.
+  readonly tabConnectionId = computed(() => this.activeTab()?.connectionId ?? null);
+  readonly tabDatabaseName = computed(() => this.activeTab()?.databaseName ?? null);
+
   readonly nodes = signal<ERDNode[]>([]);
   readonly selectedNodeId = signal<string | null>(null);
   readonly panelInfo = signal<NodePanelInfo | null>(null);
@@ -700,8 +706,8 @@ export class ErdComponent implements OnInit {
 
   onNodeDoubleClick(event: { node: ERDNode }): void {
     const node = event.node;
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.tabDatabaseName();
     if (connectionId && database) {
       const sql = `SELECT TOP 1000 * FROM [${node.schemaName}].[${node.name}]`;
       this.tabState.openQueryTab(connectionId, database, sql, true);
@@ -709,8 +715,8 @@ export class ErdComponent implements OnInit {
   }
 
   openTableProperties(node: ERDNode): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.tabDatabaseName();
     if (connectionId && database) {
       this.tableProperties.open({
         connectionId,
@@ -722,8 +728,8 @@ export class ErdComponent implements OnInit {
   }
 
   selectTop1000(node: ERDNode): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.tabDatabaseName();
     if (connectionId && database) {
       const sql = `SELECT TOP 1000 * FROM [${node.schemaName}].[${node.name}]`;
       this.tabState.openQueryTab(connectionId, database, sql, true);
@@ -731,8 +737,8 @@ export class ErdComponent implements OnInit {
   }
 
   viewChangeHistory(node: ERDNode, entity: MJEntityInfo): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.tabDatabaseName();
     if (connectionId && database) {
       const sql = `-- Change History for ${entity.name}
 SELECT TOP 100
@@ -753,8 +759,8 @@ ORDER BY rc.CreatedAt DESC`;
   }
 
   viewAuditLog(node: ERDNode, entity: MJEntityInfo): void {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.tabDatabaseName();
     if (connectionId && database) {
       const sql = `-- Audit Log for ${entity.name}
 SELECT TOP 100
@@ -801,8 +807,8 @@ ORDER BY al.CreatedAt DESC`;
   }
 
   private async findMJEntity(node: ERDNode): Promise<MJEntityInfo | null> {
-    const connectionId = this.connectionState.activeConnectionId();
-    const database = this.connectionState.selectedDatabase();
+    const connectionId = this.tabConnectionId();
+    const database = this.tabDatabaseName();
     if (!connectionId || !database) return null;
 
     await this.loadMJEntities(connectionId, database);

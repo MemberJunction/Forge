@@ -155,6 +155,87 @@ export class ExplorerStateService {
     this._rootNodes.update(nodes => nodes.filter(n => n.connectionId !== connectionId));
   }
 
+  /**
+   * Direct mutators for a server node's database children. Use these
+   * from CRUD handlers when we know the operation succeeded — avoids
+   * an IPC re-fetch via refreshNode(serverNode.id) and updates the
+   * tree synchronously. All idempotent.
+   *
+   * Only mutate when the server node already has its children loaded
+   * (the user expanded it). If children haven't been loaded yet, the
+   * next expand will fetch from IPC and pick up the new state — no
+   * stale-state risk.
+   */
+  addDatabaseNodeLocal(connectionId: string, databaseName: string): void {
+    const serverId = `server-${connectionId}`;
+    this._rootNodes.update(nodes =>
+      this.mapNodes(nodes, node => {
+        if (node.id !== serverId || !node.children) return node;
+        if (node.children.some(c => c.databaseName === databaseName)) return node;
+        const dbNode: TreeNode = {
+          id: `db-${connectionId}-${databaseName}`,
+          name: databaseName,
+          type: 'database',
+          icon: this.iconMap['database'],
+          path: databaseName,
+          hasChildren: true,
+          isExpanded: false,
+          isLoading: false,
+          connectionId,
+          databaseName,
+        };
+        return { ...node, children: [...node.children, dbNode] };
+      })
+    );
+  }
+
+  removeDatabaseNodeLocal(connectionId: string, databaseName: string): void {
+    const serverId = `server-${connectionId}`;
+    this._rootNodes.update(nodes =>
+      this.mapNodes(nodes, node => {
+        if (node.id !== serverId || !node.children) return node;
+        if (!node.children.some(c => c.databaseName === databaseName)) return node;
+        return {
+          ...node,
+          children: node.children.filter(c => c.databaseName !== databaseName),
+        };
+      })
+    );
+  }
+
+  renameDatabaseNodeLocal(connectionId: string, oldName: string, newName: string): void {
+    const serverId = `server-${connectionId}`;
+    this._rootNodes.update(nodes =>
+      this.mapNodes(nodes, node => {
+        if (node.id !== serverId || !node.children) return node;
+        if (!node.children.some(c => c.databaseName === oldName)) return node;
+        return {
+          ...node,
+          children: node.children.map(c =>
+            c.databaseName === oldName
+              ? {
+                  ...c,
+                  id: `db-${connectionId}-${newName}`,
+                  name: newName,
+                  databaseName: newName,
+                  path: newName,
+                  // Drop loaded children — schemas/tables under the old
+                  // name are stale; the next expand will fetch fresh.
+                  children: undefined,
+                  isExpanded: false,
+                }
+              : c
+          ),
+        };
+      })
+    );
+  }
+
+  /** Recursively transform every node via `fn`, reusing identity when possible. */
+  private mapNodes(nodes: TreeNode[], fn: (n: TreeNode) => TreeNode): TreeNode[] {
+    return nodes.map(n => fn(n));
+  }
+
   async expandNode(nodeId: string): Promise<void> {
     const node = this.findNodeById(this._rootNodes(), nodeId);
     if (!node || !node.hasChildren) return;

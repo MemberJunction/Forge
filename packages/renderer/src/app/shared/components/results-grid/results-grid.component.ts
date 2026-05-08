@@ -1,8 +1,10 @@
 import {
   Component,
+  ElementRef,
   Input,
   Output,
   EventEmitter,
+  HostListener,
   OnChanges,
   OnDestroy,
   SimpleChanges,
@@ -34,6 +36,7 @@ import { NotificationService } from '../../../core/services/notification.service
 import { IpcService } from '../../../core/services/ipc.service';
 import { SettingsService } from '../../../core/services/settings.service';
 import { Subscription, firstValueFrom } from 'rxjs';
+import { keyHint } from '../../../core/utils/platform';
 
 interface ColumnStats {
   column: string;
@@ -116,7 +119,7 @@ interface FkPreviewData {
           </button>
           <button
             class="grid-btn"
-            matTooltip="Copy selected (Ctrl+C)"
+            [matTooltip]="'Copy selected (' + copyKeyHint + ')'"
             (click)="copySelectedToClipboard()"
           >
             <mat-icon>content_copy</mat-icon>
@@ -1163,11 +1166,41 @@ export class ResultsGridComponent implements OnChanges, OnDestroy {
   @Output() exportRequested = new EventEmitter<'csv' | 'json' | 'sql'>();
   @Output() openQueryRequested = new EventEmitter<{ sql: string; title: string }>();
 
+  readonly copyKeyHint = keyHint('C');
+
   private readonly notification = inject(NotificationService);
   private readonly ipc = inject(IpcService);
   private readonly settings = inject(SettingsService);
+  private readonly host = inject(ElementRef<HTMLElement>);
   private gridApi: GridApi | null = null;
   private fkSubscription: Subscription | null = null;
+
+  // Edit > Copy (⌘C / Ctrl+C). MenuService's `forge:menu-copy` event is
+  // forwarded from the main-process menu (the renderer never sees the raw
+  // keystroke — Electron's menu accelerator captures it). We claim it
+  // when:
+  //   - the grid contains the active element (the user is "in" the grid)
+  //   - they don't have a native text selection (e.g., drag-selected
+  //     across cell text — they want that string, not the row)
+  //   - they're not in an editable surface inside the grid (quick-filter
+  //     input, future cell-value editor)
+  // When we claim, we prevent default and route through
+  // `copySelectedToClipboard()` which honors the user's Copy Format
+  // setting. Otherwise MenuService falls back to document.execCommand.
+  @HostListener('window:forge:menu-copy', ['$event'])
+  onMenuCopy(event: Event): void {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !this.host.nativeElement.contains(active)) return;
+
+    const tag = active.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return;
+
+    const sel = document.getSelection();
+    if (sel && sel.toString().length > 0) return;
+
+    event.preventDefault();
+    this.copySelectedToClipboard();
+  }
 
   rowData: Record<string, unknown>[] = [];
   columnDefs: ColDef[] = [];

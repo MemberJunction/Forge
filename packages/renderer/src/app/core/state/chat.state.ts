@@ -260,9 +260,11 @@ export class ChatStateService implements OnDestroy {
         this.ipc.sendChatMessage({
           conversationId,
           message: content.trim(),
-          connectionId: this.connectionState.activeConnectionId() || undefined,
-          databaseName: this.connectionState.selectedDatabase() || undefined,
-          databaseEngine: this.connectionState.activeProfile()?.engine || undefined,
+          connectionId: this.connectionState.focusedConnectionId() || undefined,
+          databaseName: this.connectionState.focusedDatabaseName() || undefined,
+          databaseEngine:
+            this.connectionState.profileFor(this.connectionState.focusedConnectionId())?.engine ||
+            undefined,
           activeEditorContent: activeEditorContent || undefined,
           vendorId: vendorId || undefined,
           modelApiName: modelApiName || undefined,
@@ -316,9 +318,9 @@ export class ChatStateService implements OnDestroy {
     const params = action.params || {};
     switch (action.type) {
       case 'open-query-tab': {
-        const connId = this.connectionState.activeConnectionId();
+        const connId = this.connectionState.focusedConnectionId();
         const db =
-          (params['database'] as string | undefined) || this.connectionState.selectedDatabase();
+          (params['database'] as string | undefined) || this.connectionState.focusedDatabaseName();
         if (connId && db) {
           this.tabState.openQueryTab(
             connId,
@@ -329,11 +331,13 @@ export class ChatStateService implements OnDestroy {
         }
         break;
       }
-      case 'navigate-database':
-        if (params['database']) {
-          this.connectionState.selectDatabase(params['database'] as string);
+      case 'navigate-database': {
+        const focused = this.connectionState.focusedConnectionId();
+        if (params['database'] && focused) {
+          this.connectionState.selectDatabase(focused, params['database'] as string);
         }
         break;
+      }
       case 'open-settings':
       case 'open-create-db-dialog':
       case 'open-backup-dialog':

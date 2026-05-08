@@ -76,6 +76,29 @@ export class ConnectionProfilesStore extends BaseSingleton {
     const profiles = this.getAll();
     const now = new Date().toISOString();
 
+    // Reject creates / renames that would silently duplicate an existing
+    // profile name. Without this guard, a user who hits "New Connection"
+    // twice for the same logical server (e.g., after a failed connect with
+    // a typo) ends up with two profiles sharing the same display name and
+    // different UUIDs — surfaces in the sidebar dropdown as duplicate
+    // entries and is hard to untangle. Match is case-insensitive on
+    // trimmed names.
+    const incomingName = request.profile.name?.trim().toLowerCase();
+    if (incomingName) {
+      const conflict = profiles.find(
+        p => p.id !== request.profile.id && p.name.trim().toLowerCase() === incomingName
+      );
+      if (conflict) {
+        log.warn(
+          `Rejecting save: name conflict with existing profile ${conflict.id} (${conflict.name})`
+        );
+        throw new Error(
+          `A connection named "${conflict.name}" already exists. ` +
+            `Use Manage Connections → Edit to modify it, or pick a different name.`
+        );
+      }
+    }
+
     let profile: ConnectionProfile;
 
     if (request.profile.id) {
