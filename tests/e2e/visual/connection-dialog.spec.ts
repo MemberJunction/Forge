@@ -20,11 +20,33 @@ async function openConnectionDialog(window: Page) {
 
 async function selectEngine(window: Page, label: string) {
   // The engine dropdown is the first mat-select in the dialog.
-  await window.locator('mat-dialog-container mat-select').first().click();
+  const dialog = window.locator('mat-dialog-container');
+  await dialog.locator('mat-select').first().click();
   // mat-option lives in a CDK overlay panel outside the dialog DOM.
   await window.locator('mat-option').filter({ hasText: label }).first().click();
-  // Settle: Angular runs onEngineChange (updates port, defaults, fields).
-  await window.waitForTimeout(400);
+  // Settle deterministically before the screenshot. Two signals both
+  // need to land or the visual is racy:
+  //   1. Material's floating-label animation completes (the engine
+  //      field's label floats above the now-populated select). The
+  //      previous waitForTimeout(400) sometimes finished before this
+  //      class was applied, producing a baseline-vs-actual mismatch
+  //      where the label was missing in one frame and rendered in
+  //      another.
+  //   2. Angular's onEngineChange has run — it rewrites the port
+  //      default, default-database visibility, and other engine-
+  //      conditional fields. Wait on the engine-specific port value
+  //      to confirm the form has settled.
+  const engineField = dialog.locator('mat-form-field').first();
+  await expect(engineField.locator('.mdc-floating-label--float-above')).toBeVisible({
+    timeout: 5000,
+  });
+  const expectedPort = label === 'PostgreSQL' ? '5432' : label === 'MySQL' ? '3306' : '1433';
+  // Port uses [(ngModel)], no formControlName. The dialog has two
+  // type=number inputs (Port and SSH Port); SSH is collapsed in these
+  // tests so .first() reliably resolves to Port.
+  await expect(dialog.locator('input[type="number"]').first()).toHaveValue(expectedPort, {
+    timeout: 5000,
+  });
 }
 
 test.describe('Forge — connection dialog variants', () => {
