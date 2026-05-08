@@ -1136,7 +1136,13 @@ export class SidebarComponent {
         label: 'Restore Database...',
         icon: 'restore',
         action: () => {
-          this.openRestore(node.databaseName);
+          // Pass the node's connectionId so the restore targets *this*
+          // server, not whichever connection happens to be the most-
+          // recently-used. Without the explicit override, right-clicking
+          // a database under server A while the focused tab points at
+          // server B would silently route the restore to B and the
+          // resulting db would land on the wrong server.
+          this.openRestore(node.databaseName, node.connectionId);
         },
       },
       { id: 'div2', label: '', divider: true },
