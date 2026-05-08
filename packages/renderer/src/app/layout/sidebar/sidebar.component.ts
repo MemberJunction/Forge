@@ -664,8 +664,14 @@ export class SidebarComponent {
   private readonly ipc = inject(IpcService);
   private readonly dialog = inject(MatDialog);
 
-  // State for pending database operations
+  // State for pending database operations. The delete/rename dialogs are
+  // async (open dialog, wait for confirm event), so we stash both the
+  // target database and the connection it lives on. Without the
+  // connectionId stash, onDeleteConfirmed() falls back to
+  // mostRecentConnectionId() — the focused query tab — which is wrong
+  // when the user right-clicked a database under a *different* server.
   private pendingDeleteDatabase: string | null = null;
+  private pendingDeleteConnectionId: string | null = null;
   private pendingRenameDatabase: string | null = null;
 
   // Sidebar UI accessors anchor to the most-recently-used connection — the
@@ -894,8 +900,12 @@ export class SidebarComponent {
     return false; // PG/MySQL don't support server file browsing or extended properties
   }
 
-  openBackup(databaseName?: string): void {
-    const connectionId = this.connectionState.mostRecentConnectionId();
+  openBackup(databaseName?: string, overrideConnectionId?: string): void {
+    // Prefer the connectionId of the right-clicked node (when invoked
+    // from the database-context-menu) so backup targets *that* server.
+    // The mostRecent fallback is only correct for the toolbar button,
+    // which has no node context.
+    const connectionId = overrideConnectionId ?? this.connectionState.mostRecentConnectionId();
     const dbName = databaseName || this.focusedSelectedDatabase();
 
     if (!connectionId) {
@@ -1127,7 +1137,10 @@ export class SidebarComponent {
         icon: 'backup',
         action: () => {
           if (node.databaseName) {
-            this.openBackup(node.databaseName);
+            // Pass node.connectionId so backup runs against *this* server,
+            // not the most-recently-used connection. Same routing class as
+            // the Restore/Delete fixes.
+            this.openBackup(node.databaseName, node.connectionId);
           }
         },
       },
@@ -1178,8 +1191,8 @@ export class SidebarComponent {
           node.databaseName === 'model' ||
           node.databaseName === 'tempdb',
         action: () => {
-          if (node.databaseName) {
-            this.openDeleteDialog(node.databaseName);
+          if (node.databaseName && node.connectionId) {
+            this.openDeleteDialog(node.connectionId, node.databaseName);
           }
         },
       },
@@ -1982,28 +1995,8 @@ ORDER BY __mj_CreatedAt DESC`;
     });
   }
 
-  private openRenameDialog(databaseName: string): void {
-    this.pendingRenameDatabase = databaseName;
-    this.renameDialog.open({
-      title: 'Rename Database',
-      message: `Enter a new name for the database "${databaseName}".`,
-      inputLabel: 'New Database Name',
-      inputValue: databaseName,
-      inputPlaceholder: 'Enter new database name',
-      confirmText: 'Rename',
-      validate: (value: string) => {
-        if (!value.trim()) return 'Database name is required';
-        if (value === databaseName) return 'New name must be different';
-        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
-          return 'Invalid database name. Use letters, numbers, and underscores only.';
-        }
-        if (value.length > 128) return 'Database name is too long (max 128 characters)';
-        return null;
-      },
-    });
-  }
-
-  private openDeleteDialog(databaseName: string): void {
+  private openDeleteDialog(connectionId: string, databaseName: string): void {
+    this.pendingDeleteConnectionId = connectionId;
     this.pendingDeleteDatabase = databaseName;
     this.deleteDialog.open({
       title: 'Delete Database',
@@ -2057,11 +2050,17 @@ ORDER BY __mj_CreatedAt DESC`;
 
   async onDeleteConfirmed(): Promise<void> {
     const databaseName = this.pendingDeleteDatabase;
+    const overrideConnectionId = this.pendingDeleteConnectionId;
     this.pendingDeleteDatabase = null;
+    this.pendingDeleteConnectionId = null;
 
     if (!databaseName) return;
 
-    const connectionId = this.connectionState.mostRecentConnectionId();
+    // Prefer the connectionId stashed when the dialog was opened — that's
+    // the server the user actually right-clicked on. Fall back to the
+    // most-recent connection only if the call site didn't supply one
+    // (older entry points / future refactors).
+    const connectionId = overrideConnectionId ?? this.connectionState.mostRecentConnectionId();
     if (!connectionId) {
       this.notification.error('No active connection');
       return;

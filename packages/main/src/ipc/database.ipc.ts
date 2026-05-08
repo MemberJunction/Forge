@@ -24,6 +24,7 @@ import type {
 } from '@mj-forge/shared';
 import { ConnectionPoolManager } from '../services/sql/connection-pool';
 import { MetadataService } from '../services/sql/metadata';
+import { createLogger } from '../utils/logger';
 import { safeHandle } from './safe-handle';
 
 export function registerDatabaseHandlers(): void {
@@ -90,8 +91,17 @@ export function registerDatabaseHandlers(): void {
       connectionId: string,
       options: DeleteDatabaseOptions
     ): Promise<DeleteDatabaseResult> => {
+      const engine = poolManager.getEngineForProfile(connectionId);
       const dialect = poolManager.getDialectForProfile(connectionId);
       const sql = dialect.dropDatabaseSQL(options);
+      // Diagnostic logging — useful for tracking down "delete went to the
+      // wrong server" complaints. Reports the routing decision (engine
+      // resolved from the connection profile) and the SQL Forge ran.
+      const log = createLogger('IPC:Database');
+      log.info(
+        `delete database: connectionId=${connectionId} engine=${engine} target=${options.name}`
+      );
+      log.debug(`delete database SQL: ${sql}`);
 
       try {
         await poolManager.executeDDL(connectionId, sql);
@@ -99,6 +109,7 @@ export function registerDatabaseHandlers(): void {
         return { success: true, tsql: sql };
       } catch (error) {
         const err = error as Error;
+        log.error(`delete database failed (engine=${engine}): ${err.message}`);
         return { success: false, tsql: sql, error: err.message };
       }
     }
