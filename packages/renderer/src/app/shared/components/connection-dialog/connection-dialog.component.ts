@@ -24,6 +24,7 @@ import type {
   SshAuthType,
   SshTunnelConfig,
 } from '@mj-forge/shared';
+import { analyzePasswordHygiene } from '@mj-forge/shared';
 
 export interface ConnectionDialogData {
   /** Profile to edit, or undefined for new connection */
@@ -132,6 +133,24 @@ export interface ConnectionDialogResult {
               <input matInput type="password" [(ngModel)]="formData.password" />
             </mat-form-field>
           </div>
+
+          @if (passwordWarnings().length > 0) {
+            <div class="password-warning" role="status">
+              <mat-icon>warning_amber</mat-icon>
+              <div class="password-warning-body">
+                <strong>This password may contain copy/paste artifacts.</strong>
+                <ul>
+                  @for (w of passwordWarnings(); track w) {
+                    <li>{{ w }}</li>
+                  }
+                </ul>
+                <span class="password-warning-note">
+                  Special characters are fine — but invisible/look-alike characters cause "Login
+                  failed". If you didn't intend these, retype the password instead of pasting.
+                </span>
+              </div>
+            </div>
+          }
         }
 
         @if (formData.authenticationType === 'entra-id') {
@@ -387,6 +406,42 @@ export interface ConnectionDialogResult {
         font-size: 11px;
       }
 
+      .password-warning {
+        display: flex;
+        gap: 10px;
+        margin: -2px 0 12px;
+        padding: 10px 12px;
+        background: var(--warning-bg, rgba(255, 193, 7, 0.12));
+        border-left: 3px solid var(--status-warning, #f2a900);
+        border-radius: 2px;
+
+        mat-icon {
+          color: var(--status-warning, #f2a900);
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          flex-shrink: 0;
+          margin-top: 1px;
+        }
+      }
+
+      .password-warning-body {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--text-primary);
+
+        ul {
+          margin: 4px 0;
+          padding-left: 18px;
+        }
+
+        .password-warning-note {
+          color: var(--text-secondary);
+          display: block;
+          margin-top: 4px;
+        }
+      }
+
       .validation-hint {
         margin: 12px 24px 0;
         padding: 10px 12px;
@@ -639,6 +694,17 @@ export class ConnectionDialogComponent {
 
   isEntraAuth(): boolean {
     return this.formData.authenticationType === 'entra-id';
+  }
+
+  /**
+   * Advisory warnings about copy/paste artifacts in the entered password
+   * (trailing whitespace, smart quotes, non-breaking spaces, etc.). Non-blocking:
+   * the password is never rejected or mutated — we just surface what we see so
+   * the user can decide. Empty when the field is clean or untouched.
+   */
+  passwordWarnings(): string[] {
+    if (!this.needsUsernamePassword() || !this.formData.password) return [];
+    return analyzePasswordHygiene(this.formData.password).issues.map(i => i.message);
   }
 
   validationHint(): string {
