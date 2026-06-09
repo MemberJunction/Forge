@@ -23,6 +23,7 @@ import type {
   AuthenticationType,
   SshAuthType,
   SshTunnelConfig,
+  TestConnectionResult,
 } from '@mj-forge/shared';
 import { analyzePasswordHygiene } from '@mj-forge/shared';
 
@@ -294,6 +295,24 @@ export interface ConnectionDialogResult {
         <p class="validation-hint">{{ hint }}</p>
       }
 
+      @if (testResult(); as result) {
+        @if (!result.success) {
+          <div class="test-result-error" role="alert">
+            <div class="test-result-header">
+              <mat-icon>error_outline</mat-icon>
+              <span>{{ result.error || 'Connection failed' }}</span>
+            </div>
+            @if (result.guidance?.length) {
+              <ul>
+                @for (g of result.guidance; track g) {
+                  <li>{{ g }}</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+      }
+
       <mat-dialog-actions align="start">
         <button
           mat-flat-button
@@ -442,6 +461,39 @@ export interface ConnectionDialogResult {
         }
       }
 
+      .test-result-error {
+        margin: 12px 24px 0;
+        padding: 10px 12px;
+        background: var(--error-bg, rgba(244, 67, 54, 0.1));
+        border-left: 3px solid var(--status-error, #f44336);
+        border-radius: 2px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--text-primary);
+
+        .test-result-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 600;
+
+          mat-icon {
+            color: var(--status-error, #f44336);
+            font-size: 18px;
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+          }
+        }
+
+        ul {
+          margin: 6px 0 0;
+          padding-left: 26px;
+          color: var(--text-secondary);
+          font-weight: 400;
+        }
+      }
+
       .validation-hint {
         margin: 12px 24px 0;
         padding: 10px 12px;
@@ -535,6 +587,8 @@ export class ConnectionDialogComponent {
   readonly isEditing = signal(false);
   readonly testing = signal(false);
   readonly saving = signal(false);
+  /** Last "Test" result, shown inline so the user sees the error + guidance. */
+  readonly testResult = signal<TestConnectionResult | null>(null);
 
   readonly presetColors = [
     { value: '#e53935', label: 'Red' },
@@ -617,14 +671,16 @@ export class ConnectionDialogComponent {
     if (!this.canTestConnection()) return;
 
     this.testing.set(true);
+    this.testResult.set(null);
     try {
       const profile = this.buildTestProfile();
-      await this.connectionState.testConnection(
+      const result = await this.connectionState.testConnection(
         profile,
         this.formData.password,
         this.formData.sshPassword,
         this.formData.sshPassphrase
       );
+      this.testResult.set(result);
     } finally {
       this.testing.set(false);
     }
