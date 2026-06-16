@@ -10,6 +10,7 @@ import mysql from 'mysql2/promise';
 import type { Pool as MySQLPool } from 'mysql2/promise';
 import { acquireTokenInteractive } from '../azure/entra-auth';
 import type { ConnectionProfile, TestConnectionResult, DatabaseEngine } from '@mj-forge/shared';
+import { describePasswordHygiene } from '@mj-forge/shared';
 import { BaseSingleton } from '../../utils/singleton';
 import { createLogger } from '../../utils/logger';
 import { ConnectionProfilesStore } from '../config/connection-profiles';
@@ -386,7 +387,7 @@ export class ConnectionPoolManager extends BaseSingleton {
       };
     } catch (error) {
       const err = error as Error & { code?: string; number?: number };
-      const categorized = this.categorizeError(err);
+      const categorized = this.categorizeError(err, password);
       return {
         success: false,
         error: categorized.message,
@@ -1012,7 +1013,10 @@ export class ConnectionPoolManager extends BaseSingleton {
   /**
    * Categorize connection errors for user-friendly messages
    */
-  private categorizeError(error: Error & { code?: string; number?: number }): {
+  private categorizeError(
+    error: Error & { code?: string; number?: number },
+    password?: string
+  ): {
     code: string;
     message: string;
     guidance: string[];
@@ -1022,14 +1026,21 @@ export class ConnectionPoolManager extends BaseSingleton {
 
     // SQL Server error numbers
     if (error.number === 18456) {
+      const guidance = [
+        'Check that the username is correct',
+        'Check that the password is correct',
+        'Ensure the login has permission to connect',
+      ];
+      // Surface paste artifacts in the stored password (trailing whitespace,
+      // smart quotes, etc.) — the #1 cause of a "Login failed" that the user
+      // is sure is the right password. Advisory only; never echoes the value.
+      if (password !== undefined) {
+        guidance.push(...describePasswordHygiene(password, { includeLength: true }));
+      }
       return {
         code: 'AUTH_FAILED',
         message: 'Login failed',
-        guidance: [
-          'Check that the username is correct',
-          'Check that the password is correct',
-          'Ensure the login has permission to connect',
-        ],
+        guidance,
       };
     }
 
