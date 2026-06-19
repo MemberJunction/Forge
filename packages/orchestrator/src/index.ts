@@ -7,6 +7,14 @@ export { WorktreeManager } from './WorktreeManager.js';
 export { ConfigWriter } from './ConfigWriter.js';
 export { buildSetupScript } from './dbBootstrap.js';
 export type { DbSetupParams } from './dbBootstrap.js';
+export {
+  listInstalledNodes,
+  resolveNode,
+  resolveNodeForWorktree,
+  readWorktreeNodeRequirement,
+  envWithNode,
+} from './nodeEnv.js';
+export type { InstalledNode, ResolvedNode, NodeRequirement } from './nodeEnv.js';
 export { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 export type { SetupStepResult } from './SetupRunner.js';
 export { ProcessManager } from './ProcessManager.js';

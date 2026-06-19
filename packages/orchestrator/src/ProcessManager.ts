@@ -35,7 +35,12 @@ export class ProcessManager {
   }
 
   /** Launch a service for an instance and begin tracking it. */
-  start(record: InstanceRecord, target: LaunchTarget, sink: EventSink = noopSink): ManagedProcess {
+  start(
+    record: InstanceRecord,
+    target: LaunchTarget,
+    sink: EventSink = noopSink,
+    env: NodeJS.ProcessEnv = process.env
+  ): ManagedProcess {
     const { cwd, args, label, port, script } = this.resolveTarget(record, target);
     const id = newId();
     const op = `proc:${script}`;
@@ -43,7 +48,7 @@ export class ProcessManager {
 
     const child = spawn('npm', args, {
       cwd,
-      env: { ...process.env },
+      env: { ...env },
       detached: true, // own process group so we can kill the whole tree
       stdio: ['ignore', 'pipe', 'pipe'],
     });

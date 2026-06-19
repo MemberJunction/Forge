@@ -11,6 +11,22 @@ const STEP_COMMANDS: Record<SetupStep, { args: string[]; label: string }> = {
 };
 
 /**
+ * True when `npm ci` failed specifically because the lockfile is absent or out
+ * of sync with package.json — the case where falling back to `npm install` is
+ * safe and correct (a disposable dev worktree may sit on a commit whose lock
+ * drifted). Matches npm's several phrasings across versions.
+ */
+function isLockSyncFailure(output: string): boolean {
+  return (
+    /can only install with an existing package-lock/i.test(output) ||
+    /can only install packages when your package\.json and package-lock\.json/i.test(output) ||
+    /Missing: .+ from lock file/i.test(output) ||
+    /npm error code EUSAGE/i.test(output) ||
+    /\bin sync\b/i.test(output)
+  );
+}
+
+/**
  * Order enforced by `runFullSetup`, reflecting real dependencies in a *source*
  * worktree: the `mj` CLI is TypeScript that loads its oclif commands from
  * `dist/`, so the workspace must be **built before** migrate/codegen can run.
@@ -37,7 +53,8 @@ export class SetupRunner {
     step: SetupStep,
     worktreePath: string,
     slug: string,
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    env: NodeJS.ProcessEnv = process.env
   ): Promise<SetupStepResult> {
     const spec = STEP_COMMANDS[step];
     const op = `setup:${step}`;
@@ -45,20 +62,25 @@ export class SetupRunner {
 
     let result = await run('npm', spec.args, {
       cwd: worktreePath,
-      env: process.env,
+      env,
       onOutput: s => emit(sink, slug, op, 'info', s.trimEnd()),
     });
 
-    // `npm ci` requires a lockfile; fall back to `npm install` if it bails for that reason.
-    if (
-      step === 'deps' &&
-      result.code !== 0 &&
-      /can only install with an existing package-lock/i.test(result.stderr + result.stdout)
-    ) {
-      emit(sink, slug, op, 'warn', 'No lockfile for `npm ci`; falling back to `npm install`');
+    // `npm ci` is strict: it aborts on a missing lockfile OR any drift between
+    // package.json and the committed lock (common across MJ commits). In a
+    // disposable dev worktree the right move — what a human does — is to fall
+    // back to `npm install`, which reconciles the lock and installs.
+    if (step === 'deps' && result.code !== 0 && isLockSyncFailure(result.stderr + result.stdout)) {
+      emit(
+        sink,
+        slug,
+        op,
+        'warn',
+        '`npm ci` rejected the lockfile (out of sync); falling back to `npm install`'
+      );
       result = await run('npm', ['install'], {
         cwd: worktreePath,
-        env: process.env,
+        env,
         onOutput: s => emit(sink, slug, op, 'info', s.trimEnd()),
       });
     }
@@ -81,7 +103,8 @@ export class SetupRunner {
     slug: string,
     sink: EventSink = noopSink,
     onStepComplete?: (step: SetupStep) => Promise<void>,
-    skip: SetupStep[] = []
+    skip: SetupStep[] = [],
+    env: NodeJS.ProcessEnv = process.env
   ): Promise<SetupStepResult[]> {
     const results: SetupStepResult[] = [];
     const done = new Set(skip);
@@ -97,7 +120,7 @@ export class SetupRunner {
         emit(sink, slug, `setup:${step}`, 'info', `Skipping ${step} (already complete)`);
         continue;
       }
-      const result = await this.runStep(step, worktreePath, slug, sink);
+      const result = await this.runStep(step, worktreePath, slug, sink, env);
       results.push(result);
       if (!result.success) {
         emit(sink, slug, 'setup:all', 'error', `Stopped at "${step}". Fix the issue and re-run.`);

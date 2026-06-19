@@ -15,6 +15,7 @@ import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
 import { buildSetupScript } from './dbBootstrap.js';
+import { resolveNodeForWorktree, envWithNode } from './nodeEnv.js';
 import { emit, type EventSink, noopSink, slugify, newId, generatePassword } from './util.js';
 
 export interface CreateResult {
@@ -51,12 +52,16 @@ export class InstanceOrchestrator {
     return this.store.list();
   }
 
-  async info(
-    slug: string
-  ): Promise<{ record: InstanceRecord; containerState?: string; processes: ManagedProcess[] }> {
+  async info(slug: string): Promise<{
+    record: InstanceRecord;
+    containerState?: string;
+    processes: ManagedProcess[];
+    nodeVersion?: string;
+  }> {
     const record = await this.requireRecord(slug);
     const containerState = await this.docker.getState(record.container.name).catch(() => undefined);
-    return { record, containerState, processes: this.procs.list(slug) };
+    const nodeVersion = resolveNodeForWorktree(record.worktreePath, record.node).version;
+    return { record, containerState, processes: this.procs.list(slug), nodeVersion };
   }
 
   // ── Create (provision-only) with rollback saga ────────────────────────────
@@ -115,6 +120,7 @@ export class InstanceOrchestrator {
         codegen: false,
         built: false,
       },
+      node: config.node ?? 'auto',
       createdAt: new Date().toISOString(),
     };
 
@@ -126,6 +132,7 @@ export class InstanceOrchestrator {
       baseRef,
       ports,
       database: { name: dbName, saPassword: 'auto' },
+      node: record.node,
     });
     await this.store.upsert(record);
 
@@ -161,6 +168,18 @@ export class InstanceOrchestrator {
       const written = await this.config.write(worktreePath, record, secrets);
       record.setup.configWritten = true;
       emit(sink, slug, 'create', 'info', `Wrote ${written.length} config file(s)`);
+
+      // Report the Node version setup/build/serve will use (from the worktree's .nvmrc).
+      const node = resolveNodeForWorktree(worktreePath, record.node);
+      if (node.version) {
+        emit(
+          sink,
+          slug,
+          'create',
+          'info',
+          `Node ${node.version} (${node.source}) will run setup/build/serve`
+        );
+      }
 
       record.status = 'running';
       await this.store.upsert(record);
@@ -229,6 +248,7 @@ export class InstanceOrchestrator {
     sink: EventSink = noopSink
   ): Promise<InstanceRecord> {
     const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
     if (step === 'all') {
       const alreadyDone = FULL_SETUP_ORDER.filter(s => record.setup[setupFlagForStep(s)]);
       await this.setup.runFullSetup(
@@ -239,10 +259,11 @@ export class InstanceOrchestrator {
           record.setup[setupFlagForStep(done)] = true;
           await this.store.upsert(record);
         },
-        alreadyDone
+        alreadyDone,
+        env
       );
     } else {
-      const result = await this.setup.runStep(step, record.worktreePath, slug, sink);
+      const result = await this.setup.runStep(step, record.worktreePath, slug, sink, env);
       if (result.success) {
         record.setup[setupFlagForStep(step)] = true;
         await this.store.upsert(record);
@@ -267,7 +288,20 @@ export class InstanceOrchestrator {
     sink: EventSink = noopSink
   ): Promise<ManagedProcess> {
     const record = await this.requireRecord(slug);
-    return this.procs.start(record, target, sink);
+    return this.procs.start(record, target, sink, this.instanceEnv(record, slug, sink));
+  }
+
+  /**
+   * Child-process env for an instance's setup/build/serve commands, with the
+   * instance's chosen Node version (default `'auto'` = highest installed nvm)
+   * prepended to PATH so `node`/`npm`/`node-gyp` resolve to it.
+   */
+  private instanceEnv(record: InstanceRecord, slug: string, sink: EventSink): NodeJS.ProcessEnv {
+    const resolved = resolveNodeForWorktree(record.worktreePath, record.node);
+    if (resolved.version) {
+      emit(sink, slug, 'node', 'info', `Using Node ${resolved.version} (${resolved.source})`);
+    }
+    return envWithNode(resolved.binDir);
   }
 
   stopProcess(id: string): Promise<void> {

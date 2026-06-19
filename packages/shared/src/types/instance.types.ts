@@ -56,6 +56,8 @@ export interface InstanceRecord {
   secretsRef: string;
   status: InstanceStatus;
   setup: InstanceSetupState;
+  /** Node version spec to run setup/build/serve under (`'auto'` = highest installed). */
+  node?: string;
   /** ISO-8601 creation timestamp. */
   createdAt: string;
 }
@@ -80,6 +82,13 @@ export interface InstanceConfig {
   auth?: {
     provider?: 'none' | 'entra' | 'auth0';
   };
+  /**
+   * Node version to run this instance's setup/build/serve under (independent of
+   * the Forge app's own Node). A major ("24"), full ("24.16.0"), or `'auto'`
+   * (default — highest installed nvm version). Lets an MJ checkout that needs
+   * Node ≥22 build even when Forge runs on Node 20.
+   */
+  node?: string;
 }
 
 /** Secrets persisted out-of-band (chmod 0600), keyed by `secretsRef`. */
