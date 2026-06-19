@@ -83,6 +83,12 @@ import type {
   MJUserRecordLog,
   MJEntityRelationship,
   LogEntry,
+  // MJ Dev Manager instance types
+  InstanceRecord,
+  InstanceConfig,
+  InstanceEvent,
+  ManagedProcess,
+  SetupStep,
 } from '@mj-forge/shared';
 
 /**
@@ -508,6 +514,28 @@ export interface ForgeAPI {
     onOpenSettings: (callback: () => void) => () => void;
     onShowShortcuts: (callback: () => void) => () => void;
   };
+
+  // MJ Dev Manager — instance orchestration
+  instances: {
+    create: (config: InstanceConfig) => Promise<InstanceRecord>;
+    list: () => Promise<InstanceRecord[]>;
+    info: (
+      slug: string
+    ) => Promise<{ record: InstanceRecord; containerState?: string; processes: ManagedProcess[] }>;
+    start: (slug: string) => Promise<InstanceRecord>;
+    stop: (slug: string) => Promise<InstanceRecord>;
+    delete: (slug: string) => Promise<{ success: boolean }>;
+    openInVSCode: (slug: string) => Promise<{ success: boolean; path: string }>;
+    runSetup: (slug: string, step: SetupStep | 'all') => Promise<InstanceRecord>;
+    startProcess: (
+      slug: string,
+      target: 'api' | 'explorer' | { script: string }
+    ) => Promise<ManagedProcess>;
+    stopProcess: (processId: string) => Promise<{ success: boolean }>;
+    listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
+    /** Subscribe to streamed progress/log events; returns an unsubscribe fn. */
+    onEvent: (callback: (event: InstanceEvent) => void) => () => void;
+  };
 }
 
 // Helper to create event listener cleanup functions
@@ -601,6 +629,22 @@ const forgeAPI: ForgeAPI = {
     stopContainer: containerId =>
       ipcRenderer.invoke(IPC_CHANNELS.DOCKER.STOP_CONTAINER, containerId),
     createContainer: options => ipcRenderer.invoke(IPC_CHANNELS.DOCKER.CREATE_CONTAINER, options),
+  },
+
+  instances: {
+    create: config => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.CREATE, config),
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.LIST),
+    info: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.INFO, slug),
+    start: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.START, slug),
+    stop: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.STOP, slug),
+    delete: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.DELETE, slug),
+    openInVSCode: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.OPEN_VSCODE, slug),
+    runSetup: (slug, step) => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.SETUP_RUN, slug, step),
+    startProcess: (slug, target) =>
+      ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_START, slug, target),
+    stopProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_STOP, processId),
+    listProcesses: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_LIST, slug),
+    onEvent: callback => createEventListener(IPC_CHANNELS.INSTANCES.EVENTS, callback),
   },
 
   database: {

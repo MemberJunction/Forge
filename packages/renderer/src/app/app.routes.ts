@@ -34,6 +34,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/erd/erd.component').then(m => m.ErdComponent),
   },
   {
+    path: 'instances',
+    loadComponent: () =>
+      import('./features/instances/instances-panel.component').then(m => m.InstancesPanelComponent),
+  },
+  {
     path: '**',
     redirectTo: '',
   },

@@ -209,6 +209,25 @@ export const IPC_CHANNELS = {
     GET_ERROR_LOGS: 'mj:get-error-logs',
     GET_USER_RECORD_LOGS: 'mj:get-user-record-logs',
   },
+
+  // MJ Dev Manager — instance orchestration
+  INSTANCES: {
+    CREATE: 'instances:create',
+    LIST: 'instances:list',
+    INFO: 'instances:info',
+    START: 'instances:start',
+    STOP: 'instances:stop',
+    DELETE: 'instances:delete',
+    OPEN_VSCODE: 'instances:open-vscode',
+    // On-demand setup steps (deps | migrate | codegen | build | all)
+    SETUP_RUN: 'instances:setup-run',
+    // Process launcher / manager
+    PROC_START: 'instances:proc-start',
+    PROC_STOP: 'instances:proc-stop',
+    PROC_LIST: 'instances:proc-list',
+    // Streaming progress/log events (main -> renderer)
+    EVENTS: 'instances:events',
+  },
 } as const;
 
 export type IpcChannels = typeof IPC_CHANNELS;

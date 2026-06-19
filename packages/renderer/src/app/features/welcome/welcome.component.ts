@@ -81,6 +81,20 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             </mat-card>
 
             <mat-card
+              class="action-card"
+              tabindex="0"
+              role="button"
+              aria-label="MJ Dev Manager"
+              (click)="openInstances()"
+              (keydown.enter)="openInstances()"
+              (keydown.space)="openInstances(); $event.preventDefault()"
+            >
+              <mat-icon>dns</mat-icon>
+              <h3>MJ Dev Manager</h3>
+              <p>Spin up &amp; manage MJ instances</p>
+            </mat-card>
+
+            <mat-card
               class="action-card tour-card"
               tabindex="0"
               role="button"
@@ -609,6 +623,16 @@ export class WelcomeComponent implements OnInit {
       data: {} as ConnectionDialogData,
       width: '540px',
       maxHeight: '90vh',
+    });
+  }
+
+  async openInstances(): Promise<void> {
+    const { InstancesDialogComponent } = await import('../instances/instances-dialog.component');
+    this.dialog.open(InstancesDialogComponent, {
+      width: '1100px',
+      maxWidth: '95vw',
+      maxHeight: '90vh',
+      panelClass: 'mjdev-dialog',
     });
   }
 

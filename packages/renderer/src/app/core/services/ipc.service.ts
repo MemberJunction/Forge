@@ -83,6 +83,11 @@ import type {
   MJErrorLog,
   MJUserRecordLog,
   MJEntityRelationship,
+  InstanceRecord,
+  InstanceConfig,
+  InstanceEvent,
+  ManagedProcess,
+  SetupStep,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -481,6 +486,26 @@ interface ForgeAPI {
     onOpenSettings: (callback: () => void) => () => void;
     onShowShortcuts: (callback: () => void) => () => void;
   };
+
+  instances: {
+    create: (config: InstanceConfig) => Promise<InstanceRecord>;
+    list: () => Promise<InstanceRecord[]>;
+    info: (
+      slug: string
+    ) => Promise<{ record: InstanceRecord; containerState?: string; processes: ManagedProcess[] }>;
+    start: (slug: string) => Promise<InstanceRecord>;
+    stop: (slug: string) => Promise<InstanceRecord>;
+    delete: (slug: string) => Promise<{ success: boolean }>;
+    openInVSCode: (slug: string) => Promise<{ success: boolean; path: string }>;
+    runSetup: (slug: string, step: SetupStep | 'all') => Promise<InstanceRecord>;
+    startProcess: (
+      slug: string,
+      target: 'api' | 'explorer' | { script: string }
+    ) => Promise<ManagedProcess>;
+    stopProcess: (processId: string) => Promise<{ success: boolean }>;
+    listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
+    onEvent: (callback: (event: InstanceEvent) => void) => () => void;
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -501,6 +526,11 @@ export class IpcService {
 
   get isAvailable(): boolean {
     return this._isAvailable;
+  }
+
+  /** MJ Dev Manager instance-orchestration API. */
+  get instances() {
+    return this.api.instances;
   }
 
   constructor() {

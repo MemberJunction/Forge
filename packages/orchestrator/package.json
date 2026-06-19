@@ -1,0 +1,30 @@
+{
+  "name": "@mj-forge/orchestrator",
+  "version": "0.1.0",
+  "description": "Pure-Node orchestration engine for MJ Dev Manager — shared by the Forge GUI and the mjdev CLI",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "pretest": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mj-forge/shared": "1.0.0",
+    "dockerode": "^4.0.2",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.47",
+    "@types/node": "^20.11.5",
+    "typescript": "~5.4.5",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

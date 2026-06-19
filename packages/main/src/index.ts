@@ -17,6 +17,7 @@ import { AIService } from './services/ai/ai-service';
 import { CredentialStore } from './services/keychain/credential-store';
 import { SshTunnelManager } from './services/ssh/ssh-tunnel-manager';
 import { cleanupWorkspaceWatchers } from './ipc/workspace.ipc';
+import { disposeInstances } from './ipc/instances.ipc';
 
 const log = createLogger('App');
 
@@ -102,6 +103,13 @@ if (!gotTheLock) {
 
     cleanupWorkspaceWatchers();
     log.info('Shutdown: closed workspace file watchers');
+
+    try {
+      disposeInstances();
+    } catch {
+      /* orchestrator may not be initialized */
+    }
+    log.info('Shutdown: stopped managed instance processes');
 
     try {
       QueryExecutor.getInstance().cancelAll();

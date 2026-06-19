@@ -4,7 +4,8 @@
   "description": "Command-line interface for MJ Forge SQL Server management",
   "main": "dist/index.js",
   "bin": {
-    "forge": "./dist/index.js"
+    "forge": "./dist/index.js",
+    "mjdev": "./dist/mjdev.js"
   },
   "scripts": {
     "build": "tsc",
@@ -18,6 +19,8 @@
     "mssql"
   ],
   "dependencies": {
+    "@mj-forge/orchestrator": "0.1.0",
+    "@mj-forge/shared": "1.0.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "inquirer": "^8.2.6",

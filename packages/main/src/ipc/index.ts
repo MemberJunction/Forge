@@ -17,6 +17,7 @@ import { registerWorkspaceHandlers } from './workspace.ipc';
 import { registerSettingsHandlers } from './settings.ipc';
 import { registerChatHandlers } from './chat.ipc';
 import { registerLogHandlers } from './log.ipc';
+import { registerInstanceHandlers } from './instances.ipc';
 
 export function registerAllHandlers(): void {
   registerLogHandlers();
@@ -34,4 +35,5 @@ export function registerAllHandlers(): void {
   registerWorkspaceHandlers();
   registerSettingsHandlers();
   registerChatHandlers();
+  registerInstanceHandlers();
 }

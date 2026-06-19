@@ -33,3 +33,6 @@ export * from './cli-deps.types';
 
 // Diagnostics / logging types
 export * from './log.types';
+
+// MJ Dev Manager instance orchestration types
+export * from './instance.types';

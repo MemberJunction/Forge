@@ -15,6 +15,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@mj-forge/orchestrator": "*",
     "@mj-forge/shared": "*",
     "dockerode": "^4.0.2",
     "electron-store": "^8.2.0",
