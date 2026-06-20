@@ -7,7 +7,10 @@ import type {
   SetupStep,
 } from '@mj-forge/shared';
 import { resolvePaths, type OrchestratorOptions, type ResolvedPaths } from './paths.js';
+import type { DevPersona } from '@mj-forge/shared';
 import { InstanceStore } from './InstanceStore.js';
+import { PersonaStore } from './PersonaStore.js';
+import { IdentityManager } from './IdentityManager.js';
 import { PortAllocator } from './PortAllocator.js';
 import { DockerManager } from './DockerManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
@@ -24,6 +27,8 @@ import {
   newId,
   generatePassword,
   generateEncryptionKey,
+  generateApiToken,
+  generateRsaKeyPair,
 } from './util.js';
 
 export interface CreateResult {
@@ -38,6 +43,8 @@ export interface CreateResult {
 export class InstanceOrchestrator {
   readonly paths: ResolvedPaths;
   private readonly store: InstanceStore;
+  private readonly personas: PersonaStore;
+  private readonly identity: IdentityManager;
   private readonly docker: DockerManager;
   private readonly worktrees: WorktreeManager;
   private readonly config: ConfigWriter;
@@ -47,7 +54,9 @@ export class InstanceOrchestrator {
   constructor(options: OrchestratorOptions = {}, docker?: DockerManager) {
     this.paths = resolvePaths(options);
     this.store = new InstanceStore(this.paths);
+    this.personas = new PersonaStore(this.paths);
     this.docker = docker ?? new DockerManager();
+    this.identity = new IdentityManager(this.store, this.personas, this.docker);
     this.worktrees = new WorktreeManager(this.paths.mjRepoPath);
     this.config = new ConfigWriter();
     this.setup = new SetupRunner();
@@ -109,6 +118,9 @@ export class InstanceOrchestrator {
       codegenUsername: 'MJ_CodeGen',
       codegenPassword: generatePassword(),
       encryptionKey: generateEncryptionKey(),
+      // Phase 2 local dev auth: system Owner key + magic-link signing key.
+      systemApiKey: generateApiToken(),
+      magicLinkPrivateKey: generateRsaKeyPair(),
     };
 
     const record: InstanceRecord = {
@@ -246,7 +258,85 @@ export class InstanceOrchestrator {
     await this.store.remove(slug);
     await this.store.deleteConfig(slug);
     await this.store.deleteSecrets(record.secretsRef);
+    await this.store.deleteMintedKeys(record.secretsRef);
     emit(sink, slug, 'delete', 'success', 'Instance deleted');
+  }
+
+  // ── Developer identity (Phase 2) ──────────────────────────────────────────
+
+  listPersonas(): Promise<DevPersona[]> {
+    return this.personas.list();
+  }
+
+  getActivePersona(): Promise<DevPersona | undefined> {
+    return this.personas.getActive();
+  }
+
+  savePersona(persona: Omit<DevPersona, 'id'> & { id?: string }): Promise<DevPersona> {
+    return this.personas.save(persona);
+  }
+
+  removePersona(id: string): Promise<void> {
+    return this.personas.remove(id);
+  }
+
+  setActivePersona(id: string): Promise<void> {
+    return this.personas.setActive(id);
+  }
+
+  /** Set or clear ({@link id} = undefined) an instance's persona override. */
+  async setInstancePersona(slug: string, id: string | undefined): Promise<InstanceRecord> {
+    const record = await this.requireRecord(slug);
+    record.personaId = id;
+    await this.store.upsert(record);
+    return record;
+  }
+
+  /** The persona an instance currently acts as (override or global active). */
+  async whoami(slug: string): Promise<DevPersona> {
+    return this.identity.resolvePersona(await this.requireRecord(slug));
+  }
+
+  /** Mint (or return the cached) `mj_sk_*` API key for the instance's persona. */
+  async mintApiKey(slug: string, sink: EventSink = noopSink, force = false): Promise<string> {
+    const record = await this.requireRecord(slug);
+    const persona = await this.identity.resolvePersona(record);
+    return this.identity.mintApiKey(record, persona, sink, force);
+  }
+
+  /** Mint a magic-link session and return a logged-in Explorer URL. */
+  async openExplorerAs(slug: string, sink: EventSink = noopSink): Promise<string> {
+    const record = await this.requireRecord(slug);
+    const persona = await this.identity.resolvePersona(record);
+    return this.identity.openExplorerAs(record, persona, sink);
+  }
+
+  /**
+   * Regenerate an existing instance's config files and backfill any missing
+   * auth secrets (system API key, magic-link signing key). Lets instances
+   * created before Phase 2 pick up `.env`/`mj.config.cjs`/Explorer auth without
+   * re-provisioning. Returns the paths written.
+   */
+  async regenerateConfig(slug: string, sink: EventSink = noopSink): Promise<string[]> {
+    const record = await this.requireRecord(slug);
+    const current = await this.store.getSecrets(record.secretsRef);
+    if (!current) throw new Error(`No secrets found for instance "${slug}"`);
+    const secrets: InstanceSecrets = {
+      ...current,
+      systemApiKey: current.systemApiKey || generateApiToken(),
+      magicLinkPrivateKey: current.magicLinkPrivateKey || generateRsaKeyPair(),
+    };
+    if (
+      secrets.systemApiKey !== current.systemApiKey ||
+      secrets.magicLinkPrivateKey !== current.magicLinkPrivateKey
+    ) {
+      await this.store.setSecrets(record.secretsRef, secrets);
+    }
+    const written = await this.config.write(record.worktreePath, record, secrets);
+    record.setup.configWritten = true;
+    await this.store.upsert(record);
+    emit(sink, slug, 'config', 'success', `Regenerated ${written.length} config file(s)`);
+    return written;
   }
 
   // ── Setup steps ───────────────────────────────────────────────────────────

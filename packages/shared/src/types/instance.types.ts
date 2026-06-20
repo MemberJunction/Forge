@@ -56,6 +56,15 @@ export interface InstanceRecord {
   secretsRef: string;
   status: InstanceStatus;
   setup: InstanceSetupState;
+  /**
+   * Per-instance developer-persona override (Phase 2). When set, this instance
+   * authenticates as the named {@link DevPersona} instead of the globally
+   * active persona — letting a developer test a single instance as a different
+   * user without affecting the global default or any other instance. When
+   * unset, the instance falls back to the active persona in `personas.json`.
+   * Changing it re-mints that instance's credentials on next use.
+   */
+  personaId?: string;
   /** Node version spec to run setup/build/serve under (`'auto'` = highest installed). */
   node?: string;
   /** ISO-8601 creation timestamp. */
@@ -101,6 +110,58 @@ export interface InstanceSecrets {
   /** Base64-encoded 256-bit key for MJ field-level encryption
    *  (`MJ_BASE_ENCRYPTION_KEY`). Auto-generated per instance. */
   encryptionKey: string;
+  /**
+   * System API key for the instance (`MJ_API_KEY`). Authenticates as MJ's
+   * system Owner user via the `x-mj-api-key` header — the privileged caller the
+   * dev tool uses to issue magic-link invites. Auto-generated per instance (Phase 2).
+   */
+  systemApiKey?: string;
+  /**
+   * Base64-encoded PEM RSA private key (`MJ_MAGIC_LINK_PRIVATE_KEY`) MJAPI uses
+   * to sign magic-link session JWTs. Generated per instance so sessions survive
+   * MJAPI restarts (Phase 2).
+   */
+  magicLinkPrivateKey?: string;
+}
+
+/**
+ * A named developer identity (Phase 2). The mjdev app manages a small roster of
+ * these in `~/.mjdev/personas.json`; one is the globally active persona, and an
+ * instance may override it via {@link InstanceRecord.personaId}. Each persona
+ * maps to a single MJ User (by `email`) and drives both the browser magic-link
+ * session and the minted `mj_sk_*` API key for CLI/agents.
+ */
+export interface DevPersona {
+  id: string;
+  /** Display name shown in pickers, e.g. "Admin" or "Viewer". */
+  name: string;
+  /** Dev email — the unique key for the underlying MJ User, e.g. admin@mjdev.local. */
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  /** MJ role names to grant the user (resolved to `__mj.Role` rows by name). */
+  roles: string[];
+}
+
+/** Roster file persisted at `~/.mjdev/personas.json`. */
+export interface PersonaRoster {
+  personas: DevPersona[];
+  /** Id of the globally active persona, if one has been chosen. */
+  activePersonaId?: string;
+}
+
+/**
+ * A minted, persisted user API key (`mj_sk_*`) for a given instance + persona,
+ * stored under `~/.mjdev/secrets.json` so it is reused for the whole session
+ * rather than re-minted. Keyed `apiKeys[secretsRef][personaId]`.
+ */
+export interface MintedApiKey {
+  /** The raw `mj_sk_*` key (only the SHA-256 hash lives in the instance DB). */
+  rawKey: string;
+  /** Id of the `__mj.APIKey` row, for later revocation. */
+  apiKeyId: string;
+  /** ISO-8601 timestamp the key was minted. */
+  mintedAt: string;
 }
 
 /** Severity/kind of an orchestration progress event. */

@@ -6,13 +6,20 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import type { InstanceConfig, SetupStep } from '@mj-forge/shared';
+import type { DevPersona, InstanceConfig, SetupStep } from '@mj-forge/shared';
 import { InstancesStateService } from '../../core/state/instances.state';
+import { IdentityStateService } from '../../core/state/identity.state';
 
 interface CreateForm {
   name: string;
   branch: string;
   baseRef: string;
+}
+
+interface PersonaForm {
+  name: string;
+  email: string;
+  roles: string;
 }
 
 /**
@@ -44,6 +51,79 @@ interface CreateForm {
             <mat-icon>add</mat-icon>
           </button>
         </header>
+
+        <!-- Active developer identity (Phase 2) -->
+        <div class="identity-bar">
+          <label class="who">
+            <span>Identity</span>
+            <select
+              [ngModel]="identity.activePersona()?.id || ''"
+              (ngModelChange)="setActivePersona($event)"
+              name="activePersona"
+            >
+              @for (p of identity.personas(); track p.id) {
+                <option [value]="p.id">{{ p.name }} ({{ p.email }})</option>
+              } @empty {
+                <option value="" disabled>No personas yet</option>
+              }
+            </select>
+          </label>
+          <button mat-icon-button matTooltip="Manage personas" (click)="toggleManagePersonas()">
+            <mat-icon>manage_accounts</mat-icon>
+          </button>
+        </div>
+
+        @if (managingPersonas()) {
+          <div class="persona-manage">
+            <ul class="persona-list">
+              @for (p of identity.personas(); track p.id) {
+                <li>
+                  <span
+                    >{{ p.name }} <small>{{ p.email }}</small></span
+                  >
+                  <button mat-icon-button matTooltip="Delete" (click)="confirmDeletePersona(p)">
+                    <mat-icon>delete</mat-icon>
+                  </button>
+                </li>
+              }
+            </ul>
+            <form class="create" (ngSubmit)="submitPersona()">
+              <h3>Add persona</h3>
+              <label
+                >Name<input
+                  [(ngModel)]="personaForm.name"
+                  name="pname"
+                  placeholder="Admin"
+                  required
+              /></label>
+              <label
+                >Email<input
+                  [(ngModel)]="personaForm.email"
+                  name="pemail"
+                  placeholder="admin@mjdev.local"
+                  required
+              /></label>
+              <label
+                >Roles <small>(comma-separated)</small
+                ><input [(ngModel)]="personaForm.roles" name="proles" placeholder="Owner"
+              /></label>
+              <div class="row">
+                <button
+                  mat-flat-button
+                  color="primary"
+                  type="submit"
+                  [disabled]="!personaForm.name || !personaForm.email || identity.busy()"
+                >
+                  Add persona
+                </button>
+              </div>
+              <p class="hint">
+                Dev users (not real accounts). Use <code>Owner</code> for full access, or names like
+                <code>Developer, UI</code> to test limited roles.
+              </p>
+            </form>
+          </div>
+        }
 
         @if (creating()) {
           <form class="create" (ngSubmit)="submitCreate()">
@@ -169,6 +249,47 @@ interface CreateForm {
                 <dt>Container</dt>
                 <dd>{{ inst.container.name }}</dd>
               </dl>
+            </div>
+
+            <!-- Identity (Phase 2) -->
+            <div class="card">
+              <h3>Identity</h3>
+              <label class="who">
+                <span>Acts as</span>
+                <select
+                  [ngModel]="inst.personaId || ''"
+                  (ngModelChange)="changeInstancePersona(inst.slug, $event)"
+                  name="instPersona"
+                >
+                  <option value="">
+                    Use active ({{ identity.activePersona()?.name || 'none' }})
+                  </option>
+                  @for (p of identity.personas(); track p.id) {
+                    <option [value]="p.id">{{ p.name }} ({{ p.email }})</option>
+                  }
+                </select>
+              </label>
+              <div class="row wrap">
+                <button
+                  mat-flat-button
+                  color="primary"
+                  (click)="identity.openExplorer(inst.slug)"
+                  [disabled]="identity.busy()"
+                >
+                  <mat-icon>open_in_browser</mat-icon> Open Explorer as…
+                </button>
+                <button
+                  mat-stroked-button
+                  (click)="identity.copyApiKey(inst.slug)"
+                  [disabled]="identity.busy()"
+                >
+                  <mat-icon>key</mat-icon> Copy API key
+                </button>
+              </div>
+              <p class="hint">
+                Open Explorer needs MJAPI running. The API key is for CLI/agents
+                (<code>x-api-key</code>).
+              </p>
             </div>
 
             <!-- Setup steps -->
@@ -392,6 +513,50 @@ interface CreateForm {
         font-size: 11px;
         margin: 0;
       }
+      .identity-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-color, #333);
+      }
+      .who {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 11px;
+        flex: 1;
+        color: var(--text-secondary, #888);
+      }
+      .who select {
+        background: var(--bg-input, #1e1e1e);
+        border: 1px solid var(--border-color, #444);
+        color: var(--text-primary, #eee);
+        padding: 5px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      .persona-manage {
+        border-bottom: 1px solid var(--border-color, #333);
+      }
+      .persona-list {
+        list-style: none;
+        margin: 0;
+        padding: 4px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .persona-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+      }
+      .persona-list small {
+        color: var(--text-secondary, #888);
+        margin-left: 4px;
+      }
       .detail {
         overflow: auto;
         padding: 16px;
@@ -572,10 +737,13 @@ interface CreateForm {
 })
 export class InstancesPanelComponent implements OnInit, OnDestroy {
   readonly state = inject(InstancesStateService);
+  readonly identity = inject(IdentityStateService);
 
   readonly creating = signal(false);
   readonly showSetupPrompt = signal(false);
+  readonly managingPersonas = signal(false);
   form: CreateForm = { name: '', branch: '', baseRef: '' };
+  personaForm: PersonaForm = { name: '', email: '', roles: 'Owner' };
 
   readonly steps: { key: SetupStep; label: string }[] = [
     { key: 'deps', label: 'Install dependencies' },
@@ -587,6 +755,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.state.startListening();
     void this.state.refresh();
+    void this.identity.refresh();
   }
 
   ngOnDestroy(): void {
@@ -633,5 +802,39 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     if (confirm(`Delete instance "${slug}"? This removes its container, volume, and worktree.`)) {
       void this.state.delete(slug);
     }
+  }
+
+  // ── Developer identity (Phase 2) ──────────────────────────────────────────
+
+  toggleManagePersonas(): void {
+    this.managingPersonas.update(v => !v);
+  }
+
+  async submitPersona(): Promise<void> {
+    const name = this.personaForm.name.trim();
+    const email = this.personaForm.email.trim();
+    if (!name || !email) return;
+    const roles = this.personaForm.roles
+      .split(',')
+      .map(r => r.trim())
+      .filter(Boolean);
+    const saved = await this.identity.savePersona({ id: '', name, email, roles } as DevPersona);
+    if (saved) this.personaForm = { name: '', email: '', roles: 'Owner' };
+  }
+
+  async setActivePersona(id: string): Promise<void> {
+    if (id) await this.identity.setActive(id);
+  }
+
+  confirmDeletePersona(p: DevPersona): void {
+    if (confirm(`Delete persona "${p.name}" (${p.email})?`)) {
+      void this.identity.deletePersona(p.id);
+    }
+  }
+
+  /** Per-instance persona override; empty string clears it (use active). */
+  async changeInstancePersona(slug: string, personaId: string): Promise<void> {
+    await this.identity.setInstancePersona(slug, personaId || undefined);
+    await this.state.refresh();
   }
 }

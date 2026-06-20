@@ -22,6 +22,10 @@ export interface ResolvedPaths {
   instancesFile: string;
   instancesDir: string;
   secretsFile: string;
+  /** Developer-persona roster (`~/.mjdev/personas.json`). */
+  personasFile: string;
+  /** Minted per-instance/per-persona API keys (`~/.mjdev/apikeys.json`, 0600). */
+  apiKeysFile: string;
 }
 
 /** Default MJ repo location; override via options or the `MJDEV_MJ_REPO` env var. */
@@ -41,5 +45,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
     instancesFile: path.join(configDir, 'instances.json'),
     instancesDir: path.join(configDir, 'instances'),
     secretsFile: path.join(configDir, 'secrets.json'),
+    personasFile: path.join(configDir, 'personas.json'),
+    apiKeysFile: path.join(configDir, 'apikeys.json'),
   };
 }

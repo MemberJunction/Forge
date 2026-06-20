@@ -18,6 +18,7 @@ import { registerSettingsHandlers } from './settings.ipc';
 import { registerChatHandlers } from './chat.ipc';
 import { registerLogHandlers } from './log.ipc';
 import { registerInstanceHandlers } from './instances.ipc';
+import { registerIdentityHandlers } from './identity.ipc';
 
 export function registerAllHandlers(): void {
   registerLogHandlers();
@@ -36,4 +37,5 @@ export function registerAllHandlers(): void {
   registerSettingsHandlers();
   registerChatHandlers();
   registerInstanceHandlers();
+  registerIdentityHandlers();
 }

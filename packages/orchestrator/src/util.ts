@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, generateKeyPairSync } from 'node:crypto';
 import type { InstanceEvent, InstanceEventLevel } from '@mj-forge/shared';
 
 /** A sink for streamed progress events. The GUI forwards these over IPC; the
@@ -46,6 +46,30 @@ export function newId(): string {
  */
 export function generateEncryptionKey(): string {
   return randomBytes(32).toString('base64');
+}
+
+/**
+ * Generate a high-entropy opaque token for the instance's system API key
+ * (`MJ_API_KEY`). URL/header-safe (base64url, no padding) so it drops cleanly
+ * into an `x-mj-api-key` header and a `.env` value.
+ */
+export function generateApiToken(): string {
+  return randomBytes(32).toString('base64url');
+}
+
+/**
+ * Generate an RSA-2048 key pair for signing magic-link session JWTs and return
+ * the PEM private key base64-encoded, the form MJAPI expects in
+ * `MJ_MAGIC_LINK_PRIVATE_KEY`. Generating it per instance keeps issued sessions
+ * valid across MJAPI restarts (an unset key makes MJAPI mint an ephemeral one).
+ */
+export function generateRsaKeyPair(): string {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  });
+  return Buffer.from(privateKey).toString('base64');
 }
 
 /**

@@ -242,4 +242,160 @@ program
     }
   });
 
+// ── Developer identity / persona auth (Phase 2) ──────────────────────────────
+
+const persona = program
+  .command('persona')
+  .description('Manage developer personas (dev identities)');
+
+persona
+  .command('list')
+  .description('List developer personas')
+  .option('--json', 'machine-readable output')
+  .action(async (opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const eng = engine();
+      const [personas, active] = await Promise.all([eng.listPersonas(), eng.getActivePersona()]);
+      emitResult(json, { success: true, personas, activePersonaId: active?.id }, () => {
+        if (personas.length === 0)
+          return console.log(chalk.gray('No personas. Add one with `mjdev persona add`.'));
+        for (const p of personas) {
+          const star = p.id === active?.id ? chalk.green(' (active)') : '';
+          console.log(
+            `${chalk.bold(p.name)}  ${chalk.gray(p.email)}  [${p.roles.join(', ') || 'no roles'}]${star}`
+          );
+        }
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+persona
+  .command('add')
+  .description('Create a developer persona')
+  .requiredOption('--name <name>', 'display name, e.g. "Admin"')
+  .requiredOption('--email <email>', 'dev email, e.g. admin@mjdev.local')
+  .option('--roles <roles>', 'comma-separated MJ role names (use "Owner" for full access)', 'Owner')
+  .option('--json', 'machine-readable output')
+  .action(async (opts: { name: string; email: string; roles: string; json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const roles = opts.roles
+        .split(',')
+        .map(r => r.trim())
+        .filter(Boolean);
+      const saved = await engine().savePersona({ name: opts.name, email: opts.email, roles });
+      emitResult(json, { success: true, persona: saved }, () =>
+        console.log(chalk.green(`✓ Added persona "${saved.name}" (${saved.email})`))
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+persona
+  .command('remove')
+  .description('Delete a developer persona')
+  .argument('<id>')
+  .option('--json', 'machine-readable output')
+  .action(async (id: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      await engine().removePersona(id);
+      emitResult(json, { success: true, id }, () =>
+        console.log(chalk.green(`✓ Removed persona ${id}`))
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('login')
+  .description('Set the globally active developer persona')
+  .argument('<id>', 'persona id (see `mjdev persona list`)')
+  .option('--json', 'machine-readable output')
+  .action(async (id: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      await engine().setActivePersona(id);
+      const active = await engine().getActivePersona();
+      emitResult(json, { success: true, active }, () =>
+        console.log(chalk.green(`✓ Active persona: ${active?.name} (${active?.email})`))
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('whoami')
+  .description('Show the active persona, or the persona an instance acts as')
+  .argument('[slug]', 'optional instance slug for its effective persona')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string | undefined, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const who = slug ? await engine().whoami(slug) : await engine().getActivePersona();
+      emitResult(json, { success: true, persona: who }, () => {
+        if (!who) return console.log(chalk.gray('No active persona. Run `mjdev login <id>`.'));
+        console.log(`${chalk.bold(who.name)}  ${chalk.gray(who.email)}`);
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('key')
+  .description(
+    "Print the instance's mj_sk_* API key for the active/override persona (mints if needed)"
+  )
+  .argument('<slug>')
+  .option('--force', 're-mint a new key even if one exists')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { force?: boolean; json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const rawKey = await engine().mintApiKey(slug, makeSink(json), !!opts.force);
+      emitResult(json, { success: true, rawKey }, () => console.log(rawKey));
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('explorer-url')
+  .description('Mint a magic-link session and print a logged-in Explorer URL (needs MJAPI running)')
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const url = await engine().openExplorerAs(slug, makeSink(json));
+      emitResult(json, { success: true, url }, () => console.log(url));
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('backfill')
+  .description('Regenerate config + auth secrets for an existing instance (pre-Phase-2 instances)')
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const written = await engine().regenerateConfig(slug, makeSink(json));
+      emitResult(json, { success: true, written }, () =>
+        console.log(chalk.green(`✓ Regenerated ${written.length} config file(s) for ${slug}`))
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
 program.parseAsync().catch(err => fail(false, err));

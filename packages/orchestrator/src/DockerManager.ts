@@ -138,18 +138,38 @@ export class DockerManager {
     emit(sink, slug, 'docker', 'success', 'Database, logins, and roles created');
   }
 
+  /**
+   * Run a scalar-returning query and return the trimmed single value (or
+   * undefined if the query produced no rows). Uses `-h -1` to suppress headers
+   * so the output is just the value. Throws on sqlcmd failure.
+   */
+  async queryScalar(name: string, saPassword: string, sql: string): Promise<string | undefined> {
+    const { code, output } = await this.runSqlcmd(name, saPassword, sql, ['-h', '-1']);
+    if (code !== 0) {
+      const tail = output.trim().split('\n').slice(-6).join('\n');
+      throw new Error(`Query failed (sqlcmd exit ${code}): ${tail}`);
+    }
+    const value = output
+      .split('\n')
+      .map(l => l.trim())
+      .find(l => l.length > 0 && l !== 'NULL');
+    return value;
+  }
+
   /** Run sqlcmd inside the container, returning exit code + combined output. */
   private async runSqlcmd(
     name: string,
     saPassword: string,
-    sql: string
+    sql: string,
+    extraArgs: string[] = []
   ): Promise<{ code: number; output: string }> {
     // Locate sqlcmd across image variants (tools18 / tools); trust dev cert (-C),
     // stop on error (-b), bounded login timeout (-l). Args via env to avoid quoting.
+    const extra = extraArgs.length ? ` ${extraArgs.join(' ')}` : '';
     const command =
       'for p in "$(command -v sqlcmd)" /opt/mssql-tools18/bin/sqlcmd /opt/mssql-tools/bin/sqlcmd; do ' +
       '[ -x "$p" ] && SQLCMD="$p" && break; done; ' +
-      '"$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -l 5 -Q "$SETUP_SQL"';
+      `"$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -l 5${extra} -Q "$SETUP_SQL"`;
     return this.execInContainer(name, [`SA_PASSWORD=${saPassword}`, `SETUP_SQL=${sql}`], command);
   }
 

@@ -30,6 +30,8 @@ const secrets: InstanceSecrets = {
   codegenUsername: 'MJ_CodeGen',
   codegenPassword: 'P@ssw0rd-CodeGen',
   encryptionKey: 'dGVzdC1lbmNyeXB0aW9uLWtleS1iYXNlNjQtMzJieXRlcw==',
+  systemApiKey: 'sys-api-key-abc123',
+  magicLinkPrivateKey: 'YmFzZTY0LXBlbS1wcml2YXRlLWtleQ==',
 };
 
 describe('ConfigWriter.renderEnv', () => {
@@ -63,6 +65,14 @@ describe('ConfigWriter.renderEnv', () => {
   it('seeds user-cache bootstrap defaults', () => {
     expect(env).toContain('UPDATE_USER_CACHE_WHEN_NOT_FOUND=1');
   });
+  it('writes the system API key + magic-link signing key for local dev auth', () => {
+    expect(env).toContain('MJ_API_KEY=sys-api-key-abc123');
+    expect(env).toContain('MJ_MAGIC_LINK_PRIVATE_KEY=YmFzZTY0LXBlbS1wcml2YXRlLWtleQ==');
+  });
+  it('leaves the external IdP block empty (deferred)', () => {
+    expect(env).toContain('WEB_CLIENT_ID=\n');
+    expect(env).toContain('AUTH0_DOMAIN=\n');
+  });
 });
 
 describe('ConfigWriter.renderExplorerEnv', () => {
@@ -73,7 +83,29 @@ describe('ConfigWriter.renderExplorerEnv', () => {
   it('targets the instance Explorer port for redirect', () => {
     expect(ts).toContain('http://localhost:4210/');
   });
+  it('selects the self-contained magic-link auth provider', () => {
+    expect(ts).toContain('"AUTH_TYPE": "magic-link"');
+  });
   it('exports an environment object', () => {
     expect(ts).toContain('export const environment =');
+  });
+});
+
+describe('ConfigWriter.renderMjConfig', () => {
+  const cfg = ConfigWriter.renderMjConfig(record);
+  it('spreads the copied tracked base config', () => {
+    expect(cfg).toContain("require('./mj.config.mjdev-base.cjs')");
+    expect(cfg).toContain('...base');
+  });
+  it('enables magic-link for the instance', () => {
+    expect(cfg).toContain('enabled: true');
+  });
+  it('points explorerUrl at the per-instance Explorer port (not the hardcoded 4201)', () => {
+    expect(cfg).toContain("explorerUrl: 'http://localhost:4210'");
+    expect(cfg).not.toContain('4201');
+  });
+  it('grants capable dev roles and relaxes the provisioning guard', () => {
+    expect(cfg).toContain('grantableRoleNames');
+    expect(cfg).toContain("provisioningGuard: 'warn'");
   });
 });

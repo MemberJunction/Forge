@@ -7,6 +7,20 @@ export { WorktreeManager } from './WorktreeManager.js';
 export { ConfigWriter } from './ConfigWriter.js';
 export { buildSetupScript } from './dbBootstrap.js';
 export type { DbSetupParams } from './dbBootstrap.js';
+export { PersonaStore } from './PersonaStore.js';
+export { IdentityManager } from './IdentityManager.js';
+export { MagicLinkClient } from './magicLinkClient.js';
+export type { FetchLike, CreateInviteParams, RedeemResult } from './magicLinkClient.js';
+export {
+  API_KEY_PREFIX,
+  MJ_SYSTEM_USER_ID,
+  generateUserApiKey,
+  hashApiKey,
+  buildUserUpsertSql,
+  buildApiKeyInsertSql,
+  newApiKeyId,
+} from './apiKeyMint.js';
+export type { GeneratedApiKey, UserUpsertParams, ApiKeyInsertParams } from './apiKeyMint.js';
 export {
   listInstalledNodes,
   resolveNode,
@@ -25,6 +39,8 @@ export {
   slugify,
   generatePassword,
   generateEncryptionKey,
+  generateApiToken,
+  generateRsaKeyPair,
   type EventSink,
   noopSink,
 } from './util.js';

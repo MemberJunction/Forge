@@ -89,6 +89,7 @@ import type {
   InstanceEvent,
   ManagedProcess,
   SetupStep,
+  DevPersona,
 } from '@mj-forge/shared';
 
 /**
@@ -536,6 +537,19 @@ export interface ForgeAPI {
     /** Subscribe to streamed progress/log events; returns an unsubscribe fn. */
     onEvent: (callback: (event: InstanceEvent) => void) => () => void;
   };
+
+  /** MJ Dev Manager — developer identity / persona auth (Phase 2). */
+  identity: {
+    listPersonas: () => Promise<DevPersona[]>;
+    savePersona: (persona: DevPersona) => Promise<DevPersona>;
+    deletePersona: (id: string) => Promise<{ success: boolean }>;
+    getActive: () => Promise<DevPersona | undefined>;
+    setActive: (id: string) => Promise<{ success: boolean }>;
+    setInstancePersona: (slug: string, personaId: string | undefined) => Promise<InstanceRecord>;
+    whoami: (slug: string) => Promise<DevPersona>;
+    mintKey: (slug: string, force?: boolean) => Promise<{ rawKey: string }>;
+    openExplorer: (slug: string) => Promise<{ success: boolean; url: string }>;
+  };
 }
 
 // Helper to create event listener cleanup functions
@@ -645,6 +659,19 @@ const forgeAPI: ForgeAPI = {
     stopProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_STOP, processId),
     listProcesses: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_LIST, slug),
     onEvent: callback => createEventListener(IPC_CHANNELS.INSTANCES.EVENTS, callback),
+  },
+
+  identity: {
+    listPersonas: () => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.PERSONA_LIST),
+    savePersona: persona => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.PERSONA_SAVE, persona),
+    deletePersona: id => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.PERSONA_DELETE, id),
+    getActive: () => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.ACTIVE_GET),
+    setActive: id => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.ACTIVE_SET, id),
+    setInstancePersona: (slug, personaId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.INSTANCE_PERSONA_SET, slug, personaId),
+    whoami: slug => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.WHOAMI, slug),
+    mintKey: (slug, force) => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.MINT_KEY, slug, force),
+    openExplorer: slug => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.OPEN_EXPLORER, slug),
   },
 
   database: {

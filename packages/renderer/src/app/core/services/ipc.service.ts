@@ -88,6 +88,7 @@ import type {
   InstanceEvent,
   ManagedProcess,
   SetupStep,
+  DevPersona,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -506,6 +507,18 @@ interface ForgeAPI {
     listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
     onEvent: (callback: (event: InstanceEvent) => void) => () => void;
   };
+
+  identity: {
+    listPersonas: () => Promise<DevPersona[]>;
+    savePersona: (persona: DevPersona) => Promise<DevPersona>;
+    deletePersona: (id: string) => Promise<{ success: boolean }>;
+    getActive: () => Promise<DevPersona | undefined>;
+    setActive: (id: string) => Promise<{ success: boolean }>;
+    setInstancePersona: (slug: string, personaId: string | undefined) => Promise<InstanceRecord>;
+    whoami: (slug: string) => Promise<DevPersona>;
+    mintKey: (slug: string, force?: boolean) => Promise<{ rawKey: string }>;
+    openExplorer: (slug: string) => Promise<{ success: boolean; url: string }>;
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -531,6 +544,11 @@ export class IpcService {
   /** MJ Dev Manager instance-orchestration API. */
   get instances() {
     return this.api.instances;
+  }
+
+  /** MJ Dev Manager developer-identity / persona API (Phase 2). */
+  get identity() {
+    return this.api.identity;
   }
 
   constructor() {

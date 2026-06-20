@@ -1,7 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import type { InstanceConfig, InstanceRecord, InstanceSecrets } from '@mj-forge/shared';
+import type {
+  InstanceConfig,
+  InstanceRecord,
+  InstanceSecrets,
+  MintedApiKey,
+} from '@mj-forge/shared';
 import type { ResolvedPaths } from './paths.js';
 
 interface InstancesFile {
@@ -10,6 +15,8 @@ interface InstancesFile {
 }
 
 type SecretsFile = Record<string, InstanceSecrets>;
+/** Minted user API keys, indexed `[secretsRef][personaId]`. */
+type ApiKeysFile = Record<string, Record<string, MintedApiKey>>;
 
 /**
  * Owns all on-disk state: the `instances.json` record list, per-instance YAML
@@ -127,6 +134,39 @@ export class InstanceStore {
     if (ref in all) {
       delete all[ref];
       await this.atomicWrite(this.paths.secretsFile, JSON.stringify(all, null, 2), 0o600);
+    }
+  }
+
+  // ── Minted API keys (per instance + persona) ──────────────────────────
+
+  private async readApiKeysFile(): Promise<ApiKeysFile> {
+    try {
+      return JSON.parse(await fs.readFile(this.paths.apiKeysFile, 'utf8')) as ApiKeysFile;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      throw err;
+    }
+  }
+
+  /** The persisted API key for an instance + persona, if one has been minted. */
+  async getMintedKey(ref: string, personaId: string): Promise<MintedApiKey | undefined> {
+    return (await this.readApiKeysFile())[ref]?.[personaId];
+  }
+
+  /** Persist a minted API key so it's reused for the session, not re-minted. */
+  async setMintedKey(ref: string, personaId: string, key: MintedApiKey): Promise<void> {
+    await this.ensureDirs();
+    const all = await this.readApiKeysFile();
+    (all[ref] ??= {})[personaId] = key;
+    await this.atomicWrite(this.paths.apiKeysFile, JSON.stringify(all, null, 2), 0o600);
+  }
+
+  /** Drop all minted keys for an instance (on delete). */
+  async deleteMintedKeys(ref: string): Promise<void> {
+    const all = await this.readApiKeysFile();
+    if (ref in all) {
+      delete all[ref];
+      await this.atomicWrite(this.paths.apiKeysFile, JSON.stringify(all, null, 2), 0o600);
     }
   }
 }

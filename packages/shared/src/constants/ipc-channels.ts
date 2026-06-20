@@ -228,6 +228,23 @@ export const IPC_CHANNELS = {
     // Streaming progress/log events (main -> renderer)
     EVENTS: 'instances:events',
   },
+
+  // MJ Dev Manager — developer identity / persona auth (Phase 2)
+  IDENTITY: {
+    PERSONA_LIST: 'identity:persona-list',
+    PERSONA_SAVE: 'identity:persona-save',
+    PERSONA_DELETE: 'identity:persona-delete',
+    ACTIVE_GET: 'identity:active-get',
+    ACTIVE_SET: 'identity:active-set',
+    // Per-instance persona override (set/clear)
+    INSTANCE_PERSONA_SET: 'identity:instance-persona-set',
+    // Mint (or return cached) mj_sk_* API key for an instance's persona
+    MINT_KEY: 'identity:mint-key',
+    // Mint a magic-link session and return a logged-in Explorer URL
+    OPEN_EXPLORER: 'identity:open-explorer',
+    // The persona an instance currently acts as
+    WHOAMI: 'identity:whoami',
+  },
 } as const;
 
 export type IpcChannels = typeof IPC_CHANNELS;

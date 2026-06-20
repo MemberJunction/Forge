@@ -22,8 +22,8 @@ function broadcast(event: InstanceEvent): void {
   }
 }
 
-/** Lazily create the shared orchestrator singleton. */
-function getOrchestrator(): InstanceOrchestrator {
+/** Lazily create the shared orchestrator singleton (shared with identity.ipc). */
+export function getOrchestrator(): InstanceOrchestrator {
   if (!orchestrator) orchestrator = new InstanceOrchestrator();
   return orchestrator;
 }
