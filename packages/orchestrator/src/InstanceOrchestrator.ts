@@ -16,7 +16,15 @@ import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.j
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
 import { buildSetupScript } from './dbBootstrap.js';
 import { resolveNodeForWorktree, envWithNode } from './nodeEnv.js';
-import { emit, type EventSink, noopSink, slugify, newId, generatePassword } from './util.js';
+import {
+  emit,
+  type EventSink,
+  noopSink,
+  slugify,
+  newId,
+  generatePassword,
+  generateEncryptionKey,
+} from './util.js';
 
 export interface CreateResult {
   record: InstanceRecord;
@@ -100,6 +108,7 @@ export class InstanceOrchestrator {
       dbPassword: generatePassword(),
       codegenUsername: 'MJ_CodeGen',
       codegenPassword: generatePassword(),
+      encryptionKey: generateEncryptionKey(),
     };
 
     const record: InstanceRecord = {

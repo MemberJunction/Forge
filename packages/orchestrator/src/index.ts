@@ -21,6 +21,12 @@ export { ProcessManager } from './ProcessManager.js';
 export type { LaunchTarget } from './ProcessManager.js';
 export { resolvePaths } from './paths.js';
 export type { OrchestratorOptions, ResolvedPaths } from './paths.js';
-export { slugify, generatePassword, type EventSink, noopSink } from './util.js';
+export {
+  slugify,
+  generatePassword,
+  generateEncryptionKey,
+  type EventSink,
+  noopSink,
+} from './util.js';
 export { run, runOrThrow } from './exec.js';
 export type { RunResult, RunOptions } from './exec.js';

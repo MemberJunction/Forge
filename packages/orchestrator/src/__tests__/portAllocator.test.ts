@@ -30,9 +30,23 @@ describe('PortAllocator.allocate', () => {
 });
 
 describe('PortAllocator.isFree', () => {
-  it('reports a bound port as not free', async () => {
+  it('reports a port bound on IPv4 as not free', async () => {
     const server = net.createServer();
     await new Promise<void>(r => server.listen(0, '0.0.0.0', r));
+    const port = (server.address() as net.AddressInfo).port;
+    try {
+      expect(await PortAllocator.isFree(port)).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Regression: Angular's `ng serve` (and Forge's own dev renderer) bind
+  // localhost → [::1] on macOS. A probe that only tried IPv4 reported these
+  // ports as free and handed an instance a port the GUI was already serving on.
+  it('reports a port bound only on IPv6 localhost as not free', async () => {
+    const server = net.createServer();
+    await new Promise<void>(r => server.listen(0, '::1', r));
     const port = (server.address() as net.AddressInfo).port;
     try {
       expect(await PortAllocator.isFree(port)).toBe(false);

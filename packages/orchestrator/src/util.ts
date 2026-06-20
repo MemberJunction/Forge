@@ -40,6 +40,15 @@ export function newId(): string {
 }
 
 /**
+ * Generate a base64-encoded 256-bit key for MJ field-level encryption
+ * (`MJ_BASE_ENCRYPTION_KEY`). Equivalent to `openssl rand -base64 32`, the
+ * command MJ's own startup validator suggests when the key is missing.
+ */
+export function generateEncryptionKey(): string {
+  return randomBytes(32).toString('base64');
+}
+
+/**
  * Generate a SQL-Server-acceptable strong password (>= 8 chars, 3 of 4
  * character classes). Avoids characters that are awkward in shell/.env.
  */

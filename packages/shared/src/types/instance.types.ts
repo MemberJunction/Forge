@@ -98,6 +98,9 @@ export interface InstanceSecrets {
   dbPassword: string;
   codegenUsername: string;
   codegenPassword: string;
+  /** Base64-encoded 256-bit key for MJ field-level encryption
+   *  (`MJ_BASE_ENCRYPTION_KEY`). Auto-generated per instance. */
+  encryptionKey: string;
 }
 
 /** Severity/kind of an orchestration progress event. */

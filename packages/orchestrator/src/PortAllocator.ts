@@ -1,8 +1,12 @@
 import * as net from 'node:net';
 import type { InstancePorts } from '@mj-forge/shared';
 
-/** Base port for each role; instance N gets base + STRIDE * N. */
-const BASES = { sql: 1433, api: 4000, explorer: 4200 } as const;
+/**
+ * Base port for each role; instance N gets base + STRIDE * N. Explorer starts
+ * at 4300 — clear of Forge's own dev renderer (`ng serve` on 4200) and a vanilla
+ * MJExplorer (4201), so the first instance never collides with the running app.
+ */
+const BASES = { sql: 1433, api: 4000, explorer: 4300 } as const;
 const STRIDE = 10;
 const MAX_PROBES = 200;
 
@@ -13,16 +17,27 @@ const MAX_PROBES = 200;
  */
 export class PortAllocator {
   /**
-   * True if `port` can currently be bound. Binds on `0.0.0.0` (all interfaces)
-   * to match how Docker publishes ports — a probe on `127.0.0.1` alone can miss
-   * a container bound on `0.0.0.0` under Docker Desktop's VM networking.
+   * True only if `port` is free on BOTH IP stacks. We probe the IPv4 wildcard
+   * (`0.0.0.0`) to catch Docker-published ports (Docker Desktop's VM networking
+   * binds there, which a `127.0.0.1` probe misses) AND the IPv6 loopback
+   * (`::1`) to catch dev servers like Angular's `ng serve`, which bind
+   * `localhost` → `[::1]` on macOS. Probing only IPv4 falsely reports an
+   * IPv6-only listener's port as free; the two stacks are independent. We probe
+   * the *specific* `::1` rather than the `::` wildcard because Node sets
+   * `SO_REUSEADDR`, under which a fresh wildcard bind coexists with an existing
+   * specific-address listener and would miss it.
    */
   static async isFree(port: number): Promise<boolean> {
+    return (await this.canBind(port, '0.0.0.0')) && (await this.canBind(port, '::1'));
+  }
+
+  /** True if a server can bind `port` on the given host. */
+  private static canBind(port: number, host: string): Promise<boolean> {
     return new Promise(resolve => {
       const server = net.createServer();
       server.once('error', () => resolve(false));
       server.once('listening', () => server.close(() => resolve(true)));
-      server.listen(port, '0.0.0.0');
+      server.listen(port, host);
     });
   }
 

@@ -25,10 +25,11 @@ const record: InstanceRecord = {
 
 const secrets: InstanceSecrets = {
   saPassword: 'P@ssw0rd-Strong',
-  dbUsername: 'sa',
+  dbUsername: 'MJ_Connect',
   dbPassword: 'P@ssw0rd-Strong',
-  codegenUsername: 'sa',
-  codegenPassword: 'P@ssw0rd-Strong',
+  codegenUsername: 'MJ_CodeGen',
+  codegenPassword: 'P@ssw0rd-CodeGen',
+  encryptionKey: 'dGVzdC1lbmNyeXB0aW9uLWtleS1iYXNlNjQtMzJieXRlcw==',
 };
 
 describe('ConfigWriter.renderEnv', () => {
@@ -42,12 +43,25 @@ describe('ConfigWriter.renderEnv', () => {
   it('uses the per-instance database name', () => {
     expect(env).toContain('DB_DATABASE=MJ_feature_x');
   });
-  it('writes credentials from secrets', () => {
-    expect(env).toContain('DB_USERNAME=sa');
+  it('writes least-privilege app + codegen credentials from secrets', () => {
+    expect(env).toContain('DB_USERNAME=MJ_Connect');
     expect(env).toContain('DB_PASSWORD=P@ssw0rd-Strong');
+    expect(env).toContain('CODEGEN_DB_USERNAME=MJ_CodeGen');
+    expect(env).toContain('CODEGEN_DB_PASSWORD=P@ssw0rd-CodeGen');
   });
-  it('trusts the server certificate (truthy form mj.config.cjs accepts)', () => {
-    expect(env).toContain('DB_TRUST_SERVER_CERTIFICATE=true');
+  it('points the read-only login at the app login', () => {
+    expect(env).toContain('DB_READ_ONLY_USERNAME=MJ_Connect');
+  });
+  it('trusts the server certificate (form mj.config.cjs accepts)', () => {
+    expect(env).toContain('DB_TRUST_SERVER_CERTIFICATE=1');
+  });
+  it('writes the auto-generated field-level encryption key', () => {
+    expect(env).toContain(
+      'MJ_BASE_ENCRYPTION_KEY=dGVzdC1lbmNyeXB0aW9uLWtleS1iYXNlNjQtMzJieXRlcw=='
+    );
+  });
+  it('seeds user-cache bootstrap defaults', () => {
+    expect(env).toContain('UPDATE_USER_CACHE_WHEN_NOT_FOUND=1');
   });
 });
 
