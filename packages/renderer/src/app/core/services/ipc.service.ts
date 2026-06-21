@@ -536,6 +536,11 @@ interface ForgeAPI {
       appRef: string,
       opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
     ) => Promise<{ appName: string; snapshot: unknown }>;
+    install: (
+      slug: string,
+      source: string,
+      opts?: { version?: string }
+    ) => Promise<{ appName: string; version: string }>;
     unlink: (
       slug: string,
       appName: string,

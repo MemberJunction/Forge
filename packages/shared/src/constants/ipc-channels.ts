@@ -260,6 +260,7 @@ export const IPC_CHANNELS = {
   // for streamed progress (one event stream for the whole feature).
   OPEN_APPS: {
     LINK: 'open-apps:link',
+    INSTALL: 'open-apps:install',
     UNLINK: 'open-apps:unlink',
     SWITCH_MODE: 'open-apps:switch-mode',
     LIST: 'open-apps:list',

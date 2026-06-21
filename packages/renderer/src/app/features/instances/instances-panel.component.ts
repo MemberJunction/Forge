@@ -17,11 +17,13 @@ interface CreateForm {
   baseRef: string;
 }
 
-/** Inputs for dev-linking a new Open App. */
+/** Inputs for adding a new Open App (dev-link or plain install). */
 interface LinkForm {
-  /** GitHub URL or local path to the app to dev-link. */
+  /** GitHub URL or local path to the app. */
   appRef: string;
-  /** Bypass the app's MJ version-range check when linking. */
+  /** How to add it: `dev` = dev-link local source; `installed` = plain `mj app install`. */
+  mode: 'dev' | 'installed';
+  /** Bypass the app's MJ version-range check when dev-linking (dev mode only). */
   ignoreVersionRange: boolean;
 }
 
@@ -535,25 +537,38 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 </button>
               </h3>
 
-              <!-- Link a new app for development -->
+              <!-- Add an app: dev-link local source, or plain-install from GitHub -->
               <form class="link-form" (ngSubmit)="submitLink(inst.slug)">
                 <label
-                  >App URL or local path
+                  >How to add
+                  <select [(ngModel)]="linkForm.mode" name="addMode">
+                    <option value="dev">Dev-link (develop local source)</option>
+                    <option value="installed">Install (published release + deps)</option>
+                  </select>
+                </label>
+                <label
+                  >App URL{{ linkForm.mode === 'dev' ? ' or local path' : '' }}
                   <input
                     [(ngModel)]="linkForm.appRef"
                     name="appRef"
-                    placeholder="https://github.com/org/app or /path/to/app"
+                    [placeholder]="
+                      linkForm.mode === 'dev'
+                        ? 'https://github.com/org/app or /path/to/app'
+                        : 'https://github.com/org/app'
+                    "
                     autocomplete="off"
                   />
                 </label>
-                <label class="inline">
-                  <input
-                    type="checkbox"
-                    [(ngModel)]="linkForm.ignoreVersionRange"
-                    name="ignoreVersionRange"
-                  />
-                  <span>Ignore version range</span>
-                </label>
+                @if (linkForm.mode === 'dev') {
+                  <label class="inline">
+                    <input
+                      type="checkbox"
+                      [(ngModel)]="linkForm.ignoreVersionRange"
+                      name="ignoreVersionRange"
+                    />
+                    <span>Ignore version range</span>
+                  </label>
+                }
                 <div class="row">
                   <button
                     mat-flat-button
@@ -561,9 +576,20 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                     type="submit"
                     [disabled]="!linkForm.appRef.trim() || openApps.busy()"
                   >
-                    <mat-icon>link</mat-icon> Link app for development
+                    @if (linkForm.mode === 'dev') {
+                      <mat-icon>link</mat-icon> Link app for development
+                    } @else {
+                      <mat-icon>download</mat-icon> Install app
+                    }
                   </button>
                 </div>
+                <p class="hint">
+                  {{
+                    linkForm.mode === 'dev'
+                      ? 'Dev-link runs the app from editable local source (edit → see it live).'
+                      : 'Install pulls the published release + its open-app dependencies — for apps you only consume.'
+                  }}
+                </p>
               </form>
 
               @if (openApps.busy()) {
@@ -1133,7 +1159,8 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         gap: 2px;
       }
       .link-form input[type='text'],
-      .link-form input:not([type]) {
+      .link-form input:not([type]),
+      .link-form select {
         background: var(--bg-input, #1e1e1e);
         border: 1px solid var(--border-color, #444);
         color: inherit;
@@ -1271,8 +1298,8 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** Exposed for the template's domain placeholder + reset. */
   readonly devEmailDomain = DEV_EMAIL_DOMAIN;
 
-  /** Open Apps — dev-link form for the selected instance. */
-  linkForm: LinkForm = { appRef: '', ignoreVersionRange: false };
+  /** Open Apps — add-app form (dev-link or install) for the selected instance. */
+  linkForm: LinkForm = { appRef: '', mode: 'dev', ignoreVersionRange: false };
   /** The app pending unlink confirmation, or null when the modal is closed. */
   readonly unlinkTarget = signal<{ slug: string; appName: string } | null>(null);
   /** Whether the pending unlink should also drop the app's schema/data. */
@@ -1437,16 +1464,21 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     return loaded?.slug === slug ? loaded.apps : [];
   }
 
-  /** Dev-link the app named in the link form, then reset the form on success. */
+  /** Add the app named in the form — dev-link or install per mode — then reset on success. */
   async submitLink(slug: string): Promise<void> {
     const appRef = this.linkForm.appRef.trim();
     if (!appRef) return;
-    await this.openApps.link(slug, appRef, {
-      ignoreVersionRange: this.linkForm.ignoreVersionRange,
-    });
-    // Reset only if the loaded list now reflects this slug (link succeeded).
+    const mode = this.linkForm.mode;
+    if (mode === 'installed') {
+      await this.openApps.install(slug, appRef);
+    } else {
+      await this.openApps.link(slug, appRef, {
+        ignoreVersionRange: this.linkForm.ignoreVersionRange,
+      });
+    }
+    // Reset only if the op succeeded (no error recorded for this slug).
     if (this.openApps.activeSlug() === slug && !this.openApps.lastError()) {
-      this.linkForm = { appRef: '', ignoreVersionRange: false };
+      this.linkForm = { appRef: '', mode, ignoreVersionRange: false };
     }
   }
 

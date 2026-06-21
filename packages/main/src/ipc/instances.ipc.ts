@@ -120,6 +120,12 @@ export function registerInstanceHandlers(): void {
   );
 
   safeHandle(
+    IPC_CHANNELS.OPEN_APPS.INSTALL,
+    async (_e, slug: string, source: string, opts?: { version?: string }) =>
+      engine.installApp(slug, source, opts ?? {}, sink)
+  );
+
+  safeHandle(
     IPC_CHANNELS.OPEN_APPS.UNLINK,
     async (_e, slug: string, appName: string, opts?: { dropSchema?: boolean }) => {
       await engine.unlinkApp(slug, appName, opts ?? {}, sink);

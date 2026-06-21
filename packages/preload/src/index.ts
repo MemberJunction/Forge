@@ -568,6 +568,11 @@ export interface ForgeAPI {
       appRef: string,
       opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
     ) => Promise<{ appName: string; snapshot: unknown }>;
+    install: (
+      slug: string,
+      source: string,
+      opts?: { version?: string }
+    ) => Promise<{ appName: string; version: string }>;
     unlink: (
       slug: string,
       appName: string,
@@ -725,6 +730,8 @@ const forgeAPI: ForgeAPI = {
   openApps: {
     link: (slug, appRef, opts) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.LINK, slug, appRef, opts),
+    install: (slug, source, opts) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.INSTALL, slug, source, opts),
     unlink: (slug, appName, opts) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.UNLINK, slug, appName, opts),
     switchMode: (slug, appName, target) =>

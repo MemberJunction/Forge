@@ -20,7 +20,7 @@ export interface LinkAppOptions {
 }
 
 /** Ops emitted on the instances event channel that this feature cares about. */
-const APP_EVENT_OPS = /^app-(link|unlink|switch|engine)/;
+const APP_EVENT_OPS = /^app-(link|install|unlink|switch|engine)/;
 
 /**
  * Reactive state for MJ Dev Manager "Open Apps" (Phase B). Wraps the
@@ -66,7 +66,10 @@ export class OpenAppsStateService {
       this._progress.update(p => [...p.slice(-OpenAppsStateService.PROGRESS_LIMIT), event]);
       // Refresh the linked-app list when a mutating op reaches a terminal state.
       if (event.level === 'success' || event.level === 'error') {
-        if (/^app-(link|unlink|switch)/.test(event.op) && event.slug === this.activeSlug()) {
+        if (
+          /^app-(link|install|unlink|switch)/.test(event.op) &&
+          event.slug === this.activeSlug()
+        ) {
           void this.refresh(event.slug);
         }
       }
@@ -105,6 +108,20 @@ export class OpenAppsStateService {
     if (result) {
       await this.refresh(slug);
       this.notification.success(`Linked "${result.appName}" for development`);
+    }
+  }
+
+  /**
+   * Plain-install an app from a GitHub URL (the real install path; pulls transitive
+   * open-app deps as installs too). Distinct from {@link link} (dev-link).
+   */
+  async install(slug: string, source: string, opts?: { version?: string }): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.install(slug, source, opts));
+    if (result) {
+      await this.refresh(slug);
+      this.notification.success(
+        `Installed "${result.appName}"${result.version ? ` v${result.version}` : ''}`
+      );
     }
   }
 
