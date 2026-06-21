@@ -4,6 +4,8 @@
 
 MJ Forge is a native macOS desktop application providing database management workflows for **SQL Server**, **PostgreSQL**, and **MySQL**. Built with Electron + Angular + Node.js.
 
+> **MJ Dev Manager subsystem (the `packages/orchestrator` engine, `mjdev` CLI, instance/open-app dev-linking):** before working on any of it, read [`plans/mj-dev-manager.md`](plans/mj-dev-manager.md). It holds the load-bearing conventions (single-copy invariant, "reproduce the shell / delegate the steps", Option Y worktrees, one-façade-three-surfaces), the slice status, and the **validation strategy**. Key practice: live (runtime) validation is wall-clock + context heavy, so reuse a long-lived **golden instance** (recipe in [`fixtures/golden-instance.yaml`](fixtures/golden-instance.yaml), pinned to a stable MJ release) rather than re-paying `create + setup all` each run — and never commit the instance itself, only the recipe. Validate live only when a slice introduces new runtime semantics; batch plumbing slices behind one boot; run the heavy validate-as-install tier only before a PR.
+
 ## Tech Stack
 
 - **Desktop Shell**: Electron

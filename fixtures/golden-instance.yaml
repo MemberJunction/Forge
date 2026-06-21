@@ -1,0 +1,32 @@
+# Golden instance — reusable regression/validation baseline for MJ Dev Manager.
+#
+# WHY THIS EXISTS (read plans/mj-dev-manager.md → "Validation strategy"):
+#   The dominant cost of a live validation run is `mjdev create` + `mjdev setup all`
+#   (npm install + full MJ worktree build). A long-lived "golden" instance pays that
+#   cost ONCE; subsequent runs are just link + boot + assert. This config is the
+#   recipe an agent/developer uses to (re)create that instance — the INSTANCE ITSELF
+#   never travels with the repo (it's a local Docker container + worktree under
+#   ~/MJDev), only this recipe does.
+#
+# HOW TO USE:
+#   mjdev create fixtures/golden-instance.yaml
+#   mjdev setup mjdev-golden all
+#   # ...then link/boot/assert against it; do NOT delete it between runs.
+#
+# PINNING (important): a golden instance is for REGRESSION, so pin baseRef to a
+#   STABLE MJ release — the most-validated code, reproducible baseline. Bump the
+#   pin (and rebuild the instance) only when the team adopts a newer stable MJ.
+#   For parity-against-an-in-flight-branch (e.g. the ignoreVersionRange path),
+#   create a SEPARATE throwaway instance off that branch instead — a stable golden
+#   instance cannot prove behavior against unreleased MJ.
+
+name: mjdev-golden
+
+# Pin to the latest STABLE MJ release ref. Update when the team's stable pin moves,
+# then rebuild the instance (mjdev delete mjdev-golden && recreate). As of the last
+# update the worktree engine reported MJ 5.40.2 — set this to that release's tag/branch.
+baseRef: v5.40.2
+
+# branch omitted -> a fresh "mjdev/mjdev-golden" branch is cut off baseRef.
+# ports omitted -> auto-allocated (avoids collisions with your other instances).
+# database/auth omitted -> auto SA password (stored in ~/.mjdev/secrets.json), AuthProvider derived per setup.
