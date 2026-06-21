@@ -11,6 +11,16 @@ import { InstancesStateService } from '../../core/state/instances.state';
 import { IdentityStateService } from '../../core/state/identity.state';
 import { OpenAppsStateService } from '../../core/state/open-apps.state';
 
+/** One editable row in the dev-link dependency prompt. */
+interface DepRow {
+  name: string;
+  versionRange: string;
+  /** How to satisfy it: plain install (default) or dev-link. */
+  mode: 'installed' | 'dev';
+  /** GitHub URL (or local path) to satisfy it from (prefilled from the manifest). */
+  source: string;
+}
+
 interface CreateForm {
   name: string;
   branch: string;
@@ -730,6 +740,56 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
           </div>
         </div>
       }
+
+      <!-- Dev-link dependency prompt: choose install/dev-link for each missing dep -->
+      @if (depPrompt(); as p) {
+        <div class="modal-backdrop" (click)="cancelDepPrompt()">
+          <div class="modal" (click)="$event.stopPropagation()">
+            <h3>"{{ p.appName }}" needs other apps</h3>
+            <p>
+              Dev-linking <code>{{ p.appName }}</code> requires these open apps, which aren't in
+              this instance yet. Choose how to add each — <strong>Install</strong> (for apps you
+              only consume) or <strong>Dev-link</strong> (to edit them too):
+            </p>
+            <ul class="dep-list">
+              @for (d of p.deps; track d.name) {
+                <li>
+                  <div class="dep-head">
+                    <strong>{{ d.name }}</strong> <span class="dep-ver">{{ d.versionRange }}</span>
+                  </div>
+                  <div class="dep-row">
+                    <select [(ngModel)]="d.mode" name="depmode-{{ d.name }}">
+                      <option value="installed">Install</option>
+                      <option value="dev">Dev-link</option>
+                    </select>
+                    <input
+                      [(ngModel)]="d.source"
+                      name="depsrc-{{ d.name }}"
+                      placeholder="https://github.com/org/app"
+                      autocomplete="off"
+                    />
+                  </div>
+                </li>
+              }
+            </ul>
+            @if (depPromptIncomplete) {
+              <p class="hint">Every dependency needs a source URL.</p>
+            }
+            <div class="row">
+              <button
+                mat-flat-button
+                color="primary"
+                type="button"
+                [disabled]="depPromptIncomplete || openApps.busy()"
+                (click)="confirmDepPrompt()"
+              >
+                Add dependencies &amp; link
+              </button>
+              <button mat-button type="button" (click)="cancelDepPrompt()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -1104,6 +1164,39 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         width: 100%;
         margin-top: 4px;
       }
+      .dep-list {
+        list-style: none;
+        margin: 10px 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 260px;
+        overflow: auto;
+      }
+      .dep-head .dep-ver {
+        font-family: monospace;
+        font-size: 11px;
+        color: var(--text-secondary, #999);
+        margin-left: 6px;
+      }
+      .dep-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .dep-row select {
+        flex: 0 0 auto;
+        background: var(--bg-input, #1e1e1e);
+        border: 1px solid var(--border-color, #444);
+        color: inherit;
+        border-radius: 4px;
+        padding: 6px;
+      }
+      .dep-row input {
+        flex: 1;
+        margin-top: 0;
+      }
       .log-lines {
         background: var(--bg-input, #161616);
         border-radius: 4px;
@@ -1302,6 +1395,19 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   linkForm: LinkForm = { appRef: '', mode: 'dev', ignoreVersionRange: false };
   /** The app pending unlink confirmation, or null when the modal is closed. */
   readonly unlinkTarget = signal<{ slug: string; appName: string } | null>(null);
+  /**
+   * Pending dev-link awaiting the dependency-choice modal: the app to link plus its
+   * MISSING open-app deps (each with a chosen install/dev-link mode + source). Null
+   * when no prompt is open. Dev-link doesn't auto-resolve deps, so the user picks how
+   * to satisfy each prerequisite before the link proceeds.
+   */
+  readonly depPrompt = signal<{
+    slug: string;
+    appRef: string;
+    ignoreVersionRange: boolean;
+    appName: string;
+    deps: DepRow[];
+  } | null>(null);
   /** Whether the pending unlink should also drop the app's schema/data. */
   unlinkDropSchema = false;
 
@@ -1470,16 +1576,63 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     if (!appRef) return;
     const mode = this.linkForm.mode;
     if (mode === 'installed') {
+      // Install auto-resolves its transitive deps (engine) — no prompt needed.
       await this.openApps.install(slug, appRef);
     } else {
+      // Dev-link doesn't auto-resolve deps: pre-flight, then prompt for any missing.
+      const resolved = await this.openApps.resolveDeps(slug, appRef);
+      const missing = (resolved?.dependencies ?? []).filter(d => !d.present);
+      if (missing.length) {
+        this.depPrompt.set({
+          slug,
+          appRef,
+          ignoreVersionRange: this.linkForm.ignoreVersionRange,
+          appName: resolved?.appName ?? appRef,
+          deps: missing.map(d => ({
+            name: d.name,
+            versionRange: d.versionRange,
+            mode: 'installed',
+            source: d.repository ?? '',
+          })),
+        });
+        return; // wait for the dependency-choice modal
+      }
       await this.openApps.link(slug, appRef, {
         ignoreVersionRange: this.linkForm.ignoreVersionRange,
       });
     }
-    // Reset only if the op succeeded (no error recorded for this slug).
+    this.resetLinkFormIfClean(slug, mode);
+  }
+
+  /** Reset the add-app form only when the last op for this slug succeeded. */
+  private resetLinkFormIfClean(slug: string, mode: 'dev' | 'installed'): void {
     if (this.openApps.activeSlug() === slug && !this.openApps.lastError()) {
       this.linkForm = { appRef: '', mode, ignoreVersionRange: false };
     }
+  }
+
+  /** True while any missing dependency lacks a source (blocks the confirm button). */
+  get depPromptIncomplete(): boolean {
+    const p = this.depPrompt();
+    return !p || p.deps.some(d => !d.source.trim());
+  }
+
+  cancelDepPrompt(): void {
+    this.depPrompt.set(null);
+  }
+
+  /** Satisfy the chosen dependencies in order, then dev-link the app. */
+  async confirmDepPrompt(): Promise<void> {
+    const p = this.depPrompt();
+    if (!p || this.depPromptIncomplete) return;
+    this.depPrompt.set(null);
+    await this.openApps.linkWithDeps(
+      p.slug,
+      p.appRef,
+      p.deps.map(d => ({ source: d.source.trim(), mode: d.mode })),
+      { ignoreVersionRange: p.ignoreVersionRange }
+    );
+    this.resetLinkFormIfClean(p.slug, 'dev');
   }
 
   /** Open the unlink confirmation modal for an app (drop-schema opt-in). */

@@ -19,6 +19,22 @@ export interface LinkAppOptions {
   baseRef?: string;
 }
 
+/** A direct open-app dependency, as reported by `openApps.resolveDeps`. */
+export interface AppDependency {
+  name: string;
+  versionRange: string;
+  repository?: string;
+  present: boolean;
+}
+
+/** A user's choice for satisfying one missing dependency before a dev-link. */
+export interface DepChoice {
+  /** GitHub URL (or local path) to satisfy the dependency from. */
+  source: string;
+  /** `installed` = plain install (default); `dev` = dev-link it too. */
+  mode: 'installed' | 'dev';
+}
+
 /** Ops emitted on the instances event channel that this feature cares about. */
 const APP_EVENT_OPS = /^app-(link|install|unlink|switch|engine)/;
 
@@ -105,6 +121,43 @@ export class OpenAppsStateService {
   /** Dev-link an app by GitHub URL or local path. */
   async link(slug: string, appRef: string, opts?: LinkAppOptions): Promise<void> {
     const result = await this.guard(() => this.ipc.openApps.link(slug, appRef, opts));
+    if (result) {
+      await this.refresh(slug);
+      this.notification.success(`Linked "${result.appName}" for development`);
+    }
+  }
+
+  /**
+   * Resolve an app's direct open-app dependencies (for the dev-link pre-flight popup).
+   * Returns the app name + each dependency with whether it's already present.
+   */
+  async resolveDeps(
+    slug: string,
+    appRef: string
+  ): Promise<{ appName: string; dependencies: AppDependency[] } | null> {
+    return this.guard(() => this.ipc.openApps.resolveDeps(slug, appRef));
+  }
+
+  /**
+   * Satisfy a dev-link's missing dependencies (install or dev-link each, per the user's
+   * choices) in order, then dev-link the app itself. Stops on the first failure so a
+   * broken dependency doesn't leave a half-linked app. Each step streams to the strip.
+   */
+  async linkWithDeps(
+    slug: string,
+    appRef: string,
+    deps: DepChoice[],
+    opts?: LinkAppOptions
+  ): Promise<void> {
+    const result = await this.guard(async () => {
+      for (const dep of deps) {
+        const src = dep.source.trim();
+        if (!src) continue;
+        if (dep.mode === 'installed') await this.ipc.openApps.install(slug, src);
+        else await this.ipc.openApps.link(slug, src);
+      }
+      return this.ipc.openApps.link(slug, appRef, opts);
+    });
     if (result) {
       await this.refresh(slug);
       this.notification.success(`Linked "${result.appName}" for development`);

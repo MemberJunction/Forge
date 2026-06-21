@@ -15,6 +15,7 @@ export type {
   LinkResolutionOptions,
   SingleCopyResult,
   ParitySnapshot,
+  AppDependency,
 } from './OpenAppManager.js';
 export {
   applyAddEntityPackageMapping,

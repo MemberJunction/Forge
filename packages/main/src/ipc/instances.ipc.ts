@@ -125,6 +125,10 @@ export function registerInstanceHandlers(): void {
       engine.installApp(slug, source, opts ?? {}, sink)
   );
 
+  safeHandle(IPC_CHANNELS.OPEN_APPS.RESOLVE_DEPS, async (_e, slug: string, appRef: string) =>
+    engine.resolveAppDependencies(slug, appRef, sink)
+  );
+
   safeHandle(
     IPC_CHANNELS.OPEN_APPS.UNLINK,
     async (_e, slug: string, appName: string, opts?: { dropSchema?: boolean }) => {

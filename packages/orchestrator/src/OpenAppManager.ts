@@ -25,6 +25,20 @@ interface AppManifestLite {
     client?: Array<{ name: string; role?: string }>;
     shared?: Array<{ name: string; role?: string }>;
   };
+  /** Other open apps this app depends on, keyed by app name. */
+  dependencies?: Record<string, string | { version: string; repository?: string }>;
+}
+
+/** One of an app's direct open-app dependencies, with whether it's already in the instance. */
+export interface AppDependency {
+  /** Dependency app name (the manifest key). */
+  name: string;
+  /** Declared semver range. */
+  versionRange: string;
+  /** GitHub repo URL from the manifest, if declared (the source for install/dev-link). */
+  repository?: string;
+  /** True when an Active `MJ: Open Apps` row already exists for it in the instance. */
+  present: boolean;
 }
 
 /** Normalized, oracle-diffable snapshot of an app's install footprint in a worktree. */
@@ -290,6 +304,59 @@ export class OpenAppManager {
       `Installed ${appName}${r.version ? ` v${r.version}` : ''}`
     );
     return { appName, version: r.version ?? '' };
+  }
+
+  /**
+   * Resolve an app's DIRECT open-app dependencies for the dev-link pre-flight popup.
+   * Clones the app (idempotent) to read its manifest `dependencies`, then asks the
+   * instance's engine which apps are already Active, so the UI can prompt only for the
+   * MISSING ones (install vs dev-link per dep). Pure detection — installs nothing.
+   * Dev-link doesn't auto-resolve deps (unlike the engine's `InstallApp`), so this is
+   * how a dev-linked app's prerequisites get satisfied.
+   */
+  async resolveDevLinkDependencies(
+    slug: string,
+    mjWorktreePath: string,
+    appRef: string,
+    dbConfig: EngineDbConfig,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<{ appName: string; dependencies: AppDependency[] }> {
+    const clonePath = await this.appRepos.ensureAppClone(appRef, {}, sink);
+    const manifest = await this.readManifest(clonePath).catch(() => undefined);
+    const appName = manifest?.name ?? AppRepoManager.appDirName(appRef);
+    const depsObj = manifest?.dependencies ?? {};
+    const names = Object.keys(depsObj);
+    if (names.length === 0) return { appName, dependencies: [] };
+
+    // Best-effort: which deps are already Active in the instance (MJ-side)? listApps
+    // needs no manifest/member, so run the engine without one (the app isn't linked yet).
+    const present = new Set<string>();
+    try {
+      await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
+      const r = await this.runnerFor(mjWorktreePath).run(
+        slug,
+        { steps: ['listApps'], dbConfig, mjCoreSchema: '__mj' },
+        env,
+        sink
+      );
+      const apps =
+        (r.results?.listApps as { apps?: Array<{ Name: string; Status: string }> })?.apps ?? [];
+      for (const a of apps) if (a.Status === 'Active') present.add(a.Name);
+    } catch {
+      // Instance not migrated yet / DB unreachable — treat every dep as missing.
+    }
+
+    const dependencies: AppDependency[] = names.map(name => {
+      const v = depsObj[name];
+      return {
+        name,
+        versionRange: typeof v === 'string' ? v : v.version,
+        repository: typeof v === 'string' ? undefined : v.repository,
+        present: present.has(name),
+      };
+    });
+    return { appName, dependencies };
   }
 
   /** Linked-app overlay state for an instance (Forge-side dev state). */

@@ -17,7 +17,7 @@ import { PortAllocator } from './PortAllocator.js';
 import { DockerManager } from './DockerManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { RepoManager } from './RepoManager.js';
-import { OpenAppManager } from './OpenAppManager.js';
+import { OpenAppManager, type AppDependency } from './OpenAppManager.js';
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
@@ -421,6 +421,29 @@ export class InstanceOrchestrator {
       sink
     );
     return { appName: r.appName, snapshot: r.snapshot };
+  }
+
+  /**
+   * Resolve an app's direct open-app dependencies (for the dev-link pre-flight popup):
+   * which apps it needs and which are already Active in the instance. The renderer
+   * prompts per missing dep (install vs dev-link) before dev-linking the app.
+   */
+  async resolveAppDependencies(
+    slug: string,
+    appRef: string,
+    sink: EventSink = noopSink
+  ): Promise<{ appName: string; dependencies: AppDependency[] }> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.resolveDevLinkDependencies(
+      slug,
+      record.worktreePath,
+      appRef,
+      dbConfig,
+      env,
+      sink
+    );
   }
 
   /**

@@ -541,6 +541,18 @@ interface ForgeAPI {
       source: string,
       opts?: { version?: string }
     ) => Promise<{ appName: string; version: string }>;
+    resolveDeps: (
+      slug: string,
+      appRef: string
+    ) => Promise<{
+      appName: string;
+      dependencies: Array<{
+        name: string;
+        versionRange: string;
+        repository?: string;
+        present: boolean;
+      }>;
+    }>;
     unlink: (
       slug: string,
       appName: string,
