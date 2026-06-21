@@ -7,8 +7,19 @@ import { AppRepoManager } from './AppRepoManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { AppDevStateStore } from './AppDevStateStore.js';
 
-/** Workspaces glob (relative to the MJ worktree root) that hosts dev-linked apps. */
-export const DEV_APPS_GLOB = 'packages/dev-apps/*';
+/**
+ * Workspaces glob (relative to the MJ worktree root) that makes a dev-linked app's
+ * publishable SUB-packages npm workspace members. Reaches one level deeper than
+ * `packages/dev-apps/*` because each open app is its OWN workspace
+ * (`workspaces: ["packages/*"]`), so its publishable packages live at
+ * `packages/dev-apps/<app>/packages/*`. A probe proved the shallow glob fails —
+ * it matches the app root (whose package.json is its own workspace), leaving the
+ * sub-packages unresolved so npm hits the registry (E404) and MJAPI can't resolve
+ * the app's published name to local source. The deep glob makes the sub-package a
+ * member → MJAPI resolves the app BY NAME to the local dev source (parity) and
+ * `@memberjunction/*` dedupes to one copy.
+ */
+export const DEV_APPS_GLOB = 'packages/dev-apps/*/packages/*';
 /** Exclude pattern that hides the nested app worktrees from the MJ worktree's git. */
 export const DEV_APPS_EXCLUDE = 'packages/dev-apps/';
 

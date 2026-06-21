@@ -34,16 +34,12 @@ describe('OpenAppManager.addWorkspaceGlob / removeWorkspaceGlob', () => {
     );
 
     await mgr.addWorkspaceGlob(wt, DEV_APPS_GLOB);
-    expect(await readWorkspaces()).toContain('packages/dev-apps/*');
+    expect(await readWorkspaces()).toContain(DEV_APPS_GLOB);
     // Idempotent — no duplicate.
     await mgr.addWorkspaceGlob(wt, DEV_APPS_GLOB);
-    expect((await readWorkspaces()).filter(g => g === 'packages/dev-apps/*').length).toBe(1);
+    expect((await readWorkspaces()).filter(g => g === DEV_APPS_GLOB).length).toBe(1);
     // Existing globs are preserved.
-    expect(await readWorkspaces()).toEqual([
-      'packages/*',
-      'packages/Actions/*',
-      'packages/dev-apps/*',
-    ]);
+    expect(await readWorkspaces()).toEqual(['packages/*', 'packages/Actions/*', DEV_APPS_GLOB]);
 
     await mgr.removeWorkspaceGlob(wt, DEV_APPS_GLOB);
     expect(await readWorkspaces()).toEqual(['packages/*', 'packages/Actions/*']);
@@ -56,7 +52,7 @@ describe('OpenAppManager.addWorkspaceGlob / removeWorkspaceGlob', () => {
     );
     await mgr.addWorkspaceGlob(wt, DEV_APPS_GLOB);
     const pkg = JSON.parse(await fs.readFile(path.join(wt, 'package.json'), 'utf8'));
-    expect(pkg.workspaces.packages).toContain('packages/dev-apps/*');
+    expect(pkg.workspaces.packages).toContain(DEV_APPS_GLOB);
   });
 
   it('computes the member path under packages/dev-apps', () => {

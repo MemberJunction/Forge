@@ -89,13 +89,16 @@ export class AppRepoManager {
   }
 
   /**
-   * Add `pattern` to the worktree's PER-WORKTREE git exclude file (its own
-   * gitdir's `info/exclude`) so a materialized member never appears as tracked
-   * churn — without editing the tracked `.gitignore` (which would be an MJ-repo
-   * change). Idempotent.
+   * Add `pattern` to the git **common** dir's `info/exclude` so a nested app
+   * worktree never appears as tracked churn — without editing the tracked
+   * `.gitignore` (which would be an MJ-repo change). Must be the COMMON dir, not
+   * the per-worktree gitdir: git reads `info/exclude` from `--git-common-dir` for
+   * linked worktrees, so a per-worktree write is silently ignored. The common dir
+   * here is the app-managed clone's `.git` (shared across instances — the exclude
+   * applies to every instance worktree, which is exactly what we want). Idempotent.
    */
   async addWorktreeExclude(worktreePath: string, pattern: string): Promise<void> {
-    const gd = await run('git', ['-C', worktreePath, 'rev-parse', '--git-dir']);
+    const gd = await run('git', ['-C', worktreePath, 'rev-parse', '--git-common-dir']);
     if (gd.code !== 0) return;
     let gitDir = gd.stdout.trim();
     if (!path.isAbsolute(gitDir)) gitDir = path.resolve(worktreePath, gitDir);

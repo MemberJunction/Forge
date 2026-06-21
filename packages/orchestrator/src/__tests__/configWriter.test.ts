@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import dotenv from 'dotenv';
 import { ConfigWriter } from '../../dist/index.js';
 import type { InstanceRecord, InstanceSecrets } from '@mj-forge/shared';
 
@@ -45,11 +46,11 @@ describe('ConfigWriter.renderEnv', () => {
   it('uses the per-instance database name', () => {
     expect(env).toContain('DB_DATABASE=MJ_feature_x');
   });
-  it('writes least-privilege app + codegen credentials from secrets', () => {
+  it('writes least-privilege app + codegen credentials from secrets (quoted)', () => {
     expect(env).toContain('DB_USERNAME=MJ_Connect');
-    expect(env).toContain('DB_PASSWORD=P@ssw0rd-Strong');
+    expect(env).toContain('DB_PASSWORD="P@ssw0rd-Strong"');
     expect(env).toContain('CODEGEN_DB_USERNAME=MJ_CodeGen');
-    expect(env).toContain('CODEGEN_DB_PASSWORD=P@ssw0rd-CodeGen');
+    expect(env).toContain('CODEGEN_DB_PASSWORD="P@ssw0rd-CodeGen"');
   });
   it('points the read-only login at the app login', () => {
     expect(env).toContain('DB_READ_ONLY_USERNAME=MJ_Connect');
@@ -57,17 +58,29 @@ describe('ConfigWriter.renderEnv', () => {
   it('trusts the server certificate (form mj.config.cjs accepts)', () => {
     expect(env).toContain('DB_TRUST_SERVER_CERTIFICATE=1');
   });
-  it('writes the auto-generated field-level encryption key', () => {
+  it('writes the auto-generated field-level encryption key (quoted)', () => {
     expect(env).toContain(
-      'MJ_BASE_ENCRYPTION_KEY=dGVzdC1lbmNyeXB0aW9uLWtleS1iYXNlNjQtMzJieXRlcw=='
+      'MJ_BASE_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS1iYXNlNjQtMzJieXRlcw=="'
     );
   });
   it('seeds user-cache bootstrap defaults', () => {
     expect(env).toContain('UPDATE_USER_CACHE_WHEN_NOT_FOUND=1');
   });
-  it('writes the system API key + magic-link signing key for local dev auth', () => {
-    expect(env).toContain('MJ_API_KEY=sys-api-key-abc123');
-    expect(env).toContain('MJ_MAGIC_LINK_PRIVATE_KEY=YmFzZTY0LXBlbS1wcml2YXRlLWtleQ==');
+  it('writes the system API key + magic-link signing key for local dev auth (quoted)', () => {
+    expect(env).toContain('MJ_API_KEY="sys-api-key-abc123"');
+    expect(env).toContain('MJ_MAGIC_LINK_PRIVATE_KEY="YmFzZTY0LXBlbS1wcml2YXRlLWtleQ=="');
+  });
+  it('quotes passwords so dotenv reads special chars (e.g. # ) intact — not truncated', () => {
+    const hashEnv = ConfigWriter.renderEnv(record, {
+      ...secrets,
+      codegenPassword: 'wp%6ta6w@F_#PNqL#r%6', // contains '#': dotenv comment char
+    });
+    // The raw line is quoted...
+    expect(hashEnv).toContain('CODEGEN_DB_PASSWORD="wp%6ta6w@F_#PNqL#r%6"');
+    // ...and dotenv parses the FULL value (the bug truncated it at '#').
+    const line = hashEnv.split('\n').find(l => l.startsWith('CODEGEN_DB_PASSWORD='))!;
+    const parsed = dotenv.parse(line);
+    expect(parsed.CODEGEN_DB_PASSWORD).toBe('wp%6ta6w@F_#PNqL#r%6');
   });
   it('leaves the external IdP block empty (deferred)', () => {
     expect(env).toContain('WEB_CLIENT_ID=\n');

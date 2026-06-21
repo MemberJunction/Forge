@@ -115,7 +115,7 @@ describe('AppRepoManager — Option Y: nested per-instance app worktrees (parall
 });
 
 describe('AppRepoManager.addWorktreeExclude', () => {
-  it('excludes a pattern via the per-worktree gitdir, not the tracked .gitignore', async () => {
+  it('excludes a pattern via the common-dir info/exclude so git status hides it', async () => {
     // A host repo + a linked worktree (mirrors how instances are created).
     const host = path.join(tmp, 'host');
     await fs.mkdir(host, { recursive: true });
@@ -130,13 +130,19 @@ describe('AppRepoManager.addWorktreeExclude', () => {
     await mgr.addWorktreeExclude(wt, 'packages/dev-apps/');
     await mgr.addWorktreeExclude(wt, 'packages/dev-apps/'); // idempotent
 
-    const gitDir = git(wt, ['rev-parse', '--git-dir']);
-    const abs = path.isAbsolute(gitDir) ? gitDir : path.resolve(wt, gitDir);
+    // Written to the COMMON dir (where git actually reads exclude for a linked
+    // worktree), exactly once.
+    const commonDir = git(wt, ['rev-parse', '--git-common-dir']);
+    const abs = path.isAbsolute(commonDir) ? commonDir : path.resolve(wt, commonDir);
     const exclude = await fs.readFile(path.join(abs, 'info', 'exclude'), 'utf8');
-    const occurrences = exclude.split('\n').filter(l => l.trim() === 'packages/dev-apps/').length;
-    expect(occurrences).toBe(1);
+    expect(exclude.split('\n').filter(l => l.trim() === 'packages/dev-apps/').length).toBe(1);
 
-    // The tracked .gitignore is untouched (no file created/modified in the worktree).
+    // It actually takes effect: a dir matching the pattern is hidden from status.
+    await fs.mkdir(path.join(wt, 'packages', 'dev-apps', 'x'), { recursive: true });
+    await fs.writeFile(path.join(wt, 'packages', 'dev-apps', 'x', 'f.txt'), 'hi\n');
+    expect(git(wt, ['status', '--porcelain'])).not.toContain('dev-apps');
+
+    // The tracked .gitignore is untouched.
     await expect(fs.readFile(path.join(wt, '.gitignore'), 'utf8')).rejects.toThrow();
   });
 });
