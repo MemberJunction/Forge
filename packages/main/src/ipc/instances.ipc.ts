@@ -107,4 +107,47 @@ export function registerInstanceHandlers(): void {
   safeHandle(IPC_CHANNELS.INSTANCES.PROC_LOGS, async (_e, processId: string, sinceByte: number) =>
     engine.processLogsSince(processId, sinceByte ?? 0)
   );
+
+  // ── Open App dev-linking (Phase B) ──────────────────────────────────────────
+  safeHandle(
+    IPC_CHANNELS.OPEN_APPS.LINK,
+    async (
+      _e,
+      slug: string,
+      appRef: string,
+      opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
+    ) => engine.linkApp(slug, appRef, opts ?? {}, sink)
+  );
+
+  safeHandle(
+    IPC_CHANNELS.OPEN_APPS.UNLINK,
+    async (_e, slug: string, appName: string, opts?: { dropSchema?: boolean }) => {
+      await engine.unlinkApp(slug, appName, opts ?? {}, sink);
+      return { success: true };
+    }
+  );
+
+  safeHandle(
+    IPC_CHANNELS.OPEN_APPS.SWITCH_MODE,
+    async (_e, slug: string, appName: string, target: 'dev' | 'installed') => {
+      await engine.switchAppMode(slug, appName, target, sink);
+      return { success: true };
+    }
+  );
+
+  safeHandle(IPC_CHANNELS.OPEN_APPS.LIST, async (_e, slug: string) => engine.listApps(slug));
+
+  safeHandle(IPC_CHANNELS.OPEN_APPS.DRIFT, async (_e, slug: string, appName: string) =>
+    engine.checkAppDrift(slug, appName, sink)
+  );
+
+  safeHandle(IPC_CHANNELS.OPEN_APPS.RESET_SCHEMA, async (_e, slug: string, appName: string) => {
+    await engine.resetAppSchema(slug, appName, sink);
+    return { success: true };
+  });
+
+  safeHandle(IPC_CHANNELS.OPEN_APPS.REPAIR_SCHEMA, async (_e, slug: string, appName: string) => {
+    await engine.repairAppSchema(slug, appName, sink);
+    return { success: true };
+  });
 }

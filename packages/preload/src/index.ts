@@ -560,6 +560,37 @@ export interface ForgeAPI {
     listAppAccess: (slug: string) => Promise<AppAccessEntry[]>;
     setAppAccess: (slug: string, appName: string, granted: boolean) => Promise<AppAccessEntry[]>;
   };
+
+  /** MJ Dev Manager — Open App dev-linking (Phase B). */
+  openApps: {
+    link: (
+      slug: string,
+      appRef: string,
+      opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
+    ) => Promise<{ appName: string; snapshot: unknown }>;
+    unlink: (
+      slug: string,
+      appName: string,
+      opts?: { dropSchema?: boolean }
+    ) => Promise<{ success: boolean }>;
+    switchMode: (
+      slug: string,
+      appName: string,
+      target: 'dev' | 'installed'
+    ) => Promise<{ success: boolean }>;
+    list: (slug: string) => Promise<
+      Array<{
+        appName: string;
+        mode: string;
+        appRef: string;
+        ignoreVersionRangeUsed: boolean;
+        linkedBranch?: string;
+      }>
+    >;
+    drift: (slug: string, appName: string) => Promise<{ valid: boolean; errors: string[] }>;
+    resetSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
+    repairSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
+  };
 }
 
 // Helper to create event listener cleanup functions
@@ -689,6 +720,21 @@ const forgeAPI: ForgeAPI = {
     listAppAccess: slug => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.APP_ACCESS_LIST, slug),
     setAppAccess: (slug, appName, granted) =>
       ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.APP_ACCESS_SET, slug, appName, granted),
+  },
+
+  openApps: {
+    link: (slug, appRef, opts) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.LINK, slug, appRef, opts),
+    unlink: (slug, appName, opts) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.UNLINK, slug, appName, opts),
+    switchMode: (slug, appName, target) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.SWITCH_MODE, slug, appName, target),
+    list: slug => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.LIST, slug),
+    drift: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.DRIFT, slug, appName),
+    resetSchema: (slug, appName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.RESET_SCHEMA, slug, appName),
+    repairSchema: (slug, appName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.REPAIR_SCHEMA, slug, appName),
   },
 
   database: {

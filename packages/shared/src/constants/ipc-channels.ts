@@ -255,6 +255,18 @@ export const IPC_CHANNELS = {
     // Toggle one app on/off for the instance's persona
     APP_ACCESS_SET: 'identity:app-access-set',
   },
+
+  // MJ Dev Manager — Open App dev-linking (Phase B). Reuses INSTANCES.EVENTS
+  // for streamed progress (one event stream for the whole feature).
+  OPEN_APPS: {
+    LINK: 'open-apps:link',
+    UNLINK: 'open-apps:unlink',
+    SWITCH_MODE: 'open-apps:switch-mode',
+    LIST: 'open-apps:list',
+    DRIFT: 'open-apps:drift',
+    RESET_SCHEMA: 'open-apps:reset-schema',
+    REPAIR_SCHEMA: 'open-apps:repair-schema',
+  },
 } as const;
 
 export type IpcChannels = typeof IPC_CHANNELS;
