@@ -35,6 +35,8 @@ interface LinkForm {
   mode: 'dev' | 'installed';
   /** Bypass the app's MJ version-range check when dev-linking (dev mode only). */
   ignoreVersionRange: boolean;
+  /** Allow a reserved `__`-prefixed schema on install (first-party MJ apps; install mode only). */
+  allowDoubleUnderscore: boolean;
 }
 
 interface PersonaForm {
@@ -585,6 +587,18 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                       name="ignoreVersionRange"
                     />
                     <span>Ignore version range</span>
+                  </label>
+                } @else {
+                  <label
+                    class="inline"
+                    matTooltip="Required for first-party MJ apps (e.g. bizapps-*) that use a reserved __mj_ schema"
+                  >
+                    <input
+                      type="checkbox"
+                      [(ngModel)]="linkForm.allowDoubleUnderscore"
+                      name="allowDoubleUnderscore"
+                    />
+                    <span>Allow reserved <code>__</code> schema</span>
                   </label>
                 }
                 <div class="row">
@@ -1400,7 +1414,12 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   readonly devEmailDomain = DEV_EMAIL_DOMAIN;
 
   /** Open Apps — add-app form (dev-link or install) for the selected instance. */
-  linkForm: LinkForm = { appRef: '', mode: 'dev', ignoreVersionRange: false };
+  linkForm: LinkForm = {
+    appRef: '',
+    mode: 'dev',
+    ignoreVersionRange: false,
+    allowDoubleUnderscore: false,
+  };
   /** The app pending unlink confirmation, or null when the modal is closed. */
   readonly unlinkTarget = signal<{ slug: string; appName: string } | null>(null);
   /**
@@ -1585,7 +1604,9 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     const mode = this.linkForm.mode;
     if (mode === 'installed') {
       // Install auto-resolves its transitive deps (engine) — no prompt needed.
-      await this.openApps.install(slug, appRef);
+      await this.openApps.install(slug, appRef, {
+        allowDoubleUnderscore: this.linkForm.allowDoubleUnderscore,
+      });
     } else {
       // Dev-link doesn't auto-resolve deps: pre-flight, then prompt for any missing.
       const resolved = await this.openApps.resolveDeps(slug, appRef);
@@ -1615,7 +1636,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** Reset the add-app form only when the last op for this slug succeeded. */
   private resetLinkFormIfClean(slug: string, mode: 'dev' | 'installed'): void {
     if (this.openApps.activeSlug() === slug && !this.openApps.lastError()) {
-      this.linkForm = { appRef: '', mode, ignoreVersionRange: false };
+      this.linkForm = { appRef: '', mode, ignoreVersionRange: false, allowDoubleUnderscore: false };
     }
   }
 

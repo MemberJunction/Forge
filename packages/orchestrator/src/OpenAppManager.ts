@@ -264,7 +264,12 @@ export class OpenAppManager {
     mjWorktreePath: string,
     source: string,
     dbConfig: EngineDbConfig,
-    opts: { version?: string; githubToken?: string; env?: NodeJS.ProcessEnv } = {},
+    opts: {
+      version?: string;
+      githubToken?: string;
+      allowDoubleUnderscore?: boolean;
+      env?: NodeJS.ProcessEnv;
+    } = {},
     sink: EventSink = noopSink
   ): Promise<{ appName: string; version: string }> {
     const env = opts.env ?? process.env;
@@ -278,6 +283,9 @@ export class OpenAppManager {
         source,
         version: opts.version,
         githubToken: opts.githubToken,
+        // First-party MJ apps (e.g. bizapps-*) declare reserved `__mj_*` schemas;
+        // installing them requires opting past the double-underscore guard.
+        allowDoubleUnderscore: opts.allowDoubleUnderscore === true,
         dbConfig,
         mjCoreSchema: '__mj',
       },

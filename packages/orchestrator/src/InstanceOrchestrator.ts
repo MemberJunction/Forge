@@ -455,7 +455,7 @@ export class InstanceOrchestrator {
   async installApp(
     slug: string,
     source: string,
-    opts: { version?: string } = {},
+    opts: { version?: string; allowDoubleUnderscore?: boolean } = {},
     sink: EventSink = noopSink
   ): Promise<{ appName: string; version: string }> {
     const record = await this.requireRecord(slug);

@@ -648,22 +648,37 @@ app
   .argument('<slug>')
   .argument('<source>', 'GitHub URL of the open app')
   .option('--version <version>', 'specific release/tag (default: the repo default branch)')
+  .option(
+    '--allow-double-underscore-schema',
+    'allow a reserved `__`-prefixed schema (first-party MJ apps like bizapps-* need this)'
+  )
   .option('--json', 'machine-readable output')
-  .action(async (slug: string, source: string, opts: { version?: string; json?: boolean }) => {
-    const json = !!opts.json;
-    try {
-      const r = await engine().installApp(slug, source, { version: opts.version }, makeSink(json));
-      emitResult(json, { success: true, ...r }, () =>
-        console.log(
-          chalk.green(
-            `\n✓ Installed "${r.appName}"${r.version ? ` v${r.version}` : ''} into ${slug}`
+  .action(
+    async (
+      slug: string,
+      source: string,
+      opts: { version?: string; allowDoubleUnderscoreSchema?: boolean; json?: boolean }
+    ) => {
+      const json = !!opts.json;
+      try {
+        const r = await engine().installApp(
+          slug,
+          source,
+          { version: opts.version, allowDoubleUnderscore: opts.allowDoubleUnderscoreSchema },
+          makeSink(json)
+        );
+        emitResult(json, { success: true, ...r }, () =>
+          console.log(
+            chalk.green(
+              `\n✓ Installed "${r.appName}"${r.version ? ` v${r.version}` : ''} into ${slug}`
+            )
           )
-        )
-      );
-    } catch (err) {
-      fail(json, err);
+        );
+      } catch (err) {
+        fail(json, err);
+      }
     }
-  });
+  );
 
 app
   .command('unlink')

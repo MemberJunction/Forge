@@ -571,7 +571,7 @@ export interface ForgeAPI {
     install: (
       slug: string,
       source: string,
-      opts?: { version?: string }
+      opts?: { version?: string; allowDoubleUnderscore?: boolean }
     ) => Promise<{ appName: string; version: string }>;
     resolveDeps: (
       slug: string,

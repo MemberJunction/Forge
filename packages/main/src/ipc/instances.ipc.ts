@@ -121,8 +121,12 @@ export function registerInstanceHandlers(): void {
 
   safeHandle(
     IPC_CHANNELS.OPEN_APPS.INSTALL,
-    async (_e, slug: string, source: string, opts?: { version?: string }) =>
-      engine.installApp(slug, source, opts ?? {}, sink)
+    async (
+      _e,
+      slug: string,
+      source: string,
+      opts?: { version?: string; allowDoubleUnderscore?: boolean }
+    ) => engine.installApp(slug, source, opts ?? {}, sink)
   );
 
   safeHandle(IPC_CHANNELS.OPEN_APPS.RESOLVE_DEPS, async (_e, slug: string, appRef: string) =>

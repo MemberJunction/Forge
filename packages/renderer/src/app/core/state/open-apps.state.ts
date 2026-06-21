@@ -172,7 +172,11 @@ export class OpenAppsStateService {
    * Plain-install an app from a GitHub URL (the real install path; pulls transitive
    * open-app deps as installs too). Distinct from {@link link} (dev-link).
    */
-  async install(slug: string, source: string, opts?: { version?: string }): Promise<void> {
+  async install(
+    slug: string,
+    source: string,
+    opts?: { version?: string; allowDoubleUnderscore?: boolean }
+  ): Promise<void> {
     const result = await this.guard(() => this.ipc.openApps.install(slug, source, opts));
     if (result) {
       await this.refresh(slug);
