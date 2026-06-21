@@ -55,7 +55,7 @@ test('persona roster UI: add, list, activate', async () => {
       // Open the inline persona manager and add a persona.
       await window.locator('button:has(mat-icon:text-is("manage_accounts"))').click();
       await window.locator('input[name="pname"]').fill('Admin');
-      await window.locator('input[name="pemail"]').fill('admin@mjdev.local');
+      await window.locator('input[name="pemaillocal"]').fill('admin');
       await window.locator('input[name="proles"]').fill('Owner');
       await window.getByRole('button', { name: 'Add persona' }).click();
 
@@ -69,7 +69,7 @@ test('persona roster UI: add, list, activate', async () => {
 
       // Add a second persona and switch the active identity to it.
       await window.locator('input[name="pname"]').fill('Viewer');
-      await window.locator('input[name="pemail"]').fill('viewer@mjdev.local');
+      await window.locator('input[name="pemaillocal"]').fill('viewer');
       await window.locator('input[name="proles"]').fill('UI,Developer');
       await window.getByRole('button', { name: 'Add persona' }).click();
       await expect(
@@ -104,7 +104,7 @@ test('per-instance Identity card: override selector + actions render', async () 
       // Seed a persona so the override list has something to pick.
       await window.locator('button:has(mat-icon:text-is("manage_accounts"))').click();
       await window.locator('input[name="pname"]').fill('Admin');
-      await window.locator('input[name="pemail"]').fill('admin@mjdev.local');
+      await window.locator('input[name="pemaillocal"]').fill('admin');
       await window.getByRole('button', { name: 'Add persona' }).click();
 
       // Select the seeded instance → detail panel renders.
