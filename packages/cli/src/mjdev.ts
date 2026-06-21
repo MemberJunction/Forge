@@ -398,4 +398,55 @@ program
     }
   });
 
+// ── App access (per persona; default-on, faithful to prod UserApplication) ────
+
+const apps = program
+  .command('apps')
+  .description("Manage which MJ apps the instance's persona can access (default: all on)");
+
+apps
+  .command('list')
+  .description("List the instance's apps and the persona's access state")
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const list = await engine().listAppAccess(slug);
+      emitResult(json, { success: true, apps: list }, () => {
+        if (list.length === 0)
+          return console.log(chalk.gray('No apps found (is the instance migrated?).'));
+        for (const a of list) {
+          const mark = a.granted ? chalk.green('✓ on ') : chalk.gray('✗ off');
+          console.log(`${mark}  ${a.name}`);
+        }
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+for (const [verb, granted] of [
+  ['enable', true],
+  ['disable', false],
+] as const) {
+  apps
+    .command(verb)
+    .description(`${verb === 'enable' ? 'Grant' : 'Revoke'} the persona's access to an app`)
+    .argument('<slug>')
+    .argument('<app>', 'application name (see `mjdev apps list`)')
+    .option('--json', 'machine-readable output')
+    .action(async (slug: string, app: string, opts: { json?: boolean }) => {
+      const json = !!opts.json;
+      try {
+        const list = await engine().setAppAccess(slug, app, granted, makeSink(json));
+        emitResult(json, { success: true, apps: list }, () =>
+          console.log(chalk.green(`✓ ${granted ? 'Enabled' : 'Disabled'} "${app}" for ${slug}`))
+        );
+      } catch (err) {
+        fail(json, err);
+      }
+    });
+}
+
 program.parseAsync().catch(err => fail(false, err));

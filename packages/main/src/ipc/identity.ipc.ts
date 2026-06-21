@@ -60,4 +60,14 @@ export function registerIdentityHandlers(): void {
     await shell.openExternal(url);
     return { success: true, url };
   });
+
+  safeHandle(IPC_CHANNELS.IDENTITY.APP_ACCESS_LIST, async (_e, slug: string) =>
+    engine.listAppAccess(slug)
+  );
+
+  safeHandle(
+    IPC_CHANNELS.IDENTITY.APP_ACCESS_SET,
+    async (_e, slug: string, appName: string, granted: boolean) =>
+      engine.setAppAccess(slug, appName, granted, sink)
+  );
 }

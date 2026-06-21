@@ -141,6 +141,29 @@ export interface DevPersona {
   lastName?: string;
   /** MJ role names to grant the user (resolved to `__mj.Role` rows by name). */
   roles: string[];
+  /**
+   * App-access exceptions for this persona. Semantics are **default-on**: the
+   * persona is granted *every* MJ Application on an instance, except those whose
+   * `Name` appears here (their `__mj.UserApplication` row is set `IsActive = 0`).
+   * Stored on the persona (not per-instance) so a chosen configuration applies
+   * everywhere the persona is provisioned and survives re-provisioning a
+   * disposable instance DB. Apps that appear later are on by default (not listed
+   * ⇒ granted). Omitted/empty ⇒ all apps on. Faithful to production: toggling an
+   * app off is the same `IsActive` flip MJ uses for a user-disabled app.
+   */
+  disabledAppNames?: string[];
+}
+
+/**
+ * One MJ Application's access state for a persona on an instance — what the app
+ * toggle UI and `mjdev apps` render. `granted` is `true` when the persona has
+ * (or will have) an active `__mj.UserApplication` row for the app.
+ */
+export interface AppAccessEntry {
+  /** Application name (the stable, cross-instance key). */
+  name: string;
+  /** Whether the persona currently has access (UserApplication.IsActive). */
+  granted: boolean;
 }
 
 /** Roster file persisted at `~/.mjdev/personas.json`. */

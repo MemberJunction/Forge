@@ -144,6 +144,20 @@ export class InstancesStateService {
     await this.refreshProcesses();
   }
 
+  async restartProcess(processId: string): Promise<void> {
+    try {
+      await this.ipc.instances.restartProcess(processId);
+    } catch (err) {
+      this.notification.error(`Failed to restart process: ${this.msg(err)}`);
+    }
+    await this.refreshProcesses();
+  }
+
+  async removeProcess(processId: string): Promise<void> {
+    await this.ipc.instances.removeProcess(processId).catch(() => {});
+    await this.refreshProcesses();
+  }
+
   async refreshProcesses(): Promise<void> {
     const slug = this._selectedSlug();
     if (!slug || !this.ipc.isAvailable) {

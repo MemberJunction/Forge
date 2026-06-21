@@ -162,3 +162,71 @@ GO
 export function newApiKeyId(): string {
   return randomUUID();
 }
+
+export interface UserApplicationsSyncParams {
+  /** Target instance database. */
+  dbName: string;
+  /** Persona email — the user whose app access is reconciled. */
+  email: string;
+  /**
+   * Application **names** to disable for this persona (default-on semantics:
+   * everything not listed is granted). Empty ⇒ all apps on. Matched against
+   * `__mj.Application.Name`; unknown names are simply inert.
+   */
+  disabledAppNames: string[];
+}
+
+/**
+ * Idempotent SQL that gives the persona access to **every active MJ Application**
+ * by ensuring a `__mj.UserApplication` row exists for each, then reconciles each
+ * row's `IsActive` to the persona's current choice (`0` for any app whose name
+ * is in `disabledAppNames`, else `1`). This is the same `UserApplication`/
+ * `IsActive` mechanism MJ Explorer uses in production — granting all apps mirrors
+ * an admin granting a user every app, and disabling one mirrors a user turning an
+ * app off. Assumes the persona user already exists (see {@link buildUserUpsertSql}).
+ */
+export function buildUserApplicationsSyncSql(p: UserApplicationsSyncParams): string {
+  const { dbName, email } = p;
+  // CASE expression that yields IsActive (1/0) for a given Name column. When no
+  // apps are disabled it collapses to a constant 1 (avoids an invalid `IN ()`).
+  const isActive = (nameCol: string): string => {
+    if (p.disabledAppNames.length === 0) return '1';
+    const list = p.disabledAppNames.map(n => `N'${sqlStr(n)}'`).join(', ');
+    return `CASE WHEN ${nameCol} IN (${list}) THEN 0 ELSE 1 END`;
+  };
+
+  return `-- MJ Dev Manager: sync persona app access (all-on default; IsActive=0 for disabled)
+USE [${dbName}];
+GO
+
+DECLARE @uid UNIQUEIDENTIFIER = (SELECT [ID] FROM [__mj].[User] WHERE [Email] = N'${sqlStr(email)}');
+IF @uid IS NULL THROW 50000, 'Persona user not found; run the user upsert first.', 1;
+
+-- Grant any active Application the persona doesn't already have a row for.
+;WITH apps AS (
+    SELECT a.[ID], a.[Name],
+           ROW_NUMBER() OVER (ORDER BY a.[DefaultSequence], a.[Name]) - 1 AS seq
+    FROM [__mj].[Application] a
+    WHERE a.[Status] = N'Active'
+)
+INSERT INTO [__mj].[UserApplication]
+    ([ID],[UserID],[ApplicationID],[Sequence],[IsActive],[__mj_CreatedAt],[__mj_UpdatedAt])
+SELECT NEWID(), @uid, apps.[ID], apps.seq, ${isActive('apps.[Name]')},
+       SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
+FROM apps
+WHERE NOT EXISTS (
+    SELECT 1 FROM [__mj].[UserApplication] ua
+    WHERE ua.[UserID] = @uid AND ua.[ApplicationID] = apps.[ID]);
+
+-- Reconcile IsActive on existing rows to the persona's current choice.
+UPDATE ua
+SET ua.[IsActive] = ${isActive('a.[Name]')},
+    ua.[__mj_UpdatedAt] = SYSDATETIMEOFFSET()
+FROM [__mj].[UserApplication] ua
+JOIN [__mj].[Application] a ON a.[ID] = ua.[ApplicationID]
+WHERE ua.[UserID] = @uid;
+
+PRINT 'Synced app access for ${sqlStr(email)}';
+GO
+`;
+}

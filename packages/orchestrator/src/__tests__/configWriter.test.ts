@@ -91,11 +91,12 @@ describe('ConfigWriter.renderExplorerEnv', () => {
   });
 });
 
-describe('ConfigWriter.renderMjConfig', () => {
-  const cfg = ConfigWriter.renderMjConfig(record);
-  it('spreads the copied tracked base config', () => {
-    expect(cfg).toContain("require('./mj.config.mjdev-base.cjs')");
+describe('ConfigWriter.renderConfigOverlay', () => {
+  const cfg = ConfigWriter.renderConfigOverlay(record);
+  it('spreads the untouched tracked mj.config.cjs (no clobber, no base copy)', () => {
+    expect(cfg).toContain("require('./mj.config.cjs')");
     expect(cfg).toContain('...base');
+    expect(cfg).not.toContain('mjdev-base');
   });
   it('enables magic-link for the instance', () => {
     expect(cfg).toContain('enabled: true');

@@ -89,6 +89,7 @@ import type {
   ManagedProcess,
   SetupStep,
   DevPersona,
+  AppAccessEntry,
 } from '@mj-forge/shared';
 
 // Dialog types for Electron dialogs
@@ -504,6 +505,8 @@ interface ForgeAPI {
       target: 'api' | 'explorer' | { script: string }
     ) => Promise<ManagedProcess>;
     stopProcess: (processId: string) => Promise<{ success: boolean }>;
+    restartProcess: (processId: string) => Promise<ManagedProcess>;
+    removeProcess: (processId: string) => Promise<{ success: boolean }>;
     listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
     onEvent: (callback: (event: InstanceEvent) => void) => () => void;
   };
@@ -518,6 +521,8 @@ interface ForgeAPI {
     whoami: (slug: string) => Promise<DevPersona>;
     mintKey: (slug: string, force?: boolean) => Promise<{ rawKey: string }>;
     openExplorer: (slug: string) => Promise<{ success: boolean; url: string }>;
+    listAppAccess: (slug: string) => Promise<AppAccessEntry[]>;
+    setAppAccess: (slug: string, appName: string, granted: boolean) => Promise<AppAccessEntry[]>;
   };
 }
 

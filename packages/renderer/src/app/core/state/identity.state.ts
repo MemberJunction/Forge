@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import type { DevPersona } from '@mj-forge/shared';
+import type { AppAccessEntry, DevPersona } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { NotificationService } from '../services/notification.service';
 
@@ -17,9 +17,12 @@ export class IdentityStateService {
   private readonly _personas = signal<DevPersona[]>([]);
   private readonly _activeId = signal<string | null>(null);
   private readonly _busy = signal(false);
+  /** App-access list for the currently inspected instance (keyed by slug). */
+  private readonly _appAccess = signal<{ slug: string; apps: AppAccessEntry[] } | null>(null);
 
   readonly personas = this._personas.asReadonly();
   readonly busy = this._busy.asReadonly();
+  readonly appAccess = this._appAccess.asReadonly();
   readonly activePersona = computed(
     () => this._personas().find(p => p.id === this._activeId()) ?? null
   );
@@ -78,6 +81,26 @@ export class IdentityStateService {
   async openExplorer(slug: string): Promise<void> {
     const result = await this.guard(() => this.ipc.identity.openExplorer(slug));
     if (result) this.notification.success('Opening Explorer (logged in)…');
+  }
+
+  /** Load the instance's app-access list for the current persona. */
+  async loadAppAccess(slug: string): Promise<void> {
+    const apps = await this.guard(() => this.ipc.identity.listAppAccess(slug));
+    if (apps) this._appAccess.set({ slug, apps });
+  }
+
+  /** Clear the loaded app-access list (e.g. when the panel closes). */
+  clearAppAccess(): void {
+    this._appAccess.set(null);
+  }
+
+  /** Toggle one app on/off for the instance's persona and refresh the list. */
+  async toggleAppAccess(slug: string, appName: string, granted: boolean): Promise<void> {
+    const apps = await this.guard(() => this.ipc.identity.setAppAccess(slug, appName, granted));
+    if (apps) {
+      this._appAccess.set({ slug, apps });
+      this.notification.success(`${granted ? 'Enabled' : 'Disabled'} "${appName}"`);
+    }
   }
 
   private async guard<T>(fn: () => Promise<T>): Promise<T | null> {

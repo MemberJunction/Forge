@@ -7,6 +7,7 @@ import {
   hashApiKey,
   buildUserUpsertSql,
   buildApiKeyInsertSql,
+  buildUserApplicationsSyncSql,
   newApiKeyId,
 } from '../../dist/index.js';
 
@@ -121,5 +122,63 @@ describe('buildApiKeyInsertSql', () => {
 
   it('generates unique key ids', () => {
     expect(newApiKeyId()).not.toBe(newApiKeyId());
+  });
+});
+
+describe('buildUserApplicationsSyncSql', () => {
+  it('targets the instance DB and resolves the persona user by email', () => {
+    const sql = buildUserApplicationsSyncSql({
+      dbName: 'MJ_feature_x',
+      email: 'admin@mjdev.local',
+      disabledAppNames: [],
+    });
+    expect(sql).toContain('USE [MJ_feature_x]');
+    expect(sql).toContain("WHERE [Email] = N'admin@mjdev.local'");
+    expect(sql).toContain('IF @uid IS NULL THROW');
+  });
+
+  it('grants every active Application the persona lacks a row for (idempotent)', () => {
+    const sql = buildUserApplicationsSyncSql({
+      dbName: 'MJ_x',
+      email: 'admin@mjdev.local',
+      disabledAppNames: [],
+    });
+    expect(sql).toContain('INSERT INTO [__mj].[UserApplication]');
+    expect(sql).toContain('FROM [__mj].[Application] a');
+    expect(sql).toContain("WHERE a.[Status] = N'Active'");
+    expect(sql).toContain('WHERE NOT EXISTS');
+  });
+
+  it('with no disabled apps, sets IsActive to a constant 1 (no invalid IN ())', () => {
+    const sql = buildUserApplicationsSyncSql({
+      dbName: 'MJ_x',
+      email: 'admin@mjdev.local',
+      disabledAppNames: [],
+    });
+    expect(sql).not.toContain('IN ()');
+    expect(sql).not.toContain('CASE WHEN');
+    // reconciles existing rows too
+    expect(sql).toContain('UPDATE ua');
+    expect(sql).toContain('SET ua.[IsActive] = 1');
+  });
+
+  it('disables only the named apps via an IsActive CASE on Application.Name', () => {
+    const sql = buildUserApplicationsSyncSql({
+      dbName: 'MJ_x',
+      email: 'admin@mjdev.local',
+      disabledAppNames: ['Admin', 'Files'],
+    });
+    expect(sql).toContain("CASE WHEN apps.[Name] IN (N'Admin', N'Files') THEN 0 ELSE 1 END");
+    expect(sql).toContain("CASE WHEN a.[Name] IN (N'Admin', N'Files') THEN 0 ELSE 1 END");
+  });
+
+  it('escapes single quotes in app names and email', () => {
+    const sql = buildUserApplicationsSyncSql({
+      dbName: 'MJ_x',
+      email: "o'brien@mjdev.local",
+      disabledAppNames: ["O'Hare"],
+    });
+    expect(sql).toContain("N'o''brien@mjdev.local'");
+    expect(sql).toContain("N'O''Hare'");
   });
 });

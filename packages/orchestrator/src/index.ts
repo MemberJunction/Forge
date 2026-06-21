@@ -11,6 +11,8 @@ export { PersonaStore } from './PersonaStore.js';
 export { IdentityManager } from './IdentityManager.js';
 export { MagicLinkClient } from './magicLinkClient.js';
 export type { FetchLike, CreateInviteParams, RedeemResult } from './magicLinkClient.js';
+export { mintMagicLinkSessionToken, computeKid } from './magicLinkMint.js';
+export type { MintSessionParams } from './magicLinkMint.js';
 export {
   API_KEY_PREFIX,
   MJ_SYSTEM_USER_ID,
@@ -18,9 +20,15 @@ export {
   hashApiKey,
   buildUserUpsertSql,
   buildApiKeyInsertSql,
+  buildUserApplicationsSyncSql,
   newApiKeyId,
 } from './apiKeyMint.js';
-export type { GeneratedApiKey, UserUpsertParams, ApiKeyInsertParams } from './apiKeyMint.js';
+export type {
+  GeneratedApiKey,
+  UserUpsertParams,
+  ApiKeyInsertParams,
+  UserApplicationsSyncParams,
+} from './apiKeyMint.js';
 export {
   listInstalledNodes,
   resolveNode,

@@ -81,6 +81,15 @@ export function registerInstanceHandlers(): void {
     return { success: true };
   });
 
+  safeHandle(IPC_CHANNELS.INSTANCES.PROC_RESTART, async (_e, processId: string) =>
+    engine.restartProcess(processId, sink)
+  );
+
+  safeHandle(IPC_CHANNELS.INSTANCES.PROC_REMOVE, async (_e, processId: string) => {
+    await engine.removeProcess(processId);
+    return { success: true };
+  });
+
   safeHandle(IPC_CHANNELS.INSTANCES.PROC_LIST, async (_e, slug?: string) => ({
     processes: engine.listProcesses(slug),
     scripts: slug ? await engine.listScripts(slug).catch(() => []) : [],

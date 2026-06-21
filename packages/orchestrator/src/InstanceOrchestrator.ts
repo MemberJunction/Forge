@@ -7,7 +7,7 @@ import type {
   SetupStep,
 } from '@mj-forge/shared';
 import { resolvePaths, type OrchestratorOptions, type ResolvedPaths } from './paths.js';
-import type { DevPersona } from '@mj-forge/shared';
+import type { AppAccessEntry, DevPersona } from '@mj-forge/shared';
 import { InstanceStore } from './InstanceStore.js';
 import { PersonaStore } from './PersonaStore.js';
 import { IdentityManager } from './IdentityManager.js';
@@ -311,6 +311,28 @@ export class InstanceOrchestrator {
     return this.identity.openExplorerAs(record, persona, sink);
   }
 
+  /** List the instance's apps with the current persona's access state. */
+  async listAppAccess(slug: string): Promise<AppAccessEntry[]> {
+    const record = await this.requireRecord(slug);
+    const persona = await this.identity.resolvePersona(record);
+    return this.identity.listApps(record, persona);
+  }
+
+  /**
+   * Toggle one app on/off for the instance's persona and return the refreshed
+   * list. Persists on the persona (default-on; only exceptions are stored).
+   */
+  async setAppAccess(
+    slug: string,
+    appName: string,
+    granted: boolean,
+    sink: EventSink = noopSink
+  ): Promise<AppAccessEntry[]> {
+    const record = await this.requireRecord(slug);
+    const persona = await this.identity.resolvePersona(record);
+    return this.identity.setAppAccess(record, persona, appName, granted, sink);
+  }
+
   /**
    * Regenerate an existing instance's config files and backfill any missing
    * auth secrets (system API key, magic-link signing key). Lets instances
@@ -405,6 +427,19 @@ export class InstanceOrchestrator {
 
   stopProcess(id: string): Promise<void> {
     return this.procs.stop(id);
+  }
+
+  /** Restart a tracked process by re-launching its original target. */
+  async restartProcess(id: string, sink: EventSink = noopSink): Promise<ManagedProcess> {
+    const meta = this.procs.list().find(p => p.id === id);
+    if (!meta) throw new Error(`No tracked process "${id}"`);
+    const record = await this.requireRecord(meta.slug);
+    return this.procs.restart(id, record, sink, this.instanceEnv(record, meta.slug, sink));
+  }
+
+  /** Drop a process from the list (stops it first if still running). */
+  removeProcess(id: string): Promise<void> {
+    return this.procs.remove(id);
   }
 
   listProcesses(slug?: string): ManagedProcess[] {

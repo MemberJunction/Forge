@@ -10,10 +10,14 @@ interface Tracked {
   meta: ManagedProcess;
   child: ChildProcess;
   logs: string[];
+  /** The original launch target, so the process can be restarted in place. */
+  target: LaunchTarget;
 }
 
 /** What to launch: a known service shortcut or an arbitrary package script. */
 export type LaunchTarget = 'api' | 'explorer' | { script: string };
+
+const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 /**
  * Spawns and tracks long-running service processes for instances (MJAPI,
@@ -41,8 +45,38 @@ export class ProcessManager {
     sink: EventSink = noopSink,
     env: NodeJS.ProcessEnv = process.env
   ): ManagedProcess {
+    return this.launch(newId(), record, target, sink, env);
+  }
+
+  /**
+   * Restart a tracked process (running or stopped) by re-launching its original
+   * target under the same id. Kills the old process group first if still alive.
+   */
+  async restart(
+    id: string,
+    record: InstanceRecord,
+    sink: EventSink = noopSink,
+    env: NodeJS.ProcessEnv = process.env
+  ): Promise<ManagedProcess> {
+    const entry = this.tracked.get(id);
+    if (!entry) throw new Error(`No tracked process "${id}"`);
+    const target = entry.target;
+    if (entry.meta.status === 'running' || entry.meta.status === 'starting') {
+      this.killTree(entry.child);
+      await delay(600); // let the port free up before we rebind
+    }
+    return this.launch(id, record, target, sink, env);
+  }
+
+  /** Spawn (or re-spawn at `id`) a target and wire up tracking. */
+  private launch(
+    id: string,
+    record: InstanceRecord,
+    target: LaunchTarget,
+    sink: EventSink,
+    env: NodeJS.ProcessEnv
+  ): ManagedProcess {
     const { cwd, args, label, port, script } = this.resolveTarget(record, target);
-    const id = newId();
     const op = `proc:${script}`;
     emit(sink, record.slug, op, 'progress', `Starting ${label}…`);
 
@@ -63,7 +97,7 @@ export class ProcessManager {
       status: 'starting',
       startedAt: new Date().toISOString(),
     };
-    const entry: Tracked = { meta, child, logs: [] };
+    const entry: Tracked = { meta, child, logs: [], target };
     this.tracked.set(id, entry);
 
     const pushLog = (s: string) => {
@@ -81,6 +115,8 @@ export class ProcessManager {
       emit(sink, record.slug, op, 'error', `${label} failed to start: ${err.message}`);
     });
     child.on('exit', code => {
+      // Ignore the exit of a child we've already replaced (restart reuses the id).
+      if (this.tracked.get(id) !== entry) return;
       meta.status = code === 0 || code === null ? 'stopped' : 'error';
       emit(sink, record.slug, op, code ? 'error' : 'info', `${label} exited (${code ?? 'signal'})`);
     });
@@ -88,12 +124,22 @@ export class ProcessManager {
     return { ...meta };
   }
 
-  /** Stop a tracked process (kills its whole process group). */
+  /** Stop a tracked process (kills its whole process group), keeping it listed. */
   async stop(id: string): Promise<void> {
     const entry = this.tracked.get(id);
     if (!entry) return;
     this.killTree(entry.child);
     entry.meta.status = 'stopped';
+  }
+
+  /** Remove a process from the list (stopping it first if still alive). */
+  async remove(id: string): Promise<void> {
+    const entry = this.tracked.get(id);
+    if (!entry) return;
+    if (entry.meta.status === 'running' || entry.meta.status === 'starting') {
+      this.killTree(entry.child);
+    }
+    this.tracked.delete(id);
   }
 
   /** Stop every process for a given instance. */

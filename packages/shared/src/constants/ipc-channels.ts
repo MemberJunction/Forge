@@ -224,6 +224,8 @@ export const IPC_CHANNELS = {
     // Process launcher / manager
     PROC_START: 'instances:proc-start',
     PROC_STOP: 'instances:proc-stop',
+    PROC_RESTART: 'instances:proc-restart',
+    PROC_REMOVE: 'instances:proc-remove',
     PROC_LIST: 'instances:proc-list',
     // Streaming progress/log events (main -> renderer)
     EVENTS: 'instances:events',
@@ -244,6 +246,10 @@ export const IPC_CHANNELS = {
     OPEN_EXPLORER: 'identity:open-explorer',
     // The persona an instance currently acts as
     WHOAMI: 'identity:whoami',
+    // List the instance's apps + the persona's access state
+    APP_ACCESS_LIST: 'identity:app-access-list',
+    // Toggle one app on/off for the instance's persona
+    APP_ACCESS_SET: 'identity:app-access-set',
   },
 } as const;
 

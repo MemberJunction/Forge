@@ -27,8 +27,12 @@ export interface CreateInviteParams {
   email: string;
   /** MJ Application the magic-link session is scoped to. */
   applicationId: string;
-  /** Role name to grant (must be in the instance's `grantableRoleNames`). */
-  role?: string;
+  /**
+   * Role ID to grant (a `__mj.Role` UUID, must be grantable per the instance's
+   * `grantableRoleNames`). Omit to fall back to the configured restricted role.
+   * NOTE: the endpoint takes a role *ID*, not a role name.
+   */
+  roleId?: string;
   firstName?: string;
   lastName?: string;
 }
@@ -70,10 +74,13 @@ export class MagicLinkClient {
 
   /** Redeem a raw token for a session JWT. */
   async redeem(rawToken: string): Promise<RedeemResult> {
+    // Use the JSON flow explicitly: `?format=json` + an application/json body.
+    // Without it the endpoint 302-redirects to the Explorer URL (the browser
+    // flow), which `fetch` would silently follow and return HTML instead of JSON.
     const body = await this.post(
-      '/magic-link/redeem',
-      { 'content-type': 'application/x-www-form-urlencoded' },
-      `token=${encodeURIComponent(rawToken)}`
+      '/magic-link/redeem?format=json',
+      { 'content-type': 'application/json' },
+      JSON.stringify({ token: rawToken })
     );
     const parsed = this.parseJson(body);
     if (!parsed.token) throw new Error(`magic-link redeem returned no session token: ${body}`);

@@ -18,9 +18,20 @@ interface CreateForm {
 
 interface PersonaForm {
   name: string;
-  email: string;
+  /** Local part of the dev email (before the @). */
+  emailLocal: string;
+  /** Domain part — locked to the enforced dev domain until the user overrides. */
+  emailDomain: string;
+  /** True once the user has acknowledged the override modal and edited the domain. */
+  domainUnlocked: boolean;
   roles: string;
 }
+
+/**
+ * Enforced dev email domain. Non-routable `.local` so a leaked persona row can
+ * never authenticate against a real IdP (see the dev-identity security model).
+ */
+const DEV_EMAIL_DOMAIN = 'mjdev.local';
 
 /**
  * MJ Dev Manager — the full Instances control panel: list, detail/control
@@ -96,13 +107,39 @@ interface PersonaForm {
                   placeholder="Admin"
                   required
               /></label>
-              <label
-                >Email<input
-                  [(ngModel)]="personaForm.email"
-                  name="pemail"
-                  placeholder="admin@mjdev.local"
-                  required
-              /></label>
+              <label class="email-label">
+                Email
+                <div class="email-row">
+                  <input
+                    class="email-local"
+                    [(ngModel)]="personaForm.emailLocal"
+                    name="pemaillocal"
+                    placeholder="admin"
+                    required
+                  />
+                  <span class="at">&#64;</span>
+                  @if (personaForm.domainUnlocked) {
+                    <input
+                      class="email-domain"
+                      [(ngModel)]="personaForm.emailDomain"
+                      name="pemaildomain"
+                      [placeholder]="devEmailDomain"
+                      required
+                    />
+                  } @else {
+                    <span class="email-domain locked">{{ devEmailDomain }}</span>
+                    <button
+                      mat-icon-button
+                      type="button"
+                      class="domain-edit"
+                      matTooltip="Use a different email domain (advanced)"
+                      (click)="requestEmailOverride()"
+                    >
+                      <mat-icon>edit</mat-icon>
+                    </button>
+                  }
+                </div>
+              </label>
               <label
                 >Roles <small>(comma-separated)</small
                 ><input [(ngModel)]="personaForm.roles" name="proles" placeholder="Owner"
@@ -112,7 +149,7 @@ interface PersonaForm {
                   mat-flat-button
                   color="primary"
                   type="submit"
-                  [disabled]="!personaForm.name || !personaForm.email || identity.busy()"
+                  [disabled]="!personaForm.name || !personaForm.emailLocal || identity.busy()"
                 >
                   Add persona
                 </button>
@@ -122,6 +159,45 @@ interface PersonaForm {
                 <code>Developer, UI</code> to test limited roles.
               </p>
             </form>
+          </div>
+        }
+
+        @if (showEmailOverrideModal()) {
+          <div class="modal-backdrop" (click)="cancelEmailOverride()">
+            <div class="modal" (click)="$event.stopPropagation()">
+              <h3>Use a non-dev email domain?</h3>
+              <p>
+                Dev personas default to <code>&#64;{{ devEmailDomain }}</code
+                >, a non-routable address that can never authenticate against a production identity
+                provider.
+              </p>
+              <p class="warn">
+                Dev credentials that align with <strong>real</strong> emails can be authenticated
+                against a production IdP.
+                <strong>Never sync dev credentials into metadata or migrations.</strong>
+              </p>
+              <label>
+                Type <code>I understand</code> to continue
+                <input
+                  [(ngModel)]="overrideConfirmText"
+                  name="overrideconfirm"
+                  placeholder="I understand"
+                  autocomplete="off"
+                />
+              </label>
+              <div class="row">
+                <button
+                  mat-flat-button
+                  color="warn"
+                  type="button"
+                  [disabled]="!overrideConfirmed"
+                  (click)="acceptEmailOverride()"
+                >
+                  I understand
+                </button>
+                <button mat-button type="button" (click)="cancelEmailOverride()">Cancel</button>
+              </div>
+            </div>
           </div>
         }
 
@@ -290,6 +366,39 @@ interface PersonaForm {
                 Open Explorer needs MJAPI running. The API key is for CLI/agents
                 (<code>x-api-key</code>).
               </p>
+
+              <!-- App access (per persona; default-on, faithful to prod) -->
+              <button
+                mat-button
+                class="app-access-toggle"
+                (click)="toggleAppAccessPanel(inst.slug)"
+                [disabled]="identity.busy()"
+              >
+                <mat-icon>apps</mat-icon>
+                {{ identity.appAccess()?.slug === inst.slug ? 'Hide app access' : 'App access…' }}
+              </button>
+              @if (identity.appAccess()?.slug === inst.slug) {
+                <div class="app-list">
+                  @for (a of identity.appAccess()!.apps; track a.name) {
+                    <label class="app-row">
+                      <input
+                        type="checkbox"
+                        [checked]="a.granted"
+                        [disabled]="identity.busy()"
+                        (change)="
+                          identity.toggleAppAccess(inst.slug, a.name, $any($event.target).checked)
+                        "
+                      />
+                      <span>{{ a.name }}</span>
+                    </label>
+                  } @empty {
+                    <p class="hint">No apps found (is the instance migrated?).</p>
+                  }
+                  <p class="hint">
+                    Granted apps apply to this persona everywhere; default is all on.
+                  </p>
+                </div>
+              }
             </div>
 
             <!-- Setup steps -->
@@ -368,10 +477,34 @@ interface PersonaForm {
                     <span class="dot" [class]="p.status"></span>
                     <span class="pl">{{ p.label }}</span>
                     <span class="port">{{ p.port ? ':' + p.port : '' }}</span>
-                    <span class="pid">pid {{ p.pid }}</span>
-                    <button mat-icon-button (click)="state.stopProcess(p.id)" matTooltip="Stop">
-                      <mat-icon>stop</mat-icon>
-                    </button>
+                    <span class="pid">{{ p.status }}{{ p.pid ? ' · pid ' + p.pid : '' }}</span>
+                    @if (p.status === 'running' || p.status === 'starting') {
+                      <button mat-icon-button (click)="state.stopProcess(p.id)" matTooltip="Stop">
+                        <mat-icon>stop</mat-icon>
+                      </button>
+                      <button
+                        mat-icon-button
+                        (click)="state.restartProcess(p.id)"
+                        matTooltip="Restart"
+                      >
+                        <mat-icon>restart_alt</mat-icon>
+                      </button>
+                    } @else {
+                      <button
+                        mat-icon-button
+                        (click)="state.restartProcess(p.id)"
+                        matTooltip="Start"
+                      >
+                        <mat-icon>play_arrow</mat-icon>
+                      </button>
+                      <button
+                        mat-icon-button
+                        (click)="state.removeProcess(p.id)"
+                        matTooltip="Remove"
+                      >
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    }
                   </li>
                 } @empty {
                   <li class="empty">Nothing running.</li>
@@ -694,6 +827,82 @@ interface PersonaForm {
       .row.wrap {
         flex-wrap: wrap;
       }
+      .app-access-toggle {
+        margin-top: 4px;
+      }
+      .app-list {
+        margin-top: 4px;
+        max-height: 200px;
+        overflow: auto;
+        border: 1px solid var(--border, #333);
+        border-radius: 4px;
+        padding: 6px 8px;
+      }
+      .app-list .app-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 0;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .app-list .app-row input {
+        cursor: pointer;
+      }
+      .email-label .email-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .email-row .email-local {
+        flex: 1 1 40%;
+        min-width: 0;
+      }
+      .email-row .at {
+        opacity: 0.7;
+      }
+      .email-row .email-domain {
+        flex: 1 1 50%;
+      }
+      .email-row .email-domain.locked {
+        opacity: 0.7;
+        font-family: monospace;
+        white-space: nowrap;
+      }
+      .email-row .domain-edit {
+        flex: 0 0 auto;
+      }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      .modal {
+        background: var(--bg-panel, #1e1e1e);
+        border: 1px solid var(--border, #333);
+        border-radius: 6px;
+        padding: 18px 20px;
+        max-width: 440px;
+        width: 90%;
+      }
+      .modal h3 {
+        margin: 0 0 8px;
+      }
+      .modal .warn {
+        color: var(--warn, #e0a030);
+      }
+      .modal label {
+        display: block;
+        margin: 10px 0;
+      }
+      .modal input {
+        width: 100%;
+        margin-top: 4px;
+      }
       .log-lines {
         background: var(--bg-input, #161616);
         border-radius: 4px;
@@ -739,11 +948,37 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   readonly state = inject(InstancesStateService);
   readonly identity = inject(IdentityStateService);
 
+  /**
+   * TODO(REMOVE BEFORE ANY PR): temporary default base ref so newly-created
+   * instances are cut from the notifier-fix branch (which carries the MJExplorer
+   * `MJNotificationService` injection fix needed for magic-link login). This is a
+   * convenience for local testing only and MUST be dropped before the tool is
+   * PR'd — it hardcodes a branch that may never merge. GUI-only; the CLI keeps no
+   * default base (see mjdev create). NOTE: only takes effect once the notifier
+   * fix is committed on that branch (a worktree checks out the branch's commit).
+   */
+  static readonly TEMP_DEFAULT_BASE_REF = 'fix-notifier-injection-bug';
+
   readonly creating = signal(false);
   readonly showSetupPrompt = signal(false);
   readonly managingPersonas = signal(false);
-  form: CreateForm = { name: '', branch: '', baseRef: '' };
-  personaForm: PersonaForm = { name: '', email: '', roles: 'Owner' };
+  /** Email-override confirmation modal (typed "I understand" gate). */
+  readonly showEmailOverrideModal = signal(false);
+  overrideConfirmText = '';
+  form: CreateForm = {
+    name: '',
+    branch: '',
+    baseRef: InstancesPanelComponent.TEMP_DEFAULT_BASE_REF,
+  };
+  personaForm: PersonaForm = {
+    name: '',
+    emailLocal: '',
+    emailDomain: DEV_EMAIL_DOMAIN,
+    domainUnlocked: false,
+    roles: 'Owner',
+  };
+  /** Exposed for the template's domain placeholder + reset. */
+  readonly devEmailDomain = DEV_EMAIL_DOMAIN;
 
   readonly steps: { key: SetupStep; label: string }[] = [
     { key: 'deps', label: 'Install dependencies' },
@@ -776,7 +1011,11 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     const record = await this.state.create(config);
     if (record) {
       this.creating.set(false);
-      this.form = { name: '', branch: '', baseRef: '' };
+      this.form = {
+        name: '',
+        branch: '',
+        baseRef: InstancesPanelComponent.TEMP_DEFAULT_BASE_REF,
+      };
       this.showSetupPrompt.set(true);
     }
   }
@@ -812,14 +1051,46 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
 
   async submitPersona(): Promise<void> {
     const name = this.personaForm.name.trim();
-    const email = this.personaForm.email.trim();
-    if (!name || !email) return;
+    const local = this.personaForm.emailLocal.trim().replace(/@.*$/, '');
+    const domain = this.personaForm.emailDomain.trim();
+    if (!name || !local || !domain) return;
+    const email = `${local}@${domain}`;
     const roles = this.personaForm.roles
       .split(',')
       .map(r => r.trim())
       .filter(Boolean);
     const saved = await this.identity.savePersona({ id: '', name, email, roles } as DevPersona);
-    if (saved) this.personaForm = { name: '', email: '', roles: 'Owner' };
+    if (saved)
+      this.personaForm = {
+        name: '',
+        emailLocal: '',
+        emailDomain: DEV_EMAIL_DOMAIN,
+        domainUnlocked: false,
+        roles: 'Owner',
+      };
+  }
+
+  /** Open the typed-acknowledgement modal before unlocking the email domain. */
+  requestEmailOverride(): void {
+    this.overrideConfirmText = '';
+    this.showEmailOverrideModal.set(true);
+  }
+
+  /** Whether the typed confirmation matches (case-insensitive "I understand"). */
+  get overrideConfirmed(): boolean {
+    return this.overrideConfirmText.trim().toLowerCase() === 'i understand';
+  }
+
+  /** Accept the override: unlock the domain field for free editing. */
+  acceptEmailOverride(): void {
+    if (!this.overrideConfirmed) return;
+    this.personaForm.domainUnlocked = true;
+    this.showEmailOverrideModal.set(false);
+  }
+
+  /** Cancel the override: keep the enforced dev domain. */
+  cancelEmailOverride(): void {
+    this.showEmailOverrideModal.set(false);
   }
 
   async setActivePersona(id: string): Promise<void> {
@@ -836,5 +1107,11 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   async changeInstancePersona(slug: string, personaId: string): Promise<void> {
     await this.identity.setInstancePersona(slug, personaId || undefined);
     await this.state.refresh();
+  }
+
+  /** Open/close the per-instance app-access list (loads it lazily on open). */
+  toggleAppAccessPanel(slug: string): void {
+    if (this.identity.appAccess()?.slug === slug) this.identity.clearAppAccess();
+    else void this.identity.loadAppAccess(slug);
   }
 }

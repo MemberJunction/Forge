@@ -90,6 +90,7 @@ import type {
   ManagedProcess,
   SetupStep,
   DevPersona,
+  AppAccessEntry,
 } from '@mj-forge/shared';
 
 /**
@@ -533,6 +534,8 @@ export interface ForgeAPI {
       target: 'api' | 'explorer' | { script: string }
     ) => Promise<ManagedProcess>;
     stopProcess: (processId: string) => Promise<{ success: boolean }>;
+    restartProcess: (processId: string) => Promise<ManagedProcess>;
+    removeProcess: (processId: string) => Promise<{ success: boolean }>;
     listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
     /** Subscribe to streamed progress/log events; returns an unsubscribe fn. */
     onEvent: (callback: (event: InstanceEvent) => void) => () => void;
@@ -549,6 +552,8 @@ export interface ForgeAPI {
     whoami: (slug: string) => Promise<DevPersona>;
     mintKey: (slug: string, force?: boolean) => Promise<{ rawKey: string }>;
     openExplorer: (slug: string) => Promise<{ success: boolean; url: string }>;
+    listAppAccess: (slug: string) => Promise<AppAccessEntry[]>;
+    setAppAccess: (slug: string, appName: string, granted: boolean) => Promise<AppAccessEntry[]>;
   };
 }
 
@@ -657,6 +662,8 @@ const forgeAPI: ForgeAPI = {
     startProcess: (slug, target) =>
       ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_START, slug, target),
     stopProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_STOP, processId),
+    restartProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_RESTART, processId),
+    removeProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_REMOVE, processId),
     listProcesses: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_LIST, slug),
     onEvent: callback => createEventListener(IPC_CHANNELS.INSTANCES.EVENTS, callback),
   },
@@ -672,6 +679,9 @@ const forgeAPI: ForgeAPI = {
     whoami: slug => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.WHOAMI, slug),
     mintKey: (slug, force) => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.MINT_KEY, slug, force),
     openExplorer: slug => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.OPEN_EXPLORER, slug),
+    listAppAccess: slug => ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.APP_ACCESS_LIST, slug),
+    setAppAccess: (slug, appName, granted) =>
+      ipcRenderer.invoke(IPC_CHANNELS.IDENTITY.APP_ACCESS_SET, slug, appName, granted),
   },
 
   database: {

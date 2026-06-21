@@ -50,3 +50,5 @@ test-results.package.json.bak
 test-results/
 
 **/*.local.json
+# Local mjdev demo/smoke YAML scratch (not part of the build)
+.mjdev-demo/

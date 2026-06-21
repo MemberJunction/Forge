@@ -34,7 +34,7 @@ describe('MagicLinkClient.createInvite', () => {
     const token = await client.createInvite('sys-key', {
       email: 'admin@mjdev.local',
       applicationId: 'app-1',
-      role: 'Developer',
+      roleId: 'role-uuid-1',
     });
     expect(token).toBe('mj_ml_raw');
     expect(calls[0].url).toBe('http://localhost:4010/magic-link/create');
@@ -42,7 +42,7 @@ describe('MagicLinkClient.createInvite', () => {
     expect(JSON.parse(calls[0].body)).toMatchObject({
       email: 'admin@mjdev.local',
       applicationId: 'app-1',
-      role: 'Developer',
+      roleId: 'role-uuid-1',
     });
   });
 
@@ -68,7 +68,7 @@ describe('MagicLinkClient.createInvite', () => {
 });
 
 describe('MagicLinkClient.redeem', () => {
-  it('form-encodes the token and returns the session JWT', async () => {
+  it('requests the JSON flow and returns the session JWT', async () => {
     const { fetchFn, calls } = stubFetch({
       '/magic-link/redeem': {
         body: JSON.stringify({
@@ -82,7 +82,10 @@ describe('MagicLinkClient.redeem', () => {
     const result = await client.redeem('mj_ml_raw');
     expect(result.token).toBe('jwt.abc.def');
     expect(result.expiresAt).toBe('2026-06-21T00:00:00Z');
-    expect(calls[0].headers['content-type']).toBe('application/x-www-form-urlencoded');
-    expect(calls[0].body).toBe('token=mj_ml_raw');
+    // JSON flow (?format=json + application/json body) so the server returns
+    // JSON instead of 302-redirecting to the Explorer URL.
+    expect(calls[0].url).toContain('format=json');
+    expect(calls[0].headers['content-type']).toBe('application/json');
+    expect(JSON.parse(calls[0].body)).toEqual({ token: 'mj_ml_raw' });
   });
 });

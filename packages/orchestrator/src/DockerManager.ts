@@ -156,6 +156,29 @@ export class DockerManager {
     return value;
   }
 
+  /**
+   * Run a query expected to return a single column and return its values, one
+   * per row (empty/NULL rows dropped). Used for small enumerations like the
+   * instance's Application names. `-W` trims padding, `-w 65535` avoids wrapping.
+   */
+  async queryColumn(name: string, saPassword: string, sql: string): Promise<string[]> {
+    const { code, output } = await this.runSqlcmd(name, saPassword, sql, [
+      '-h',
+      '-1',
+      '-W',
+      '-w',
+      '65535',
+    ]);
+    if (code !== 0) {
+      const tail = output.trim().split('\n').slice(-6).join('\n');
+      throw new Error(`Query failed (sqlcmd exit ${code}): ${tail}`);
+    }
+    return output
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && l !== 'NULL');
+  }
+
   /** Run sqlcmd inside the container, returning exit code + combined output. */
   private async runSqlcmd(
     name: string,
