@@ -528,6 +528,37 @@ interface ForgeAPI {
     listAppAccess: (slug: string) => Promise<AppAccessEntry[]>;
     setAppAccess: (slug: string, appName: string, granted: boolean) => Promise<AppAccessEntry[]>;
   };
+
+  /** MJ Dev Manager — Open App dev-linking (Phase B). */
+  openApps: {
+    link: (
+      slug: string,
+      appRef: string,
+      opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
+    ) => Promise<{ appName: string; snapshot: unknown }>;
+    unlink: (
+      slug: string,
+      appName: string,
+      opts?: { dropSchema?: boolean }
+    ) => Promise<{ success: boolean }>;
+    switchMode: (
+      slug: string,
+      appName: string,
+      target: 'dev' | 'installed'
+    ) => Promise<{ success: boolean }>;
+    list: (slug: string) => Promise<
+      Array<{
+        appName: string;
+        mode: string;
+        appRef: string;
+        ignoreVersionRangeUsed: boolean;
+        linkedBranch?: string;
+      }>
+    >;
+    drift: (slug: string, appName: string) => Promise<{ valid: boolean; errors: string[] }>;
+    resetSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
+    repairSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -558,6 +589,11 @@ export class IpcService {
   /** MJ Dev Manager developer-identity / persona API (Phase 2). */
   get identity() {
     return this.api.identity;
+  }
+
+  /** MJ Dev Manager Open App dev-linking API (Phase B). */
+  get openApps() {
+    return this.api.openApps;
   }
 
   constructor() {

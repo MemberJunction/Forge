@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -9,11 +9,20 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import type { DevPersona, InstanceConfig, SetupStep } from '@mj-forge/shared';
 import { InstancesStateService } from '../../core/state/instances.state';
 import { IdentityStateService } from '../../core/state/identity.state';
+import { OpenAppsStateService } from '../../core/state/open-apps.state';
 
 interface CreateForm {
   name: string;
   branch: string;
   baseRef: string;
+}
+
+/** Inputs for dev-linking a new Open App. */
+interface LinkForm {
+  /** GitHub URL or local path to the app to dev-link. */
+  appRef: string;
+  /** Bypass the app's MJ version-range check when linking. */
+  ignoreVersionRange: boolean;
 }
 
 interface PersonaForm {
@@ -511,6 +520,137 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 }
               </ul>
             </div>
+
+            <!-- Open Apps (Phase B) — dev-link external apps for development -->
+            <div class="card open-apps">
+              <h3>
+                Open Apps
+                <button
+                  mat-icon-button
+                  matTooltip="Refresh linked apps"
+                  (click)="openApps.refresh(inst.slug)"
+                  [disabled]="openApps.busy()"
+                >
+                  <mat-icon>refresh</mat-icon>
+                </button>
+              </h3>
+
+              <!-- Link a new app for development -->
+              <form class="link-form" (ngSubmit)="submitLink(inst.slug)">
+                <label
+                  >App URL or local path
+                  <input
+                    [(ngModel)]="linkForm.appRef"
+                    name="appRef"
+                    placeholder="https://github.com/org/app or /path/to/app"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="inline">
+                  <input
+                    type="checkbox"
+                    [(ngModel)]="linkForm.ignoreVersionRange"
+                    name="ignoreVersionRange"
+                  />
+                  <span>Ignore version range</span>
+                </label>
+                <div class="row">
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="submit"
+                    [disabled]="!linkForm.appRef.trim() || openApps.busy()"
+                  >
+                    <mat-icon>link</mat-icon> Link app for development
+                  </button>
+                </div>
+              </form>
+
+              @if (openApps.busy()) {
+                <mat-progress-bar mode="indeterminate" />
+              }
+
+              <!-- Currently dev-linked apps -->
+              <ul class="linked-list">
+                @for (a of openAppsFor(inst.slug); track a.appName) {
+                  <li>
+                    <div class="linked-head">
+                      <span class="mode-pill" [class]="a.mode">{{ a.mode }}</span>
+                      <strong class="app-name">{{ a.appName }}</strong>
+                      <span class="branch">{{ a.linkedBranch || '—' }}</span>
+                      @if (a.ignoreVersionRangeUsed) {
+                        <span
+                          class="ver-badge"
+                          matTooltip="Linked with version-range check bypassed"
+                          >ver override</span
+                        >
+                      }
+                    </div>
+                    <div class="row wrap linked-actions">
+                      <button
+                        mat-stroked-button
+                        matTooltip="Toggle between dev and installed mode"
+                        (click)="
+                          openApps.switchMode(
+                            inst.slug,
+                            a.appName,
+                            a.mode === 'dev' ? 'installed' : 'dev'
+                          )
+                        "
+                        [disabled]="openApps.busy()"
+                      >
+                        <mat-icon>swap_horiz</mat-icon>
+                        {{ a.mode === 'dev' ? 'Use installed' : 'Use dev' }}
+                      </button>
+                      <button
+                        mat-button
+                        matTooltip="Validate schema against migrations"
+                        (click)="openApps.drift(inst.slug, a.appName)"
+                        [disabled]="openApps.busy()"
+                      >
+                        <mat-icon>fact_check</mat-icon> Check drift
+                      </button>
+                      <button
+                        mat-button
+                        matTooltip="Re-stamp migration tracking (no SQL re-run)"
+                        (click)="confirmRepairSchema(inst.slug, a.appName)"
+                        [disabled]="openApps.busy()"
+                      >
+                        <mat-icon>build</mat-icon> Repair schema
+                      </button>
+                      <button
+                        mat-button
+                        color="warn"
+                        matTooltip="Drop and rebuild the schema from migrations (drops app data)"
+                        (click)="confirmResetSchema(inst.slug, a.appName)"
+                        [disabled]="openApps.busy()"
+                      >
+                        <mat-icon>restart_alt</mat-icon> Reset schema
+                      </button>
+                      <button
+                        mat-button
+                        color="warn"
+                        (click)="confirmUnlink(inst.slug, a.appName)"
+                        [disabled]="openApps.busy()"
+                      >
+                        <mat-icon>link_off</mat-icon> Unlink
+                      </button>
+                    </div>
+                  </li>
+                } @empty {
+                  <li class="empty">No apps dev-linked yet.</li>
+                }
+              </ul>
+
+              <!-- Live progress strip fed by app-* engine events -->
+              @if (openApps.progress().length) {
+                <div class="progress-strip">
+                  @for (e of openApps.progress(); track $index) {
+                    <div class="line {{ e.level }}">[{{ e.op }}] {{ e.message }}</div>
+                  }
+                </div>
+              }
+            </div>
           </div>
 
           <!-- Event log -->
@@ -529,6 +669,41 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
           </div>
         }
       </section>
+
+      <!-- Unlink confirmation (with optional schema/data drop) -->
+      @if (unlinkTarget(); as t) {
+        <div class="modal-backdrop" (click)="cancelUnlink()">
+          <div class="modal" (click)="$event.stopPropagation()">
+            <h3>Unlink "{{ t.appName }}"?</h3>
+            <p>
+              This stops developing <code>{{ t.appName }}</code> against instance
+              <code>{{ t.slug }}</code> and restores it to its installed state.
+            </p>
+            <label class="inline">
+              <input type="checkbox" [(ngModel)]="unlinkDropSchema" name="unlinkDropSchema" />
+              <span>Also drop the app's schema and data</span>
+            </label>
+            @if (unlinkDropSchema) {
+              <p class="warn">
+                <strong>Destructive:</strong> the app's tables and all data in this instance will be
+                permanently deleted.
+              </p>
+            }
+            <div class="row">
+              <button
+                mat-flat-button
+                [color]="unlinkDropSchema ? 'warn' : 'primary'"
+                type="button"
+                [disabled]="openApps.busy()"
+                (click)="acceptUnlink()"
+              >
+                Unlink
+              </button>
+              <button mat-button type="button" (click)="cancelUnlink()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -941,12 +1116,128 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         height: 48px;
         width: 48px;
       }
+      /* ── Open Apps card ────────────────────────────────────── */
+      .open-apps {
+        grid-column: 1 / -1;
+      }
+      .link-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .link-form label {
+        display: flex;
+        flex-direction: column;
+        font-size: 12px;
+        gap: 2px;
+      }
+      .link-form input[type='text'],
+      .link-form input:not([type]) {
+        background: var(--bg-input, #1e1e1e);
+        border: 1px solid var(--border-color, #444);
+        color: inherit;
+        padding: 6px;
+        border-radius: 4px;
+      }
+      label.inline {
+        flex-direction: row !important;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      label.inline input {
+        cursor: pointer;
+      }
+      .linked-list {
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .linked-list > li {
+        border: 1px solid var(--border-color, #333);
+        border-radius: 6px;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .linked-list > li.empty {
+        border: none;
+        padding: 4px 0;
+        color: var(--text-secondary, #888);
+        font-size: 12px;
+      }
+      .linked-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .linked-head .app-name {
+        font-size: 13px;
+      }
+      .linked-head .branch {
+        font-family: monospace;
+        font-size: 11px;
+        color: var(--text-secondary, #999);
+      }
+      .mode-pill {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        background: #30363d;
+        text-transform: capitalize;
+      }
+      .mode-pill.dev {
+        background: #1f6f33;
+      }
+      .mode-pill.installed {
+        background: #2f5d88;
+      }
+      .ver-badge {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 8px;
+        background: #6e5611;
+        color: var(--text-primary, #eee);
+      }
+      .linked-actions {
+        gap: 6px;
+      }
+      .progress-strip {
+        margin-top: 8px;
+        background: var(--bg-input, #161616);
+        border-radius: 4px;
+        padding: 8px;
+        max-height: 140px;
+        overflow: auto;
+        font-size: 11px;
+        font-family: monospace;
+      }
+      .progress-strip .line {
+        white-space: pre-wrap;
+      }
+      .progress-strip .error {
+        color: #f85149;
+      }
+      .progress-strip .success {
+        color: #3fb950;
+      }
+      .progress-strip .warn {
+        color: #d29922;
+      }
     `,
   ],
 })
 export class InstancesPanelComponent implements OnInit, OnDestroy {
   readonly state = inject(InstancesStateService);
   readonly identity = inject(IdentityStateService);
+  readonly openApps = inject(OpenAppsStateService);
 
   /**
    * TODO(REMOVE BEFORE ANY PR): temporary default base ref so newly-created
@@ -980,6 +1271,13 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** Exposed for the template's domain placeholder + reset. */
   readonly devEmailDomain = DEV_EMAIL_DOMAIN;
 
+  /** Open Apps — dev-link form for the selected instance. */
+  linkForm: LinkForm = { appRef: '', ignoreVersionRange: false };
+  /** The app pending unlink confirmation, or null when the modal is closed. */
+  readonly unlinkTarget = signal<{ slug: string; appName: string } | null>(null);
+  /** Whether the pending unlink should also drop the app's schema/data. */
+  unlinkDropSchema = false;
+
   readonly steps: { key: SetupStep; label: string }[] = [
     { key: 'deps', label: 'Install dependencies' },
     { key: 'build', label: 'Build workspace' },
@@ -987,14 +1285,30 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     { key: 'codegen', label: 'Run CodeGen (mj codegen)' },
   ];
 
+  constructor() {
+    // Load (and clear the progress strip for) the Open Apps card whenever the
+    // selected instance changes, so the card always reflects the current slug.
+    effect(() => {
+      const slug = this.state.selectedSlug();
+      if (slug) {
+        this.openApps.clearProgress();
+        void this.openApps.refresh(slug);
+      } else {
+        this.openApps.clear();
+      }
+    });
+  }
+
   ngOnInit(): void {
     this.state.startListening();
+    this.openApps.startListening();
     void this.state.refresh();
     void this.identity.refresh();
   }
 
   ngOnDestroy(): void {
     this.state.stopListening();
+    this.openApps.stopListening();
   }
 
   toggleCreate(): void {
@@ -1113,5 +1427,69 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   toggleAppAccessPanel(slug: string): void {
     if (this.identity.appAccess()?.slug === slug) this.identity.clearAppAccess();
     else void this.identity.loadAppAccess(slug);
+  }
+
+  // ── Open Apps (Phase B) ───────────────────────────────────────────────────
+
+  /** Linked apps for the given slug, only when the loaded list matches it. */
+  openAppsFor(slug: string) {
+    const loaded = this.openApps.linkedApps();
+    return loaded?.slug === slug ? loaded.apps : [];
+  }
+
+  /** Dev-link the app named in the link form, then reset the form on success. */
+  async submitLink(slug: string): Promise<void> {
+    const appRef = this.linkForm.appRef.trim();
+    if (!appRef) return;
+    await this.openApps.link(slug, appRef, {
+      ignoreVersionRange: this.linkForm.ignoreVersionRange,
+    });
+    // Reset only if the loaded list now reflects this slug (link succeeded).
+    if (this.openApps.activeSlug() === slug && !this.openApps.lastError()) {
+      this.linkForm = { appRef: '', ignoreVersionRange: false };
+    }
+  }
+
+  /** Open the unlink confirmation modal for an app (drop-schema opt-in). */
+  confirmUnlink(slug: string, appName: string): void {
+    this.unlinkDropSchema = false;
+    this.unlinkTarget.set({ slug, appName });
+  }
+
+  cancelUnlink(): void {
+    this.unlinkTarget.set(null);
+  }
+
+  /** Perform the confirmed unlink, honoring the drop-schema choice. */
+  async acceptUnlink(): Promise<void> {
+    const target = this.unlinkTarget();
+    if (!target) return;
+    const drop = this.unlinkDropSchema;
+    this.unlinkTarget.set(null);
+    await this.openApps.unlink(target.slug, target.appName, drop);
+  }
+
+  /** Reset an app's schema after a destructive-action confirmation. */
+  confirmResetSchema(slug: string, appName: string): void {
+    if (
+      confirm(
+        `Reset schema for "${appName}"? This DROPS the app's schema and all its data, ` +
+          `then rebuilds it from migrations. This cannot be undone.`
+      )
+    ) {
+      void this.openApps.resetSchema(slug, appName);
+    }
+  }
+
+  /** Repair an app's migration tracking after a confirmation. */
+  confirmRepairSchema(slug: string, appName: string): void {
+    if (
+      confirm(
+        `Repair schema tracking for "${appName}"? This re-stamps migration state ` +
+          `but does NOT re-run SQL — use "Reset schema" for edited migrations.`
+      )
+    ) {
+      void this.openApps.repairSchema(slug, appName);
+    }
   }
 }
