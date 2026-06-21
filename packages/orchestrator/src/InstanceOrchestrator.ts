@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type {
   InstanceConfig,
@@ -15,6 +16,7 @@ import { IdentityManager } from './IdentityManager.js';
 import { PortAllocator } from './PortAllocator.js';
 import { DockerManager } from './DockerManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
+import { RepoManager } from './RepoManager.js';
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
@@ -48,6 +50,9 @@ export class InstanceOrchestrator {
   private readonly identity: IdentityManager;
   private readonly docker: DockerManager;
   private readonly worktrees: WorktreeManager;
+  private readonly repo: RepoManager;
+  /** True when worktrees come from the app-managed clone (vs. an overridden repo). */
+  private readonly usingManagedClone: boolean;
   private readonly config: ConfigWriter;
   private readonly setup: SetupRunner;
   private readonly procs: ProcessManager;
@@ -59,6 +64,8 @@ export class InstanceOrchestrator {
     this.docker = docker ?? new DockerManager();
     this.identity = new IdentityManager(this.store, this.personas, this.docker);
     this.worktrees = new WorktreeManager(this.paths.mjRepoPath);
+    this.repo = new RepoManager(this.paths.mjClonePath, this.paths.mjSourcePath);
+    this.usingManagedClone = this.paths.mjRepoPath === this.paths.mjClonePath;
     this.config = new ConfigWriter();
     this.setup = new SetupRunner();
     this.procs = new ProcessManager(this.paths);
@@ -90,6 +97,9 @@ export class InstanceOrchestrator {
     emit(sink, slug, 'create', 'progress', `Provisioning instance "${config.name}"…`);
 
     await this.docker.assertAvailable();
+    // Ensure the app-managed MJ clone exists (seeded once from the local
+    // checkout) before any worktree is cut from it.
+    if (this.usingManagedClone) await this.repo.ensureCentralClone(slug, sink);
     await this.worktrees.assertRepo();
 
     // Reserve ports already published by any Docker container (e.g. the dev's
@@ -103,7 +113,9 @@ export class InstanceOrchestrator {
     const branch = config.branch?.trim() || `mjdev/${slug}`;
     const baseRef = config.baseRef?.trim() || 'HEAD';
     const dbName = config.database?.name?.trim() || `MJ_${slug.replace(/-/g, '_')}`;
-    const worktreePath = path.join(this.paths.worktreesDir, slug);
+    // Unified layout: each instance owns a folder holding its MJ worktree (and,
+    // in Phase B, its open-app worktrees + config) side by side.
+    const worktreePath = path.join(this.paths.instancesRootDir, slug, 'mj');
     const secretsRef = slug;
 
     const saPassword =
@@ -256,6 +268,7 @@ export class InstanceOrchestrator {
     await this.procs.stopForInstance(slug);
     await this.docker.remove(record.container.name, record.container.volume).catch(() => {});
     await this.worktrees.remove(record.worktreePath, slug, sink).catch(() => {});
+    await this.removeInstanceDir(record.worktreePath).catch(() => {});
     await this.store.remove(slug);
     await this.store.deleteConfig(slug);
     await this.store.deleteSecrets(record.secretsRef);
@@ -480,6 +493,20 @@ export class InstanceOrchestrator {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /**
+   * Remove the per-instance folder (`instancesRootDir/<slug>/`) after its MJ
+   * worktree is gone, so the unified layout doesn't leave empty shells behind.
+   * Only acts on the managed `<slug>/mj` shape and never escapes the workspace.
+   */
+  private async removeInstanceDir(worktreePath: string): Promise<void> {
+    if (path.basename(worktreePath) !== 'mj') return;
+    const slugDir = path.dirname(worktreePath);
+    const rel = path.relative(this.paths.instancesRootDir, slugDir);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel) || rel.includes(path.sep))
+      return;
+    await fs.rm(slugDir, { recursive: true, force: true });
+  }
 
   private async requireRecord(slug: string): Promise<InstanceRecord> {
     const record = await this.store.get(slug);

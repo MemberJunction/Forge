@@ -236,6 +236,34 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
             </div>
           </div>
         </section>
+
+        <!-- MJ Dev workspace structure -->
+        <section class="mjdev-workspace">
+          <h2>Your MJ Dev workspace</h2>
+          <p class="workspace-intro">
+            MJ Dev Manager keeps everything for an instance in one place, so you (or an AI
+            assistant) can point at a single folder and have all the code and config it needs.
+          </p>
+          <pre
+            class="workspace-tree"
+          ><span class="c">~/MJDev/</span>                      <span class="d"># shareable workspace root</span>
+  <span class="c">repos/mj/</span>                  <span class="d"># app-managed MJ clone (worktree source)</span>
+  <span class="c">repos/apps/</span>&lt;app&gt;/         <span class="d"># open-app source clones (coming soon)</span>
+  <span class="c">instances/</span>&lt;slug&gt;/
+    <span class="c">mj/</span>                     <span class="d"># this instance's MJ worktree</span>
+    <span class="c">apps/</span>&lt;app&gt;/             <span class="d"># dev-linked open apps (coming soon)</span>
+    <span class="c">config/</span>                 <span class="d"># per-instance, non-secret config</span>
+
+<span class="c">~/.mjdev/</span>                    <span class="d"># hidden secrets &amp; state — leave this to the tool</span></pre>
+          <div class="workspace-note">
+            <mat-icon>lock</mat-icon>
+            <p>
+              Secrets (DB passwords, signing keys) and instance state live in the hidden
+              <code>~/.mjdev</code> folder, separate from the shareable workspace — so it's safe to
+              hand the workspace folder to an agent.
+            </p>
+          </div>
+        </section>
       </div>
 
       <div class="welcome-footer">
@@ -442,6 +470,65 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
           color: var(--text-secondary);
           margin: 0;
           line-height: 1.5;
+        }
+      }
+
+      .mjdev-workspace {
+        .workspace-intro {
+          font-size: var(--font-size-sm);
+          color: var(--text-secondary);
+          margin: 0 0 var(--spacing-md);
+          line-height: 1.5;
+        }
+
+        .workspace-tree {
+          margin: 0 0 var(--spacing-md);
+          padding: var(--spacing-md);
+          background-color: var(--bg-secondary);
+          border: 1px solid var(--border-primary);
+          border-radius: var(--radius-md);
+          font-family: var(--font-mono, monospace);
+          font-size: var(--font-size-sm);
+          line-height: 1.6;
+          color: var(--text-primary);
+          overflow-x: auto;
+          white-space: pre;
+
+          .c {
+            color: var(--status-info);
+          }
+
+          .d {
+            color: var(--text-secondary);
+          }
+        }
+
+        .workspace-note {
+          display: flex;
+          gap: var(--spacing-md);
+          padding: var(--spacing-md);
+          background-color: var(--bg-secondary);
+          border-radius: var(--radius-md);
+          border-left: 3px solid var(--status-warning, var(--status-info));
+
+          mat-icon {
+            color: var(--status-warning, var(--status-info));
+            flex-shrink: 0;
+          }
+
+          p {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            margin: 0;
+            line-height: 1.5;
+          }
+
+          code {
+            font-family: var(--font-mono, monospace);
+            background-color: var(--bg-tertiary, var(--bg-primary));
+            padding: 1px 4px;
+            border-radius: var(--radius-sm);
+          }
         }
       }
 

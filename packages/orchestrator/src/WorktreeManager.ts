@@ -25,6 +25,19 @@ export class WorktreeManager {
   }
 
   /**
+   * Resolve a new branch's start point. A freshly-seeded central clone has the
+   * source checkout's branches only as remote-tracking refs, so a bare name
+   * like `fix-notifier-injection-bug` won't resolve — fall back to
+   * `origin/<ref>` when the local name is absent. Returns `baseRef` unchanged
+   * otherwise (and lets git surface its own clear error for a bad ref).
+   */
+  private async resolveBaseRef(baseRef: string): Promise<string> {
+    if (await this.refExists(baseRef)) return baseRef;
+    if (await this.refExists(`refs/remotes/origin/${baseRef}`)) return `origin/${baseRef}`;
+    return baseRef;
+  }
+
+  /**
    * Create a worktree at `worktreePath` checking out `branch`. If `branch`
    * doesn't exist it is created off `baseRef`. Throws with actionable messages
    * on the common conflicts (path taken, branch already checked out).
@@ -44,7 +57,7 @@ export class WorktreeManager {
     const exists = await this.branchExists(branch);
     const args = exists
       ? ['worktree', 'add', worktreePath, branch]
-      : ['worktree', 'add', '-b', branch, worktreePath, baseRef];
+      : ['worktree', 'add', '-b', branch, worktreePath, await this.resolveBaseRef(baseRef)];
 
     emit(
       sink,

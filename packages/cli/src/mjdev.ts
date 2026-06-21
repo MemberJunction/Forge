@@ -164,6 +164,49 @@ program
   });
 
 program
+  .command('reset')
+  .description('Delete ALL instances (container, volume, worktree, record) — for cutover/cleanup')
+  .option('--yes', 'actually delete; without this, only lists what would be removed')
+  .option('--json', 'machine-readable output')
+  .action(async (opts: { yes?: boolean; json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const eng = engine();
+      const instances = await eng.list();
+      const slugs = instances.map(i => i.slug);
+      if (!opts.yes) {
+        emitResult(json, { dryRun: true, slugs }, () => {
+          if (!slugs.length) console.log(chalk.dim('No instances to delete.'));
+          else {
+            console.log(
+              chalk.yellow(`Would delete ${slugs.length} instance(s): ${slugs.join(', ')}`)
+            );
+            console.log(chalk.dim('Re-run with --yes to delete them.'));
+          }
+        });
+        return;
+      }
+      const deleted: string[] = [];
+      const failed: Array<{ slug: string; error: string }> = [];
+      for (const slug of slugs) {
+        try {
+          await eng.delete(slug, makeSink(json));
+          deleted.push(slug);
+        } catch (err) {
+          failed.push({ slug, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      emitResult(json, { deleted, failed }, () => {
+        if (deleted.length)
+          console.log(chalk.green(`✓ Deleted ${deleted.length}: ${deleted.join(', ')}`));
+        for (const f of failed) console.log(chalk.red(`✗ ${f.slug}: ${f.error}`));
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
   .command('open')
   .description('Open the instance worktree in VS Code')
   .argument('<slug>')
