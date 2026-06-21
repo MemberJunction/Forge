@@ -12,7 +12,7 @@ import {
   type EngineDbConfig,
   type EngineRunResult,
 } from './WorktreeEngineRunner.js';
-import { addEntityPackageMapping } from './entityPackageMapping.js';
+import { addEntityPackageMapping, removeEntityPackageMapping } from './entityPackageMapping.js';
 
 /** The minimal manifest shape the manager reads from a member's `mj-app.json`. */
 interface AppManifestLite {
@@ -273,6 +273,131 @@ export class OpenAppManager {
         : 'entityPackageName: no entities package (no-op)'
     );
     return result;
+  }
+
+  /**
+   * Slice-3 reversal: undo a dev-link in the engine's RemoveApp order, then reverse
+   * the resolution layer. Config/DB removal runs through the worktree engine
+   * (RemoveServerDynamicPackages, RemoveAppPackages, RemovePrebundleExcludes,
+   * SetAppStatus Removed, RegenerateClientBootstrap, optional DropAppSchema) while
+   * the member is still present (its manifest is needed); then Forge removes the
+   * entityPackageName mapping, the member worktree, the workspaces glob (if last),
+   * runs a final `npm install`, and drops the dev-state. `dropSchema` defaults off
+   * so data survives a relink (Skyway resumes).
+   */
+  async unlinkApp(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    opts: { dropSchema?: boolean; env?: NodeJS.ProcessEnv } = {},
+    sink: EventSink = noopSink
+  ): Promise<void> {
+    const env = opts.env ?? process.env;
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+    const manifest = await this.readManifest(memberPath).catch(() => undefined);
+    const state = await this.state.get(slug, appName);
+
+    const steps = [
+      'removeServerConfig',
+      'removePackages',
+      'removeAngularExcludes',
+      'setRemoved',
+      'clientBootstrap',
+    ];
+    if (opts.dropSchema) steps.push('dropSchema');
+    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    emit(sink, slug, 'app-unlink', 'progress', `Reversing dev-link for ${appName}…`);
+    const result = await runner.run(
+      slug,
+      {
+        steps,
+        memberPath,
+        manifestPath: path.join(memberPath, 'mj-app.json'),
+        dbConfig,
+        mjCoreSchema: '__mj',
+      },
+      env,
+      sink
+    );
+    if (!result.ok)
+      throw new Error(`Unlink mutation reversal failed: ${result.error ?? 'unknown'}`);
+
+    if (manifest?.schema?.name) {
+      await removeEntityPackageMapping(mjWorktreePath, manifest.schema.name);
+    }
+
+    // Reverse the resolution layer: remove the member worktree, then the glob if no
+    // other dev-app members remain, then a final install to clean node_modules.
+    const clonePath = state?.localDevPath ?? this.appRepos.clonePathFor(state?.appRef ?? appName);
+    await new WorktreeManager(clonePath).remove(memberPath, slug, sink).catch(() => {});
+    await fs.rm(memberPath, { recursive: true, force: true }).catch(() => {});
+    if (await this.noDevAppMembersRemain(mjWorktreePath)) {
+      await this.removeWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB);
+    }
+    emit(sink, slug, 'app-unlink', 'progress', 'Reinstalling workspace dependencies…');
+    await this.npmInstall(mjWorktreePath, env, sink);
+    await this.state.remove(slug, appName);
+    emit(sink, slug, 'app-unlink', 'success', `Unlinked ${appName}`);
+  }
+
+  /**
+   * Slice-3 mode toggle — a PURE resolution switch that NEVER re-derives package
+   * deps (Add/RemoveAppPackages would reorder keys → drift; the install footprint in
+   * package.json stays byte-stable). `dev`→`installed` removes the member worktree +
+   * glob so the app resolves from its published release; `installed`→`dev`
+   * re-materializes the member off the shared clone. Either way it re-installs and
+   * records the new mode.
+   */
+  async switchMode(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    target: 'dev' | 'installed',
+    opts: { env?: NodeJS.ProcessEnv; baseRef?: string } = {},
+    sink: EventSink = noopSink
+  ): Promise<void> {
+    const env = opts.env ?? process.env;
+    const state = await this.state.get(slug, appName);
+    if (!state) throw new Error(`No dev-link state for ${appName} in ${slug}`);
+    if (state.mode === target) {
+      emit(sink, slug, 'app-switch', 'info', `Already in ${target} mode`);
+      return;
+    }
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+
+    if (target === 'installed') {
+      await new WorktreeManager(state.localDevPath).remove(memberPath, slug, sink).catch(() => {});
+      await fs.rm(memberPath, { recursive: true, force: true }).catch(() => {});
+      if (await this.noDevAppMembersRemain(mjWorktreePath)) {
+        await this.removeWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB);
+      }
+    } else {
+      await this.addWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB);
+      await this.appRepos.addWorktreeExclude(mjWorktreePath, DEV_APPS_EXCLUDE);
+      const branch = state.linkedBranch ?? `mjdev/${slug}/${appName}`;
+      await new WorktreeManager(state.localDevPath).add(
+        memberPath,
+        branch,
+        opts.baseRef ?? 'HEAD',
+        slug,
+        sink
+      );
+    }
+    emit(sink, slug, 'app-switch', 'progress', `Reinstalling for ${target} mode…`);
+    await this.npmInstall(mjWorktreePath, env, sink);
+    await this.state.upsert({ ...state, mode: target });
+    emit(sink, slug, 'app-switch', 'success', `Switched ${appName} to ${target} mode`);
+  }
+
+  /** True when no dev-app member directories remain under `packages/dev-apps`. */
+  private async noDevAppMembersRemain(mjWorktreePath: string): Promise<boolean> {
+    try {
+      const entries = await fs.readdir(path.join(mjWorktreePath, 'packages', 'dev-apps'));
+      return entries.filter(e => !e.startsWith('.')).length === 0;
+    } catch {
+      return true;
+    }
   }
 
   /** Read + minimally type a member's `mj-app.json`. */

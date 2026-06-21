@@ -190,6 +190,61 @@ async function runStep(step, ctx) {
     return { entries: entries.length };
   }
 
+  if (step === 'removeServerConfig') {
+    const r = engine.RemoveServerDynamicPackages(ctx.spec.repoRoot, ctx.manifest.name);
+    if (!r.Success) throw new Error('RemoveServerDynamicPackages failed: ' + r.ErrorMessage);
+    send('success', 'Config', 'Removed dynamicPackages.server for ' + ctx.manifest.name);
+    return { ok: true };
+  }
+
+  if (step === 'removePackages') {
+    // Remove declared deps from package.json only; the final npm install is run
+    // Forge-side AFTER the member worktree is removed (avoids an extra install).
+    if (!ctx.manifest.packages) return { skipped: true, reason: 'no packages' };
+    const r = engine.RemoveAppPackages({
+      RepoRoot: ctx.spec.repoRoot,
+      ServerPackages: ctx.manifest.packages.server || [],
+      ClientPackages: ctx.manifest.packages.client || [],
+      SharedPackages: ctx.manifest.packages.shared || [],
+      Version: ctx.manifest.version,
+      ServerPackagePath: ctx.spec.serverPackagePath,
+      ClientPackagePath: ctx.spec.clientPackagePath,
+      PackageManager: 'npm',
+    });
+    if (!r.Success) throw new Error('RemoveAppPackages failed: ' + r.ErrorMessage);
+    send('success', 'Packages', 'Removed app package deps');
+    return { removed: true };
+  }
+
+  if (step === 'removeAngularExcludes') {
+    const mgr = new engine.AngularConfigManager(ctx.spec.repoRoot, ctx.spec.clientPackagePath);
+    if (!mgr.Load()) return { skipped: true, reason: 'no angular.json' };
+    const n = mgr.RemovePrebundleExcludes(ctx.manifest, ctx.spec.otherManifests || []);
+    const save = mgr.Save();
+    if (!save.Success) throw new Error('angular.json save failed: ' + save.ErrorMessage);
+    send('success', 'Angular', 'Removed ' + n + ' prebundle exclude(s)');
+    return { removed: n };
+  }
+
+  if (step === 'setRemoved') {
+    const app = await engine.FindInstalledApp(ctx.contextUser, ctx.manifest.name);
+    if (!app) return { skipped: true, reason: 'app not recorded' };
+    await engine.SetAppStatus(ctx.contextUser, app.ID, 'Removed');
+    send('success', 'Record', 'App status -> Removed');
+    return { appId: app.ID, status: 'Removed' };
+  }
+
+  if (step === 'dropSchema') {
+    const name = ctx.manifest && ctx.manifest.schema ? ctx.manifest.schema.name : ctx.spec.schemaName;
+    if (!name) return { skipped: true, reason: 'no schema' };
+    const r = await engine.DropAppSchema(name, ctx.provider, {
+      allowDoubleUnderscore: ctx.spec.allowDoubleUnderscore === true,
+    });
+    if (!r.Success) throw new Error('DropAppSchema failed: ' + r.ErrorMessage);
+    send('success', 'Schema', 'Dropped schema ' + name);
+    return { schema: name, dropped: true };
+  }
+
   if (step === 'listApps') {
     const apps = await engine.ListInstalledApps(ctx.contextUser);
     return {

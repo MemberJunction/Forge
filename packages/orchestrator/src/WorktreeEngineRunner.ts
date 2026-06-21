@@ -36,6 +36,8 @@ export interface EngineJobSpec {
   clientPackagePath?: string;
   /** Client bootstrap file subpath (engine default used when omitted). */
   clientBootstrapSubpath?: string;
+  /** Other installed apps' manifests, so removal keeps shared prebundle excludes. */
+  otherManifests?: unknown[];
   dbConfig: EngineDbConfig;
   mjCoreSchema?: string;
   allowDoubleUnderscore?: boolean;
