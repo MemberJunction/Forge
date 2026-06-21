@@ -104,6 +104,13 @@ describe('ENGINE_ENTRY_SOURCE — generated-script contract', () => {
       'RemoveAppPackages',
       'RemovePrebundleExcludes',
       'DropAppSchema',
+      // Slice 4 recovery + version override
+      'CheckMJVersionCompatibility',
+      'Validate',
+      'Clean',
+      'Repair',
+      'cleanAppMetadata',
+      '@memberjunction/skyway-core',
       '@memberjunction/open-app-engine',
       '@memberjunction/sqlserver-dataprovider',
       ENGINE_EVENT_SENTINEL,

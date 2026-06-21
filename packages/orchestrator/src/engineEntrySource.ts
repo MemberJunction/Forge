@@ -45,8 +45,139 @@ function readMjVersion() {
   }
 }
 
+// Reproduce the engine's NON-exported RemoveAppEntityMetadata (install-orchestrator.ts):
+// delete the app schema's MJ entity registrations in FK-dependency order. Required so
+// a reset's re-Migrate (or a full remove) doesn't collide with __mj rows a migration
+// seeded (e.g. SchemaInfo with a hardcoded UUID). Mirrors the engine's RunView+Delete
+// approach verbatim (incl. .Get('ID'), matching the source) for parity.
+async function cleanAppMetadata(ctx, schemaName) {
+  const core = await import('@memberjunction/core');
+  const esc = ctx.engine.EscapeSqlString(schemaName);
+  const rv = new core.RunView();
+  const del = async function (entityName, filter) {
+    const r = await rv.RunView({ EntityName: entityName, ExtraFilter: filter, ResultType: 'entity_object' }, ctx.contextUser);
+    if (r.Success) for (const rec of r.Results) await rec.Delete();
+  };
+  const er = await rv.RunView(
+    { EntityName: 'MJ: Entities', ExtraFilter: "SchemaName = '" + esc + "'", ResultType: 'entity_object' },
+    ctx.contextUser
+  );
+  if (!er.Success) return;
+  if (er.Results.length === 0) {
+    await del('MJ: Schema Info', "SchemaName = '" + esc + "'");
+    return;
+  }
+  const idList = er.Results.map(function (e) { return "'" + ctx.engine.EscapeSqlString(String(e.Get('ID'))) + "'"; }).join(',');
+  const filt = 'EntityID IN (' + idList + ')';
+  await del('MJ: Entity Permissions', filt);
+  await del('MJ: Application Entities', filt);
+  await del('MJ: Entity Relationships', 'EntityID IN (' + idList + ') OR RelatedEntityID IN (' + idList + ')');
+  await del('MJ: Entity Fields', filt);
+  for (const e of er.Results) await e.Delete();
+  await del('MJ: Schema Info', "SchemaName = '" + esc + "'");
+}
+
+// Build a Skyway instance directly (RunAppMigrations exposes only Migrate/Close,
+// so Clean/Repair/Validate for recovery + drift detection need direct construction).
+async function buildSkyway(ctx) {
+  const skMod = await import('@memberjunction/skyway-core');
+  const provMod = await import('@memberjunction/skyway-sqlserver');
+  const db = ctx.dbConfig;
+  const isAzure = db.Host.indexOf('.database.windows.net') >= 0;
+  const cfg = {
+    Database: {
+      Server: db.Host,
+      Port: db.Port,
+      Database: db.Database,
+      User: db.User,
+      Password: db.Password,
+      Options: { Encrypt: isAzure, TrustServerCertificate: !isAzure },
+    },
+    Migrations: {
+      Locations: [resolve(ctx.spec.memberPath, ctx.manifest.migrations.directory)],
+      DefaultSchema: ctx.manifest.schema.name,
+      BaselineVersion: '1',
+      BaselineOnMigrate: true,
+    },
+    Placeholders: { 'flyway:defaultSchema': ctx.manifest.schema.name, mjSchema: ctx.mjCoreSchema },
+  };
+  cfg.Provider = new provMod.SqlServerProvider(cfg.Database);
+  return new skMod.Skyway(cfg);
+}
+
 async function runStep(step, ctx) {
   const engine = ctx.engine;
+
+  if (step === 'checkVersion') {
+    // Parity: a real install fails on an incompatible MJ version. Dev-link honors
+    // that by default, but allows an explicit ignoreVersionRange override (warned).
+    const r = engine.CheckMJVersionCompatibility(ctx.mjVersion, ctx.manifest.mjVersionRange);
+    if (!r.Compatible) {
+      if (ctx.spec.ignoreVersionRange) {
+        send('progress', 'Version', 'OVERRIDE: ' + (r.Message || 'incompatible') + ' (ignoreVersionRange)');
+        return { compatible: false, overridden: true, range: ctx.manifest.mjVersionRange, mjVersion: ctx.mjVersion };
+      }
+      throw new Error('MJ version ' + ctx.mjVersion + ' not in range ' + ctx.manifest.mjVersionRange + ': ' + (r.Message || ''));
+    }
+    send('success', 'Version', 'MJ ' + ctx.mjVersion + ' satisfies ' + ctx.manifest.mjVersionRange);
+    return { compatible: true, range: ctx.manifest.mjVersionRange, mjVersion: ctx.mjVersion };
+  }
+
+  if (step === 'driftCheck') {
+    // Active checksum-drift detection: Skyway.Validate() verifies applied-migration
+    // checksums against disk (Migrate() silently skips edited versioned files).
+    if (!ctx.manifest || !ctx.manifest.schema || !ctx.manifest.migrations) {
+      return { skipped: true, reason: 'no migrations' };
+    }
+    const sk = await buildSkyway(ctx);
+    try {
+      const v = await sk.Validate();
+      if (v.Valid) send('success', 'Drift', 'No checksum drift');
+      else send('error', 'Drift', 'DRIFT: ' + v.Errors.join('; '));
+      return { valid: v.Valid, errors: v.Errors };
+    } finally {
+      await sk.Close().catch(function () {});
+    }
+  }
+
+  if (step === 'resetSchema') {
+    // Destructive recovery for an edited versioned migration: Clean() then Migrate().
+    if (!ctx.manifest || !ctx.manifest.schema || !ctx.manifest.migrations) {
+      return { skipped: true, reason: 'no migrations' };
+    }
+    const sk = await buildSkyway(ctx);
+    try {
+      send('progress', 'Reset', 'Cleaning schema ' + ctx.manifest.schema.name + ' (destructive)');
+      const c = await sk.Clean();
+      if (!c.Success) throw new Error('Clean failed: ' + c.ErrorMessage);
+      // Also remove the app's __mj entity metadata so re-Migrate's seed inserts
+      // (e.g. SchemaInfo) don't collide — mirrors the engine's remove flow.
+      await cleanAppMetadata(ctx, ctx.manifest.schema.name);
+      const m = await sk.Migrate();
+      if (!m.Success) throw new Error('Re-migrate failed: ' + m.ErrorMessage);
+      send('success', 'Reset', 'Dropped ' + c.ObjectsDropped + ' object(s), re-applied ' + m.MigrationsApplied);
+      return { objectsDropped: c.ObjectsDropped, reapplied: m.MigrationsApplied };
+    } finally {
+      await sk.Close().catch(function () {});
+    }
+  }
+
+  if (step === 'repairSchema') {
+    // Repair() realigns failed/baseline history rows; it does NOT re-run SQL.
+    if (!ctx.manifest || !ctx.manifest.schema || !ctx.manifest.migrations) {
+      return { skipped: true, reason: 'no migrations' };
+    }
+    const sk = await buildSkyway(ctx);
+    try {
+      const r = await sk.Repair();
+      if (!r.Success) throw new Error('Repair failed: ' + r.ErrorMessage);
+      send('success', 'Repair', 'Removed ' + r.FailedEntriesRemoved + ' failed, realigned ' + r.ChecksumsRealigned);
+      return { failedEntriesRemoved: r.FailedEntriesRemoved, checksumsRealigned: r.ChecksumsRealigned, details: r.RepairDetails };
+    } finally {
+      await sk.Close().catch(function () {});
+    }
+  }
+
   if (step === 'ensureSchema') {
     if (!ctx.manifest || !ctx.manifest.schema) return { skipped: true, reason: 'no schema in manifest' };
     const name = ctx.manifest.schema.name;
@@ -234,6 +365,14 @@ async function runStep(step, ctx) {
     return { appId: app.ID, status: 'Removed' };
   }
 
+  if (step === 'cleanMetadata') {
+    const name = ctx.manifest && ctx.manifest.schema ? ctx.manifest.schema.name : ctx.spec.schemaName;
+    if (!name) return { skipped: true, reason: 'no schema' };
+    await cleanAppMetadata(ctx, name);
+    send('success', 'Metadata', 'Removed MJ entity metadata for schema ' + name);
+    return { schema: name, cleaned: true };
+  }
+
   if (step === 'dropSchema') {
     const name = ctx.manifest && ctx.manifest.schema ? ctx.manifest.schema.name : ctx.spec.schemaName;
     if (!name) return { skipped: true, reason: 'no schema' };
@@ -331,6 +470,7 @@ async function main() {
       manifest: manifest,
       spec: spec,
       mjCoreSchema: mjCoreSchema,
+      mjVersion: readMjVersion(),
       appId: null,
     };
 

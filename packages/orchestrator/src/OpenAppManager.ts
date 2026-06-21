@@ -305,7 +305,10 @@ export class OpenAppManager {
       'setRemoved',
       'clientBootstrap',
     ];
-    if (opts.dropSchema) steps.push('dropSchema');
+    // Full teardown also clears the app's __mj entity metadata before dropping the
+    // schema (mirrors the engine's remove flow); keep-data unlink leaves both so a
+    // relink resumes cleanly.
+    if (opts.dropSchema) steps.push('cleanMetadata', 'dropSchema');
     const runner = new WorktreeEngineRunner(mjWorktreePath);
     emit(sink, slug, 'app-unlink', 'progress', `Reversing dev-link for ${appName}…`);
     const result = await runner.run(
@@ -388,6 +391,133 @@ export class OpenAppManager {
     await this.npmInstall(mjWorktreePath, env, sink);
     await this.state.upsert({ ...state, mode: target });
     emit(sink, slug, 'app-switch', 'success', `Switched ${appName} to ${target} mode`);
+  }
+
+  /**
+   * Slice-4 version gate (parity): a real install fails on an incompatible MJ
+   * version range; dev-link does the same unless `ignoreVersionRange` is set (then it
+   * warns and proceeds — the sanctioned off-tag dev case). Returns the engine verdict.
+   */
+  async checkVersionCompat(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    ignoreVersionRange = false,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<{ compatible: boolean; overridden?: boolean; range?: string; mjVersion?: string }> {
+    const r = await this.runSteps(
+      slug,
+      mjWorktreePath,
+      appName,
+      ['checkVersion'],
+      dbConfig,
+      { ignoreVersionRange },
+      env,
+      sink
+    );
+    return (r.results?.checkVersion ?? { compatible: false }) as {
+      compatible: boolean;
+      overridden?: boolean;
+      range?: string;
+      mjVersion?: string;
+    };
+  }
+
+  /**
+   * Slice-4 active checksum-drift detection: Skyway `Validate()` against the app's
+   * applied migrations vs disk. Returns `{ valid, errors }` — `valid:false` means an
+   * already-applied versioned migration was edited (Migrate() would silently skip it).
+   */
+  async checkDrift(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const r = await this.runSteps(
+      slug,
+      mjWorktreePath,
+      appName,
+      ['driftCheck'],
+      dbConfig,
+      {},
+      env,
+      sink
+    );
+    const d = (r.results?.driftCheck ?? {}) as {
+      valid?: boolean;
+      errors?: string[];
+      skipped?: boolean;
+    };
+    return { valid: d.skipped ? true : d.valid === true, errors: d.errors ?? [] };
+  }
+
+  /**
+   * Slice-4 destructive recovery — the correct fix for an edited versioned migration.
+   * Skyway `Clean()` (drop all objects in the app schema) then `Migrate()` (re-apply
+   * from disk). Confirm-gate this in the UI; it destroys app-schema data.
+   */
+  async resetAppSchema(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<EngineRunResult> {
+    return this.runSteps(slug, mjWorktreePath, appName, ['resetSchema'], dbConfig, {}, env, sink);
+  }
+
+  /**
+   * Slice-4 repair — Skyway `Repair()` realigns failed/baseline history rows. It does
+   * NOT re-run SQL, so it does NOT fix an edited versioned migration (use
+   * {@link resetAppSchema} for that). Surface that caveat in the UI.
+   */
+  async repairAppSchema(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<EngineRunResult> {
+    return this.runSteps(slug, mjWorktreePath, appName, ['repairSchema'], dbConfig, {}, env, sink);
+  }
+
+  /** DRY helper: run engine `steps` for an app's member, returning the engine result. */
+  private async runSteps(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    steps: string[],
+    dbConfig: EngineDbConfig,
+    extra: { ignoreVersionRange?: boolean } = {},
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<EngineRunResult> {
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+    await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
+    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    const result = await runner.run(
+      slug,
+      {
+        steps,
+        memberPath,
+        manifestPath: path.join(memberPath, 'mj-app.json'),
+        dbConfig,
+        mjCoreSchema: '__mj',
+        ignoreVersionRange: extra.ignoreVersionRange,
+      },
+      env,
+      sink
+    );
+    if (!result.ok)
+      throw new Error(`Engine steps [${steps.join(', ')}] failed: ${result.error ?? 'unknown'}`);
+    return result;
   }
 
   /** True when no dev-app member directories remain under `packages/dev-apps`. */

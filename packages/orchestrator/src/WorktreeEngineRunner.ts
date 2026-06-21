@@ -41,6 +41,8 @@ export interface EngineJobSpec {
   dbConfig: EngineDbConfig;
   mjCoreSchema?: string;
   allowDoubleUnderscore?: boolean;
+  /** When set, a failed `checkVersion` step warns instead of throwing (off-tag dev). */
+  ignoreVersionRange?: boolean;
 }
 
 export interface EngineRunResult {
