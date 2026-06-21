@@ -51,6 +51,8 @@ export interface AppDevState {
 interface OpenAppsFile {
   version: 1;
   apps: AppDevState[];
+  /** Most-recently-used app refs (GitHub URLs / local paths), newest first. */
+  recents?: string[];
 }
 
 /**
@@ -78,11 +80,16 @@ export class AppDevStateStore {
     try {
       const raw = await fs.readFile(this.paths.openAppsFile, 'utf8');
       const parsed = JSON.parse(raw) as OpenAppsFile;
-      return { version: 1, apps: Array.isArray(parsed.apps) ? parsed.apps : [] };
+      return {
+        version: 1,
+        apps: Array.isArray(parsed.apps) ? parsed.apps : [],
+        recents: Array.isArray(parsed.recents) ? parsed.recents : [],
+      };
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, apps: [] };
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT')
+        return { version: 1, apps: [], recents: [] };
       // Self-heal a corrupt file rather than wedging both peers.
-      return { version: 1, apps: [] };
+      return { version: 1, apps: [], recents: [] };
     }
   }
 
@@ -110,13 +117,36 @@ export class AppDevStateStore {
   async remove(slug: string, appName: string): Promise<void> {
     const file = await this.read();
     const next = file.apps.filter(a => !(a.slug === slug && a.appName === appName));
-    if (next.length !== file.apps.length) await this.atomicWrite({ version: 1, apps: next });
+    if (next.length !== file.apps.length) await this.atomicWrite({ ...file, apps: next });
   }
 
   /** Drop all state for an instance (called when the instance is deleted). */
   async removeForInstance(slug: string): Promise<void> {
     const file = await this.read();
     const next = file.apps.filter(a => a.slug !== slug);
-    if (next.length !== file.apps.length) await this.atomicWrite({ version: 1, apps: next });
+    if (next.length !== file.apps.length) await this.atomicWrite({ ...file, apps: next });
+  }
+
+  /** How many recent app refs to retain. */
+  private static readonly RECENTS_LIMIT = 20;
+
+  /**
+   * Record a used app ref (GitHub URL / local path) as most-recent. Deduped and capped;
+   * survives unlink so the UI can offer previously-used apps for one-click re-adding.
+   */
+  async addRecent(ref: string): Promise<void> {
+    const trimmed = ref.trim();
+    if (!trimmed) return;
+    const file = await this.read();
+    const recents = [trimmed, ...(file.recents ?? []).filter(r => r !== trimmed)].slice(
+      0,
+      AppDevStateStore.RECENTS_LIMIT
+    );
+    await this.atomicWrite({ ...file, recents });
+  }
+
+  /** Recently-used app refs, newest first. */
+  async listRecents(): Promise<string[]> {
+    return (await this.read()).recents ?? [];
   }
 }

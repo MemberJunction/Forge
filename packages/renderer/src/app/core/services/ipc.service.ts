@@ -553,6 +553,7 @@ interface ForgeAPI {
         present: boolean;
       }>;
     }>;
+    recents: () => Promise<string[]>;
     unlink: (
       slug: string,
       appName: string,

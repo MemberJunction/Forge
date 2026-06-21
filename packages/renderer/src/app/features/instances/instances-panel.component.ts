@@ -566,8 +566,16 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                         ? 'https://github.com/org/app or /path/to/app'
                         : 'https://github.com/org/app'
                     "
+                    list="open-app-recents"
                     autocomplete="off"
                   />
+                  @if (openApps.recents().length) {
+                    <datalist id="open-app-recents">
+                      @for (r of openApps.recents(); track r) {
+                        <option [value]="r"></option>
+                      }
+                    </datalist>
+                  }
                 </label>
                 @if (linkForm.mode === 'dev') {
                   <label class="inline">

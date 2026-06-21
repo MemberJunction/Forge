@@ -59,11 +59,14 @@ export class OpenAppsStateService {
   private readonly _lastError = signal<string | null>(null);
   /** Live progress strip of recent `app-*` engine events for the active slug. */
   private readonly _progress = signal<InstanceEvent[]>([]);
+  /** Previously-used app refs, for the add-app dropdown (newest first). */
+  private readonly _recents = signal<string[]>([]);
 
   readonly linkedApps = this._linkedApps.asReadonly();
   readonly busy = this._busy.asReadonly();
   readonly lastError = this._lastError.asReadonly();
   readonly progress = this._progress.asReadonly();
+  readonly recents = this._recents.asReadonly();
 
   /** The slug whose linked apps are currently loaded, or null. */
   readonly activeSlug = computed(() => this._linkedApps()?.slug ?? null);
@@ -101,12 +104,13 @@ export class OpenAppsStateService {
     this._progress.set([]);
   }
 
-  /** Load (or reload) the dev-linked apps for an instance. */
+  /** Load (or reload) the dev-linked apps for an instance + the recents list. */
   async refresh(slug: string): Promise<void> {
     if (!this.ipc.isAvailable) return;
     try {
       const apps = await this.ipc.openApps.list(slug);
       this._linkedApps.set({ slug, apps });
+      this._recents.set(await this.ipc.openApps.recents());
     } catch (err) {
       this.notification.error(`Failed to load open apps: ${this.msg(err)}`);
     }

@@ -585,6 +585,7 @@ export interface ForgeAPI {
         present: boolean;
       }>;
     }>;
+    recents: () => Promise<string[]>;
     unlink: (
       slug: string,
       appName: string,
@@ -746,6 +747,7 @@ const forgeAPI: ForgeAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.INSTALL, slug, source, opts),
     resolveDeps: (slug, appRef) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.RESOLVE_DEPS, slug, appRef),
+    recents: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.RECENTS),
     unlink: (slug, appName, opts) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.UNLINK, slug, appName, opts),
     switchMode: (slug, appName, target) =>

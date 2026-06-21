@@ -516,6 +516,11 @@ export class InstanceOrchestrator {
     return this.openApps.listApps(slug);
   }
 
+  /** Recently-used app refs across instances (for the add-app dropdown), newest first. */
+  recentApps(): Promise<string[]> {
+    return this.openApps.recentApps();
+  }
+
   /** Detect checksum drift in a dev-linked app's applied migrations. */
   async checkAppDrift(
     slug: string,

@@ -175,7 +175,8 @@ export class OpenAppManager {
       `Single-copy check: ${singleCopy.detail}`
     );
 
-    // 3) Record dev-link state (Forge-side overlay).
+    // 3) Record dev-link state (Forge-side overlay) + remember the ref for re-adding.
+    await this.state.addRecent(appRef);
     await this.state.upsert({
       slug,
       appName,
@@ -286,6 +287,7 @@ export class OpenAppManager {
     if (!result.ok) throw new Error(`Install failed: ${result.error ?? 'unknown'}`);
     const r = (result.results?.install ?? {}) as { appName?: string; version?: string };
     const appName = r.appName ?? AppRepoManager.appDirName(source);
+    await this.state.addRecent(source);
     await this.state.upsert({
       slug,
       appName,
@@ -357,6 +359,11 @@ export class OpenAppManager {
       };
     });
     return { appName, dependencies };
+  }
+
+  /** Recently-used app refs (for the add-app dropdown), newest first. */
+  async recentApps(): Promise<string[]> {
+    return this.state.listRecents();
   }
 
   /** Linked-app overlay state for an instance (Forge-side dev state). */
