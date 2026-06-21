@@ -17,6 +17,7 @@ import { PortAllocator } from './PortAllocator.js';
 import { DockerManager } from './DockerManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { RepoManager } from './RepoManager.js';
+import { OpenAppManager } from './OpenAppManager.js';
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
@@ -51,6 +52,8 @@ export class InstanceOrchestrator {
   private readonly docker: DockerManager;
   private readonly worktrees: WorktreeManager;
   private readonly repo: RepoManager;
+  /** Open-app dev-linking (Phase B). */
+  private readonly openApps: OpenAppManager;
   /** True when worktrees come from the app-managed clone (vs. an overridden repo). */
   private readonly usingManagedClone: boolean;
   private readonly config: ConfigWriter;
@@ -65,6 +68,7 @@ export class InstanceOrchestrator {
     this.identity = new IdentityManager(this.store, this.personas, this.docker);
     this.worktrees = new WorktreeManager(this.paths.mjRepoPath);
     this.repo = new RepoManager(this.paths.mjClonePath, this.paths.mjSourcePath);
+    this.openApps = new OpenAppManager(this.paths);
     this.usingManagedClone = this.paths.mjRepoPath === this.paths.mjClonePath;
     this.config = new ConfigWriter();
     this.setup = new SetupRunner();

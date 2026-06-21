@@ -30,6 +30,8 @@ export interface ResolvedPaths {
   reposDir: string;
   /** App-managed MJ clone that worktrees are created from (`~/MJDev/repos/mj`). */
   mjClonePath: string;
+  /** Canonical editable clones of open-app source repos (`~/MJDev/repos/apps`). */
+  appsReposDir: string;
   /** Local MJ checkout the managed clone is seeded from. */
   mjSourcePath: string;
   /** Repo worktrees are actually created from (the managed clone unless overridden). */
@@ -49,6 +51,8 @@ export interface ResolvedPaths {
   apiKeysFile: string;
   /** Shared running-process registry (`~/.mjdev/processes.json`) — CLI + GUI peers. */
   processesFile: string;
+  /** Per-instance open-app dev-link state (`~/.mjdev/openapps.json`) — CLI + GUI peers. */
+  openAppsFile: string;
   /** Per-process detached-stdout log files (`~/.mjdev/proc-logs/`). */
   procLogsDir: string;
 }
@@ -69,6 +73,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
 
   const reposDir = path.join(workspaceRoot, 'repos');
   const mjClonePath = path.join(reposDir, 'mj');
+  const appsReposDir = path.join(reposDir, 'apps');
   const instancesRootDir = path.join(workspaceRoot, 'instances');
 
   const mjSourcePath = options.mjSourcePath ?? process.env.MJDEV_MJ_SOURCE ?? DEFAULT_MJ_SOURCE;
@@ -81,6 +86,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
     workspaceRoot,
     reposDir,
     mjClonePath,
+    appsReposDir,
     mjSourcePath,
     mjRepoPath,
     instancesRootDir,
@@ -92,6 +98,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
     personasFile: path.join(configDir, 'personas.json'),
     apiKeysFile: path.join(configDir, 'apikeys.json'),
     processesFile: path.join(configDir, 'processes.json'),
+    openAppsFile: path.join(configDir, 'openapps.json'),
     procLogsDir: path.join(configDir, 'proc-logs'),
   };
 }

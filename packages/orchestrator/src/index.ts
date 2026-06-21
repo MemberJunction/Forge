@@ -5,6 +5,16 @@ export { PortAllocator } from './PortAllocator.js';
 export { DockerManager, MANAGED_LABEL, SLUG_LABEL } from './DockerManager.js';
 export { WorktreeManager } from './WorktreeManager.js';
 export { RepoManager } from './RepoManager.js';
+export { AppRepoManager } from './AppRepoManager.js';
+export type { EnsureAppCloneOptions } from './AppRepoManager.js';
+export { AppDevStateStore } from './AppDevStateStore.js';
+export type { AppDevState, OpenAppMode, ReversibleFileEdit } from './AppDevStateStore.js';
+export { OpenAppManager, DEV_APPS_GLOB, DEV_APPS_EXCLUDE } from './OpenAppManager.js';
+export type {
+  LinkResolutionResult,
+  LinkResolutionOptions,
+  SingleCopyResult,
+} from './OpenAppManager.js';
 export { ProcessStore } from './ProcessStore.js';
 export type { ProcRecord } from './ProcessStore.js';
 export { ConfigWriter } from './ConfigWriter.js';
