@@ -28,7 +28,12 @@ export function getOrchestrator(): InstanceOrchestrator {
   return orchestrator;
 }
 
-/** Kill any tracked child processes when the app is quitting. */
+/**
+ * Called when the app is quitting. Processes are detached and tracked in the
+ * shared `~/.mjdev/processes.json` registry, so by design they KEEP RUNNING after
+ * the GUI quits (agents/CLI may depend on them) — `dispose()` is a no-op reap.
+ * Manage them explicitly via the GUI Stop or `mjdev kill`.
+ */
 export function disposeInstances(): void {
   orchestrator?.dispose();
 }
@@ -73,7 +78,7 @@ export function registerInstanceHandlers(): void {
   );
 
   safeHandle(IPC_CHANNELS.INSTANCES.PROC_START, async (_e, slug: string, target: LaunchTarget) =>
-    engine.startProcess(slug, target, sink)
+    engine.startProcess(slug, target, sink, 'gui')
   );
 
   safeHandle(IPC_CHANNELS.INSTANCES.PROC_STOP, async (_e, processId: string) => {
@@ -91,7 +96,15 @@ export function registerInstanceHandlers(): void {
   });
 
   safeHandle(IPC_CHANNELS.INSTANCES.PROC_LIST, async (_e, slug?: string) => ({
-    processes: engine.listProcesses(slug),
+    processes: await engine.listProcesses(slug),
     scripts: slug ? await engine.listScripts(slug).catch(() => []) : [],
   }));
+
+  safeHandle(IPC_CHANNELS.INSTANCES.RUN_OPTIONS, async (_e, slug: string) =>
+    engine.listRunTargets(slug).catch(() => [])
+  );
+
+  safeHandle(IPC_CHANNELS.INSTANCES.PROC_LOGS, async (_e, processId: string, sinceByte: number) =>
+    engine.processLogsSince(processId, sinceByte ?? 0)
+  );
 }

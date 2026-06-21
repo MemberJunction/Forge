@@ -9,24 +9,33 @@ import type { InstanceRecord, InstanceSecrets } from '@mj-forge/shared';
  *   - `<worktree>/packages/MJAPI/.env`          — symlink to the root .env
  *   - `<worktree>/packages/MJExplorer/src/environments/environment.ts`
  *   - `<worktree>/packages/MJExplorer/src/environments/environment.development.ts`
- *   - `<worktree>/.mjrc.cjs`                     — magic-link config overlay
+ *   - `<worktree>/packages/MJAPI/.mjrc.cjs`       — magic-link config overlay
  *
  * Most settings flow through the generated `.env`, but the magic-link provider's
  * `enabled`/`explorerUrl` are not env-drivable, so they must live in the config
  * that MJServer loads. Rather than clobber the repo's **tracked** `mj.config.cjs`
  * (a footprint + dev-config-leak risk), we write a `.mjrc.cjs` overlay that
  * `require`s the untouched tracked config and overrides only the magic-link block.
- * MJServer's cosmiconfig resolves `.mjrc.cjs` *before* `mj.config.cjs`, and
- * `.mjrc.cjs` is already in MJ's `.gitignore`, so the tool never modifies a
- * tracked file and needs no new ignore rule.
+ *
+ * **Placement matters.** MJServer runs with its cwd at `packages/MJAPI`, and
+ * cosmiconfig's `searchStrategy: 'global'` returns the FIRST config found scanning
+ * upward — which is `packages/MJAPI/mj.config.cjs` (a tracked one-liner that
+ * re-exports the root `mj.config.cjs`). A `.mjrc.cjs` at the worktree *root* is
+ * never reached. So the overlay must live at `packages/MJAPI/.mjrc.cjs`, where
+ * `.mjrc.cjs` outranks `mj.config.cjs` in the very directory cosmiconfig searches
+ * first; its `require('./mj.config.cjs')` resolves to the re-export → the untouched
+ * root config. `.mjrc.cjs` is already in MJ's `.gitignore` (matches in any dir), so
+ * the tool never modifies a tracked file and needs no new ignore rule.
  */
 export class ConfigWriter {
   /**
-   * Gitignored config overlay filename. cosmiconfig's default search order (used
-   * by MJServer) checks `.mjrc.cjs` before `mj.config.cjs`, so this wins without
-   * touching the tracked file. MJ already gitignores `.mjrc.cjs`.
+   * Gitignored config overlay path, RELATIVE TO THE WORKTREE. It lives in
+   * `packages/MJAPI` (MJServer's cwd) — not the worktree root — because
+   * cosmiconfig stops at `packages/MJAPI/mj.config.cjs` when searching upward and
+   * never sees a root-level overlay. Within that dir, `.mjrc.cjs` outranks
+   * `mj.config.cjs` in cosmiconfig's default search order, so it wins.
    */
-  static readonly MJ_OVERLAY_FILE = '.mjrc.cjs';
+  static readonly MJ_OVERLAY_FILE = 'packages/MJAPI/.mjrc.cjs';
 
   /**
    * Build the root `.env` body for an instance. Mirrors the variable set MJ's
@@ -138,14 +147,16 @@ export class ConfigWriter {
   }
 
   /**
-   * Build the per-instance `.mjrc.cjs` overlay. It `require`s the repo's
-   * **untouched** tracked `mj.config.cjs` and overrides only the `magicLink`
-   * block — `enabled` and `explorerUrl` are not env-drivable, so they must live
-   * in the config literal MJServer loads. Setting `explorerUrl` per instance also
+   * Build the per-instance `.mjrc.cjs` overlay (written to `packages/MJAPI/`).
+   * Its `require('./mj.config.cjs')` resolves to `packages/MJAPI/mj.config.cjs`,
+   * the tracked one-liner that re-exports the **untouched** root `mj.config.cjs`,
+   * so the overlay spreads the real config and overrides only the `magicLink`
+   * block — `enabled` and `explorerUrl` are not env-drivable, so they must live in
+   * the config literal MJServer loads. Setting `explorerUrl` per instance also
    * fixes the tracked file's hardcoded `http://localhost:4201`. The signing key
    * (`rsaPrivateKey`) and system `apiKey` still come from `.env`. cosmiconfig
-   * loads `.mjrc.cjs` ahead of `mj.config.cjs`, so this overlay wins without the
-   * tool ever modifying the tracked file.
+   * (cwd `packages/MJAPI`) loads this `.mjrc.cjs` ahead of `mj.config.cjs`, so the
+   * overlay wins without the tool ever modifying a tracked file.
    */
   static renderConfigOverlay(record: InstanceRecord): string {
     const { ports } = record;
@@ -215,14 +226,15 @@ export class ConfigWriter {
       written.push(devEnv);
     }
 
-    // Enable magic-link via a gitignored `.mjrc.cjs` overlay that requires the
-    // tracked `mj.config.cjs` and overrides only the magic-link block. cosmiconfig
-    // loads `.mjrc.cjs` ahead of `mj.config.cjs`, so the tracked file is never
-    // modified (no footprint, no dev-config leak risk) and no new ignore rule is
-    // needed. Only write it when the worktree actually has an mj.config.cjs to
-    // spread (i.e. it's a real MJ checkout).
-    const mjConfig = path.join(worktreePath, 'mj.config.cjs');
-    if (await ConfigWriter.pathExists(mjConfig)) {
+    // Enable magic-link via a gitignored `.mjrc.cjs` overlay in packages/MJAPI —
+    // MJServer's cwd, and where cosmiconfig (searchStrategy 'global') stops first
+    // at the tracked `packages/MJAPI/mj.config.cjs` re-export. A root-level overlay
+    // would never be reached. The overlay requires that re-export (→ the untouched
+    // root config) and overrides only the magic-link block: the tracked file is
+    // never modified (no footprint, no dev-config leak) and no new ignore rule is
+    // needed. Only write it when packages/MJAPI/mj.config.cjs exists (real MJ checkout).
+    const apiConfig = path.join(worktreePath, 'packages', 'MJAPI', 'mj.config.cjs');
+    if (await ConfigWriter.pathExists(apiConfig)) {
       const overlay = path.join(worktreePath, ConfigWriter.MJ_OVERLAY_FILE);
       await fs.writeFile(overlay, ConfigWriter.renderConfigOverlay(record));
       written.push(overlay);

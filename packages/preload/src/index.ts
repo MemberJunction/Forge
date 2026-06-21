@@ -537,6 +537,11 @@ export interface ForgeAPI {
     restartProcess: (processId: string) => Promise<ManagedProcess>;
     removeProcess: (processId: string) => Promise<{ success: boolean }>;
     listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
+    /** Incrementally tail a process's captured output from a byte offset. */
+    processLogsSince: (
+      processId: string,
+      sinceByte: number
+    ) => Promise<{ lines: string[]; nextByte: number }>;
     /** Subscribe to streamed progress/log events; returns an unsubscribe fn. */
     onEvent: (callback: (event: InstanceEvent) => void) => () => void;
   };
@@ -665,6 +670,8 @@ const forgeAPI: ForgeAPI = {
     restartProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_RESTART, processId),
     removeProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_REMOVE, processId),
     listProcesses: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_LIST, slug),
+    processLogsSince: (processId, sinceByte) =>
+      ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_LOGS, processId, sinceByte),
     onEvent: callback => createEventListener(IPC_CHANNELS.INSTANCES.EVENTS, callback),
   },
 

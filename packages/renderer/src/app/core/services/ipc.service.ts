@@ -508,6 +508,10 @@ interface ForgeAPI {
     restartProcess: (processId: string) => Promise<ManagedProcess>;
     removeProcess: (processId: string) => Promise<{ success: boolean }>;
     listProcesses: (slug?: string) => Promise<{ processes: ManagedProcess[]; scripts: string[] }>;
+    processLogsSince: (
+      processId: string,
+      sinceByte: number
+    ) => Promise<{ lines: string[]; nextByte: number }>;
     onEvent: (callback: (event: InstanceEvent) => void) => () => void;
   };
 

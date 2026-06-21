@@ -220,6 +220,26 @@ export interface ManagedProcess {
   pid?: number;
   status: 'starting' | 'running' | 'stopped' | 'error';
   startedAt: string;
+  /** Who launched it — so the GUI can show CLI/agent-started processes distinctly. */
+  source?: 'gui' | 'cli';
+  /** Absolute path to the process's detached stdout/stderr log file, when known. */
+  logFile?: string;
+}
+
+/**
+ * A launchable target for an instance, as enumerated by `mjdev runs` / the GUI
+ * Run picker — the built-in services plus discovered package scripts. Lets an
+ * agent see what it can actually start before calling `run`.
+ */
+export interface RunOption {
+  /** Token passed to `run` / PROC_START: `api`, `explorer`, or a script name. */
+  name: string;
+  /** Display label. */
+  label: string;
+  /** `service` = a first-class shortcut (api/explorer); `script` = a package script. */
+  kind: 'service' | 'script';
+  /** Fixed port for the built-in services, when applicable. */
+  port?: number;
 }
 
 /** Result envelope returned by orchestrator façade operations. */

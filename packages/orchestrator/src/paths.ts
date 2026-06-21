@@ -26,6 +26,10 @@ export interface ResolvedPaths {
   personasFile: string;
   /** Minted per-instance/per-persona API keys (`~/.mjdev/apikeys.json`, 0600). */
   apiKeysFile: string;
+  /** Shared running-process registry (`~/.mjdev/processes.json`) — CLI + GUI peers. */
+  processesFile: string;
+  /** Per-process detached-stdout log files (`~/.mjdev/proc-logs/`). */
+  procLogsDir: string;
 }
 
 /** Default MJ repo location; override via options or the `MJDEV_MJ_REPO` env var. */
@@ -47,5 +51,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
     secretsFile: path.join(configDir, 'secrets.json'),
     personasFile: path.join(configDir, 'personas.json'),
     apiKeysFile: path.join(configDir, 'apikeys.json'),
+    processesFile: path.join(configDir, 'processes.json'),
+    procLogsDir: path.join(configDir, 'proc-logs'),
   };
 }

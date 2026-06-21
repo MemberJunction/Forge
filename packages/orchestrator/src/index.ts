@@ -4,6 +4,8 @@ export { InstanceStore } from './InstanceStore.js';
 export { PortAllocator } from './PortAllocator.js';
 export { DockerManager, MANAGED_LABEL, SLUG_LABEL } from './DockerManager.js';
 export { WorktreeManager } from './WorktreeManager.js';
+export { ProcessStore } from './ProcessStore.js';
+export type { ProcRecord } from './ProcessStore.js';
 export { ConfigWriter } from './ConfigWriter.js';
 export { buildSetupScript } from './dbBootstrap.js';
 export type { DbSetupParams } from './dbBootstrap.js';

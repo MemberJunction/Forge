@@ -227,6 +227,10 @@ export const IPC_CHANNELS = {
     PROC_RESTART: 'instances:proc-restart',
     PROC_REMOVE: 'instances:proc-remove',
     PROC_LIST: 'instances:proc-list',
+    // Enumerate launchable targets (services + scripts) for an instance
+    RUN_OPTIONS: 'instances:run-options',
+    // Incremental tail of a process's captured output (for the activity monitor)
+    PROC_LOGS: 'instances:proc-logs',
     // Streaming progress/log events (main -> renderer)
     EVENTS: 'instances:events',
   },

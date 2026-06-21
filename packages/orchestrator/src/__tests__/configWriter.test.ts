@@ -91,6 +91,14 @@ describe('ConfigWriter.renderExplorerEnv', () => {
   });
 });
 
+describe('ConfigWriter overlay placement', () => {
+  it('writes the overlay into packages/MJAPI (MJServer cwd), not the worktree root', () => {
+    // cosmiconfig (searchStrategy global) stops at packages/MJAPI/mj.config.cjs
+    // when MJServer searches upward, so a root-level .mjrc.cjs is never reached.
+    expect(ConfigWriter.MJ_OVERLAY_FILE).toBe('packages/MJAPI/.mjrc.cjs');
+  });
+});
+
 describe('ConfigWriter.renderConfigOverlay', () => {
   const cfg = ConfigWriter.renderConfigOverlay(record);
   it('spreads the untouched tracked mj.config.cjs (no clobber, no base copy)', () => {

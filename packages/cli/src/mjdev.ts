@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { spawn } from 'node:child_process';
 import { InstanceOrchestrator, InstanceStore } from '@mj-forge/orchestrator';
 import type { InstanceEvent, SetupStep } from '@mj-forge/shared';
+import { runE2E, defaultScreenshotDir, type E2ECheck } from './e2e.js';
 
 /**
  * `mjdev` — the headless CLI for MJ Dev Manager. Shares the exact orchestration
@@ -197,25 +198,46 @@ program
   });
 
 program
-  .command('run')
-  .description('Launch a service: api | explorer | <package-script>')
+  .command('runs')
+  .description('List the launchable targets (services + scripts) for an instance')
   .argument('<slug>')
-  .argument('<target>', 'api | explorer | <script-name>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const options = await engine().listRunTargets(slug);
+      emitResult(json, { success: true, options }, () => {
+        if (options.length === 0) return console.log(chalk.gray('No run targets found.'));
+        for (const o of options)
+          console.log(
+            `${chalk.bold(o.name)}  ${chalk.gray(o.kind)}${o.port ? `  :${o.port}` : ''}  — run with \`mjdev run ${slug} ${o.name}\``
+          );
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('run')
+  .description('Launch a service (detached, persists): api | explorer | <package-script>')
+  .argument('<slug>')
+  .argument('<target>', 'api | explorer | <script-name> (see `mjdev runs <slug>`)')
   .option('--json', 'machine-readable output')
   .action(async (slug: string, target: string, opts: { json?: boolean }) => {
     const json = !!opts.json;
     try {
       const launch = target === 'api' || target === 'explorer' ? target : { script: target };
+      // Detached + registry-tracked: the process keeps running after the CLI
+      // exits and shows up in `mjdev ps` and the GUI. No need to block.
       const proc = await engine().startProcess(slug, launch, makeSink(json));
       emitResult(json, { success: true, process: proc }, () =>
         console.log(
           chalk.green(
-            `✓ Started ${proc.label}${proc.port ? ` on :${proc.port}` : ''} (pid ${proc.pid})`
+            `✓ Started ${proc.label}${proc.port ? ` on :${proc.port}` : ''} (pid ${proc.pid}, id ${proc.id})`
           )
         )
       );
-      // Keep the CLI alive so the child process keeps running when run headless.
-      process.stdin.resume();
     } catch (err) {
       fail(json, err);
     }
@@ -223,20 +245,50 @@ program
 
 program
   .command('ps')
-  .description('List running processes for an instance and their ports')
-  .argument('<slug>')
+  .description('List running processes (shared with the GUI); omit slug for all instances')
+  .argument('[slug]')
   .option('--json', 'machine-readable output')
-  .action(async (slug: string, opts: { json?: boolean }) => {
+  .action(async (slug: string | undefined, opts: { json?: boolean }) => {
     const json = !!opts.json;
     try {
-      const processes = engine().listProcesses(slug);
+      const processes = await engine().listProcesses(slug);
       emitResult(json, { success: true, processes }, () => {
-        if (processes.length === 0) return console.log(chalk.gray('No running processes.'));
+        if (processes.length === 0) return console.log(chalk.gray('No processes.'));
         for (const p of processes)
           console.log(
-            `${p.status === 'running' ? chalk.green('●') : chalk.gray('○')} ${p.label}  ${p.port ? `:${p.port}` : ''}  pid ${p.pid}  ${p.status}`
+            `${p.status === 'running' ? chalk.green('●') : chalk.gray('○')} ${p.label}  ${p.port ? `:${p.port}` : ''}  ${chalk.gray(p.slug)}  pid ${p.pid ?? '?'}  ${p.status}  ${chalk.gray(`[${p.source ?? '?'}] ${p.id}`)}`
           );
       });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('kill')
+  .description('Stop a running process by its id (from `mjdev ps`)')
+  .argument('<id>')
+  .option('--json', 'machine-readable output')
+  .action(async (id: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      await engine().stopProcess(id);
+      emitResult(json, { success: true, id }, () => console.log(chalk.green(`✓ Stopped ${id}`)));
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('logs')
+  .description('Print the captured log tail for a process id (from `mjdev ps`)')
+  .argument('<id>')
+  .option('--json', 'machine-readable output')
+  .action(async (id: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const lines = await engine().processLogs(id);
+      emitResult(json, { success: true, id, lines }, () => process.stdout.write(lines.join('\n')));
     } catch (err) {
       fail(json, err);
     }
@@ -380,6 +432,61 @@ program
       fail(json, err);
     }
   });
+
+program
+  .command('e2e')
+  .description(
+    'Run a headless GUI check against an instance Explorer (Playwright; needs MJAPI running)'
+  )
+  .argument('<slug>')
+  .option('--check <kind>', 'apps | login', 'apps')
+  .option('--min-apps <n>', 'minimum apps the switcher must show for --check apps', '2')
+  .option('--headed', 'launch a visible browser (debugging)')
+  .option('--timeout <ms>', 'per-step wait budget in ms', '30000')
+  .option('--screenshot-dir <path>', 'directory for failure screenshots')
+  .option('--json', 'machine-readable output')
+  .action(
+    async (
+      slug: string,
+      opts: {
+        check?: string;
+        minApps?: string;
+        headed?: boolean;
+        timeout?: string;
+        screenshotDir?: string;
+        json?: boolean;
+      }
+    ) => {
+      const json = !!opts.json;
+      const check: E2ECheck = opts.check === 'login' ? 'login' : 'apps';
+      try {
+        const result = await runE2E(engine(), slug, {
+          check,
+          minApps: Number.parseInt(opts.minApps ?? '2', 10) || 2,
+          headed: !!opts.headed,
+          timeoutMs: Number.parseInt(opts.timeout ?? '30000', 10) || 30000,
+          screenshotDir: opts.screenshotDir || defaultScreenshotDir(),
+          sink: makeSink(json),
+        });
+        emitResult(json, result, () => {
+          if (result.success) {
+            const extra =
+              check === 'apps' ? ` — ${result.appCount} apps: ${result.apps.join(', ')}` : '';
+            console.log(chalk.green(`✓ ${check} passed`) + extra);
+          } else {
+            console.error(
+              chalk.red(`✗ ${check} failed (${result.failureKind}): ${result.details}`)
+            );
+            if (result.screenshotPath)
+              console.error(chalk.gray(`  screenshot: ${result.screenshotPath}`));
+          }
+        });
+        if (!result.success) process.exitCode = 1;
+      } catch (err) {
+        fail(json, err);
+      }
+    }
+  );
 
 program
   .command('backfill')

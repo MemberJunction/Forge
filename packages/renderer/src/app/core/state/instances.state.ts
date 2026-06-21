@@ -54,6 +54,9 @@ export class InstancesStateService {
   });
 
   private unsubscribe?: () => void;
+  private pollTimer?: ReturnType<typeof setInterval>;
+  /** How often to reconcile the process list against the shared registry. */
+  private static readonly PROC_POLL_MS = 4000;
 
   /** Begin listening for engine events (call once from the panel on init). */
   startListening(): void {
@@ -66,11 +69,18 @@ export class InstancesStateService {
         if (event.op.startsWith('proc')) void this.refreshProcesses();
       }
     });
+    // Processes can be started/stopped from the CLI (a separate OS process), so
+    // there's no IPC event to react to — poll the shared registry to stay in sync.
+    this.pollTimer = setInterval(() => {
+      if (this._selectedSlug()) void this.refreshProcesses();
+    }, InstancesStateService.PROC_POLL_MS);
   }
 
   stopListening(): void {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = undefined;
   }
 
   clearLog(): void {
@@ -158,6 +168,9 @@ export class InstancesStateService {
     await this.refreshProcesses();
   }
 
+  /** Byte offset already ingested per process id, so we only stream NEW output. */
+  private readonly logOffsets = new Map<string, number>();
+
   async refreshProcesses(): Promise<void> {
     const slug = this._selectedSlug();
     if (!slug || !this.ipc.isAvailable) {
@@ -169,8 +182,48 @@ export class InstancesStateService {
       const { processes, scripts } = await this.ipc.instances.listProcesses(slug);
       this._processes.set(processes);
       this._scripts.set(scripts);
+      await this.tailProcessLogs(processes);
     } catch {
       /* non-fatal */
+    }
+  }
+
+  /**
+   * Stream each process's captured stdout/stderr into the activity monitor by
+   * incrementally tailing its log file. First sight of a process seeks to the end
+   * (no backlog dump); subsequent polls append only the new complete lines as
+   * `info` events. Works uniformly for GUI- and CLI/agent-started processes since
+   * both write to the same per-process log files.
+   */
+  private async tailProcessLogs(processes: ManagedProcess[]): Promise<void> {
+    const liveIds = new Set(processes.map(p => p.id));
+    for (const id of this.logOffsets.keys()) {
+      if (!liveIds.has(id)) this.logOffsets.delete(id);
+    }
+    for (const p of processes) {
+      if (!p.id) continue;
+      try {
+        const first = !this.logOffsets.has(p.id);
+        // First sight: read from the top and show the recent tail for immediate
+        // context; afterwards stream only new lines from the saved offset.
+        const since = first ? 0 : this.logOffsets.get(p.id)!;
+        const { lines, nextByte } = await this.ipc.instances.processLogsSince(p.id, since);
+        this.logOffsets.set(p.id, nextByte);
+        const fresh = first ? lines.slice(-50) : lines.slice(-100);
+        if (fresh.length) {
+          const at = new Date().toISOString();
+          const events: InstanceEvent[] = fresh.map(message => ({
+            slug: p.slug,
+            op: `proc:${p.script}`,
+            level: 'info',
+            message,
+            at,
+          }));
+          this._log.update(l => [...l.slice(-300), ...events]);
+        }
+      } catch {
+        /* non-fatal — a missing/locked log file just yields no new lines */
+      }
     }
   }
 

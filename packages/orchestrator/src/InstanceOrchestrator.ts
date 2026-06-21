@@ -4,6 +4,7 @@ import type {
   InstanceRecord,
   InstanceSecrets,
   ManagedProcess,
+  RunOption,
   SetupStep,
 } from '@mj-forge/shared';
 import { resolvePaths, type OrchestratorOptions, type ResolvedPaths } from './paths.js';
@@ -60,7 +61,7 @@ export class InstanceOrchestrator {
     this.worktrees = new WorktreeManager(this.paths.mjRepoPath);
     this.config = new ConfigWriter();
     this.setup = new SetupRunner();
-    this.procs = new ProcessManager();
+    this.procs = new ProcessManager(this.paths);
   }
 
   // ── Queries ─────────────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ export class InstanceOrchestrator {
     const record = await this.requireRecord(slug);
     const containerState = await this.docker.getState(record.container.name).catch(() => undefined);
     const nodeVersion = resolveNodeForWorktree(record.worktreePath, record.node).version;
-    return { record, containerState, processes: this.procs.list(slug), nodeVersion };
+    return { record, containerState, processes: await this.procs.list(slug), nodeVersion };
   }
 
   // ── Create (provision-only) with rollback saga ────────────────────────────
@@ -406,10 +407,16 @@ export class InstanceOrchestrator {
   async startProcess(
     slug: string,
     target: LaunchTarget,
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    source: 'gui' | 'cli' = 'cli'
   ): Promise<ManagedProcess> {
     const record = await this.requireRecord(slug);
-    return this.procs.start(record, target, sink, this.instanceEnv(record, slug, sink));
+    return this.procs.start(record, target, sink, this.instanceEnv(record, slug, sink), source);
+  }
+
+  /** Enumerate launchable targets (services + scripts) for an instance. */
+  async listRunTargets(slug: string): Promise<RunOption[]> {
+    return ProcessManager.listRunTargets(await this.requireRecord(slug));
   }
 
   /**
@@ -431,7 +438,7 @@ export class InstanceOrchestrator {
 
   /** Restart a tracked process by re-launching its original target. */
   async restartProcess(id: string, sink: EventSink = noopSink): Promise<ManagedProcess> {
-    const meta = this.procs.list().find(p => p.id === id);
+    const meta = (await this.procs.list()).find(p => p.id === id);
     if (!meta) throw new Error(`No tracked process "${id}"`);
     const record = await this.requireRecord(meta.slug);
     return this.procs.restart(id, record, sink, this.instanceEnv(record, meta.slug, sink));
@@ -442,12 +449,17 @@ export class InstanceOrchestrator {
     return this.procs.remove(id);
   }
 
-  listProcesses(slug?: string): ManagedProcess[] {
+  listProcesses(slug?: string): Promise<ManagedProcess[]> {
     return this.procs.list(slug);
   }
 
-  processLogs(id: string): string[] {
+  processLogs(id: string): Promise<string[]> {
     return this.procs.getLogs(id);
+  }
+
+  /** Incrementally tail a process's output from a byte offset (for live streaming). */
+  processLogsSince(id: string, sinceByte: number): Promise<{ lines: string[]; nextByte: number }> {
+    return this.procs.getLogsSince(id, sinceByte);
   }
 
   async listScripts(slug: string): Promise<string[]> {
