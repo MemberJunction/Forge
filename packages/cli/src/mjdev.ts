@@ -643,6 +643,29 @@ app
   );
 
 app
+  .command('install')
+  .description('Plain-install an Open App from GitHub (the real install path, + transitive deps)')
+  .argument('<slug>')
+  .argument('<source>', 'GitHub URL of the open app')
+  .option('--version <version>', 'specific release/tag (default: the repo default branch)')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, source: string, opts: { version?: string; json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().installApp(slug, source, { version: opts.version }, makeSink(json));
+      emitResult(json, { success: true, ...r }, () =>
+        console.log(
+          chalk.green(
+            `\n✓ Installed "${r.appName}"${r.version ? ` v${r.version}` : ''} into ${slug}`
+          )
+        )
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
   .command('unlink')
   .description('Reverse a dev-link (optionally drop the app schema)')
   .argument('<slug>')

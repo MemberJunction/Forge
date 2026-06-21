@@ -123,6 +123,47 @@ async function runStep(step, ctx) {
     return { compatible: true, range: ctx.manifest.mjVersionRange, mjVersion: ctx.mjVersion };
   }
 
+  if (step === 'install') {
+    // Plain install via the engine's exported InstallApp — the real 'mj app install'
+    // path with NO dev seams, so it is maximal parity by construction. Fetches the app
+    // AND its full transitive open-app dependency graph from GitHub (leaf-first), runs
+    // each app's migrations, mutates mj.config.cjs / angular.json / package deps,
+    // installs npm packages, and records every MJ: Open Apps row Active. (The dev-link
+    // path instead reproduces the granular shell against LOCAL source.)
+    if (!ctx.spec.source) throw new Error('install requires spec.source (GitHub URL)');
+    const orCtx = {
+      ContextUser: ctx.contextUser,
+      DatabaseProvider: ctx.provider,
+      DatabaseConfig: ctx.dbConfig,
+      GitHubOptions: { Token: ctx.spec.githubToken || process.env.GITHUB_TOKEN },
+      RepoRoot: ctx.spec.repoRoot,
+      MJVersion: ctx.mjVersion,
+      ServerPackagePath: ctx.spec.serverPackagePath,
+      ClientPackagePath: ctx.spec.clientPackagePath,
+      ClientBootstrapSubpath: ctx.spec.clientBootstrapSubpath,
+      MJCoreSchema: ctx.mjCoreSchema,
+      Callbacks: {
+        OnProgress: function (phase, message) { send('progress', phase || 'Install', message || ''); },
+        OnError: function (phase, message) { send('error', phase || 'Install', message || ''); },
+      },
+    };
+    send('progress', 'Install', 'Installing ' + ctx.spec.source + (ctx.spec.version ? ' @ ' + ctx.spec.version : '') + ' (+ transitive deps)');
+    const ir = await engine.InstallApp(
+      {
+        Source: ctx.spec.source,
+        Version: ctx.spec.version,
+        Verbose: true,
+        AllowDoubleUnderscoreSchema: ctx.spec.allowDoubleUnderscore === true,
+      },
+      orCtx
+    );
+    if (!ir.Success) {
+      throw new Error('InstallApp failed (' + (ir.ErrorPhase || '?') + '): ' + (ir.ErrorMessage || 'unknown'));
+    }
+    send('success', 'Install', 'Installed ' + ir.AppName + ' v' + ir.Version + ' (' + ir.DurationSeconds + 's)');
+    return { appName: ir.AppName, version: ir.Version, action: ir.Action, durationSeconds: ir.DurationSeconds, summary: ir.Summary || null };
+  }
+
   if (step === 'driftCheck') {
     // Active checksum-drift detection: Skyway.Validate() verifies applied-migration
     // checksums against disk (Migrate() silently skips edited versioned files).

@@ -63,6 +63,31 @@ describe('WorktreeEngineRunner — spawn + protocol parsing', () => {
     );
   });
 
+  it('passes install source/version through the job spec and captures the result', async () => {
+    // The install step is driven by spec.source/spec.version (no member/manifest).
+    const INSTALL_FAKE = `import { readFileSync } from 'node:fs';
+const S = '${ENGINE_EVENT_SENTINEL}';
+const spec = JSON.parse(readFileSync(process.argv[2], 'utf-8'));
+const send = (k, p, m, d) => process.stdout.write(S + JSON.stringify({ kind: k, phase: p, message: m || '', data: d || null }) + '\\n');
+const results = { install: { appName: 'bizapps-common', version: spec.version || 'HEAD', source: spec.source } };
+send('result', 'Done', 'done', { results, mjVersion: '5.40.2' });
+process.exit(0);
+`;
+    const runner = new WorktreeEngineRunner(tmp, INSTALL_FAKE);
+    const result = await runner.run('demo', {
+      steps: ['install'],
+      source: 'https://github.com/MemberJunction/bizapps-common',
+      version: '1.2.0',
+      dbConfig: { host: 'h', port: 1, database: 'd', user: 'u', password: 'p' },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.results?.install).toEqual({
+      appName: 'bizapps-common',
+      version: '1.2.0',
+      source: 'https://github.com/MemberJunction/bizapps-common',
+    });
+  });
+
   it('surfaces an engine error (non-zero exit) as ok:false with the message', async () => {
     const FAIL_ENTRY = `const S = '${ENGINE_EVENT_SENTINEL}';
 const send = (k, p, m) => process.stdout.write(S + JSON.stringify({ kind: k, phase: p, message: m, data: null }) + '\\n');
@@ -110,6 +135,9 @@ describe('ENGINE_ENTRY_SOURCE — generated-script contract', () => {
       'Clean',
       'Repair',
       'cleanAppMetadata',
+      // Plain-install path (the real `mj app install`)
+      'InstallApp',
+      'GitHubOptions',
       '@memberjunction/skyway-core',
       '@memberjunction/open-app-engine',
       '@memberjunction/sqlserver-dataprovider',

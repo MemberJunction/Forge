@@ -32,8 +32,11 @@ export interface AppDevState {
   mode: OpenAppMode;
   /** Canonical editable clone path (`~/MJDev/repos/apps/<app>`). */
   localDevPath: string;
-  /** How the app is materialized as a workspace member (Option Y nests a worktree). */
-  materialization: 'nested-worktree' | 'symlink' | 'copy';
+  /**
+   * How the app is materialized. Option Y nests a worktree for dev-links;
+   * `published` means a plain install (no member — resolves from the npm release).
+   */
+  materialization: 'nested-worktree' | 'symlink' | 'copy' | 'published';
   /** True when the MJ version-range check was overridden for this link. */
   ignoreVersionRangeUsed: boolean;
   /** Branch checked out in the canonical clone, if pinned. */

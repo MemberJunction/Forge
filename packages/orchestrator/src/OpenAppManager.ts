@@ -103,10 +103,21 @@ export interface LinkResolutionOptions {
 export class OpenAppManager {
   private readonly appRepos: AppRepoManager;
   private readonly state: AppDevStateStore;
+  private readonly runnerFor: (worktreePath: string) => WorktreeEngineRunner;
 
-  constructor(private readonly paths: ResolvedPaths) {
+  /**
+   * @param paths resolved on-disk locations.
+   * @param runnerFactory builds the worktree engine runner for a worktree; defaults to
+   *   the real {@link WorktreeEngineRunner}. Injectable so tests can drive the engine
+   *   steps with a DB-free fake entrypoint (same seam the runner's own tests use).
+   */
+  constructor(
+    private readonly paths: ResolvedPaths,
+    runnerFactory: (worktreePath: string) => WorktreeEngineRunner = p => new WorktreeEngineRunner(p)
+  ) {
     this.appRepos = new AppRepoManager(this.paths.appsReposDir);
     this.state = new AppDevStateStore(this.paths);
+    this.runnerFor = runnerFactory;
   }
 
   /** The workspace member path (and nested app-worktree location) for an app. */
@@ -220,6 +231,67 @@ export class OpenAppManager {
     return { appName: link.appName, singleCopy: link.singleCopy, snapshot };
   }
 
+  /**
+   * Plain install (NOT dev-link): drive the worktree's OWN engine `InstallApp` — the
+   * real `mj app install` path. The engine fetches the app AND its full transitive
+   * open-app dependency graph from GitHub (leaf-first), runs migrations, mutates
+   * config/angular/package deps, installs npm packages, and records every
+   * `MJ: Open Apps` row Active. Maximal parity by construction (no dev seams). Records
+   * a Forge-side overlay (mode `installed`) so the app shows in {@link listApps} and
+   * the recents list. Returns the installed top-level app name + version.
+   *
+   * Note: any transitive dependency apps the engine auto-installs get their own
+   * `MJ: Open Apps` rows but are not added to the Forge overlay here (they are an
+   * install detail); a future `listApps` merge with `ListInstalledApps` would surface them.
+   */
+  async installApp(
+    slug: string,
+    mjWorktreePath: string,
+    source: string,
+    dbConfig: EngineDbConfig,
+    opts: { version?: string; githubToken?: string; env?: NodeJS.ProcessEnv } = {},
+    sink: EventSink = noopSink
+  ): Promise<{ appName: string; version: string }> {
+    const env = opts.env ?? process.env;
+    await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
+    const runner = this.runnerFor(mjWorktreePath);
+    emit(sink, slug, 'app-install', 'progress', `Installing ${source}…`);
+    const result = await runner.run(
+      slug,
+      {
+        steps: ['install'],
+        source,
+        version: opts.version,
+        githubToken: opts.githubToken,
+        dbConfig,
+        mjCoreSchema: '__mj',
+      },
+      env,
+      sink
+    );
+    if (!result.ok) throw new Error(`Install failed: ${result.error ?? 'unknown'}`);
+    const r = (result.results?.install ?? {}) as { appName?: string; version?: string };
+    const appName = r.appName ?? AppRepoManager.appDirName(source);
+    await this.state.upsert({
+      slug,
+      appName,
+      appRef: source,
+      mode: 'installed',
+      localDevPath: '',
+      materialization: 'published',
+      ignoreVersionRangeUsed: false,
+      createdAt: new Date().toISOString(),
+    });
+    emit(
+      sink,
+      slug,
+      'app-install',
+      'success',
+      `Installed ${appName}${r.version ? ` v${r.version}` : ''}`
+    );
+    return { appName, version: r.version ?? '' };
+  }
+
   /** Linked-app overlay state for an instance (Forge-side dev state). */
   async listApps(slug: string): Promise<
     Array<{
@@ -260,7 +332,7 @@ export class OpenAppManager {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     // Keep the engine scratch dir out of the worktree's git status.
     await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
-    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    const runner = this.runnerFor(mjWorktreePath);
     emit(sink, slug, 'app-link', 'progress', `Provisioning ${appName} schema + migrations…`);
     const result = await runner.run(
       slug,
@@ -300,7 +372,7 @@ export class OpenAppManager {
   ): Promise<EngineRunResult> {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
-    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    const runner = this.runnerFor(mjWorktreePath);
     emit(sink, slug, 'app-link', 'progress', `Applying install mutation set for ${appName}…`);
     const result = await runner.run(
       slug,
@@ -376,7 +448,7 @@ export class OpenAppManager {
     // schema (mirrors the engine's remove flow); keep-data unlink leaves both so a
     // relink resumes cleanly.
     if (opts.dropSchema) steps.push('cleanMetadata', 'dropSchema');
-    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    const runner = this.runnerFor(mjWorktreePath);
     emit(sink, slug, 'app-unlink', 'progress', `Reversing dev-link for ${appName}…`);
     const result = await runner.run(
       slug,
@@ -568,7 +640,7 @@ export class OpenAppManager {
   ): Promise<EngineRunResult> {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
-    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    const runner = this.runnerFor(mjWorktreePath);
     const result = await runner.run(
       slug,
       {

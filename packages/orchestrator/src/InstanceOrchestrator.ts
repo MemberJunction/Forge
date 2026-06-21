@@ -423,6 +423,31 @@ export class InstanceOrchestrator {
     return { appName: r.appName, snapshot: r.snapshot };
   }
 
+  /**
+   * Plain-install an open app (the real `mj app install`) from a GitHub URL into an
+   * instance — distinct from {@link linkApp}. The engine pulls the app + its full
+   * transitive open-app dependency graph as published releases. Use for dependencies
+   * you only consume (e.g. install `bizapps-common`, then dev-link `bizapps-accounting`).
+   */
+  async installApp(
+    slug: string,
+    source: string,
+    opts: { version?: string } = {},
+    sink: EventSink = noopSink
+  ): Promise<{ appName: string; version: string }> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.installApp(
+      slug,
+      record.worktreePath,
+      source,
+      dbConfig,
+      { ...opts, env },
+      sink
+    );
+  }
+
   /** Reverse a dev-link (optionally dropping the app schema). */
   async unlinkApp(
     slug: string,

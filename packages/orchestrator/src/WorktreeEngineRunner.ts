@@ -43,6 +43,12 @@ export interface EngineJobSpec {
   allowDoubleUnderscore?: boolean;
   /** When set, a failed `checkVersion` step warns instead of throwing (off-tag dev). */
   ignoreVersionRange?: boolean;
+  /** GitHub URL for the `install` step (drives the engine's exported `InstallApp`). */
+  source?: string;
+  /** Optional version/tag for the `install` step (default: the repo's default branch). */
+  version?: string;
+  /** GitHub token for `install` (defaults to `GITHUB_TOKEN`; unauthenticated for public repos). */
+  githubToken?: string;
 }
 
 export interface EngineRunResult {
