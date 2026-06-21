@@ -6,6 +6,12 @@ import type { ResolvedPaths } from './paths.js';
 import { AppRepoManager } from './AppRepoManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { AppDevStateStore } from './AppDevStateStore.js';
+import {
+  WorktreeEngineRunner,
+  ENGINE_SCRATCH_EXCLUDE,
+  type EngineDbConfig,
+  type EngineRunResult,
+} from './WorktreeEngineRunner.js';
 
 /**
  * Workspaces glob (relative to the MJ worktree root) that makes a dev-linked app's
@@ -133,6 +139,46 @@ export class OpenAppManager {
       materialization: 'nested-worktree',
       singleCopy,
     };
+  }
+
+  /**
+   * Slice-1 DB spine: drive the worktree's OWN engine to create the app schema
+   * and run its local migrations against the instance DB (`SchemaExists` →
+   * `CreateAppSchema` → `RunAppMigrations(MigrationsDir=local)`), then read back
+   * the per-app `flyway_schema_history` to prove tracking lives in the APP schema
+   * (not `__mj`). Granular handlers only — no `InstallApp`, no version check — so
+   * this is identical to the install path's schema/migration steps. Returns the
+   * raw engine result (per-step data under `results`).
+   */
+  async ensureSchemaAndMigrate(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<EngineRunResult> {
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+    // Keep the engine scratch dir out of the worktree's git status.
+    await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
+    const runner = new WorktreeEngineRunner(mjWorktreePath);
+    emit(sink, slug, 'app-link', 'progress', `Provisioning ${appName} schema + migrations…`);
+    const result = await runner.run(
+      slug,
+      {
+        steps: ['ensureSchema', 'migrate', 'schemaInfo'],
+        memberPath,
+        manifestPath: path.join(memberPath, 'mj-app.json'),
+        dbConfig,
+        mjCoreSchema: '__mj',
+      },
+      env,
+      sink
+    );
+    if (!result.ok) {
+      throw new Error(`App schema/migration step failed: ${result.error ?? 'unknown'}`);
+    }
+    return result;
   }
 
   /** Add a workspaces glob to the MJ worktree's root package.json (idempotent). */

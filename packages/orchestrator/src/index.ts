@@ -15,6 +15,9 @@ export type {
   LinkResolutionOptions,
   SingleCopyResult,
 } from './OpenAppManager.js';
+export { WorktreeEngineRunner, ENGINE_SCRATCH_EXCLUDE } from './WorktreeEngineRunner.js';
+export type { EngineDbConfig, EngineJobSpec, EngineRunResult } from './WorktreeEngineRunner.js';
+export { ENGINE_EVENT_SENTINEL, ENGINE_ENTRY_SOURCE } from './engineEntrySource.js';
 export { ProcessStore } from './ProcessStore.js';
 export type { ProcRecord } from './ProcessStore.js';
 export { ConfigWriter } from './ConfigWriter.js';
