@@ -174,6 +174,73 @@ export class OpenAppManager {
   }
 
   /**
+   * Top-level dev-link: the full ordered flow a real `mj app install` runs, with the
+   * dev-only seams (local source resolution + optional version override). Chains the
+   * resolution layer → version gate → schema+migrations → full mutation set, then
+   * returns the parity snapshot. This is the single entry point the façade/CLI/IPC call.
+   */
+  async linkApp(
+    slug: string,
+    mjWorktreePath: string,
+    appRef: string,
+    dbConfig: EngineDbConfig,
+    opts: {
+      ignoreVersionRange?: boolean;
+      appBranch?: string;
+      baseRef?: string;
+      env?: NodeJS.ProcessEnv;
+    } = {},
+    sink: EventSink = noopSink
+  ): Promise<{ appName: string; singleCopy: SingleCopyResult; snapshot: ParitySnapshot }> {
+    const env = opts.env ?? process.env;
+    const link = await this.linkResolution(
+      slug,
+      mjWorktreePath,
+      appRef,
+      { appBranch: opts.appBranch, baseRef: opts.baseRef, env },
+      sink
+    );
+    await this.checkVersionCompat(
+      slug,
+      mjWorktreePath,
+      link.appName,
+      dbConfig,
+      opts.ignoreVersionRange ?? false,
+      env,
+      sink
+    );
+    if (opts.ignoreVersionRange) {
+      const st = await this.state.get(slug, link.appName);
+      if (st) await this.state.upsert({ ...st, ignoreVersionRangeUsed: true });
+    }
+    await this.ensureSchemaAndMigrate(slug, mjWorktreePath, link.appName, dbConfig, env, sink);
+    await this.applyFullMutationSet(slug, mjWorktreePath, link.appName, dbConfig, env, sink);
+    const snapshot = await this.captureParitySnapshot(mjWorktreePath, link.appName);
+    emit(sink, slug, 'app-link', 'success', `Dev-linked ${link.appName}`);
+    return { appName: link.appName, singleCopy: link.singleCopy, snapshot };
+  }
+
+  /** Linked-app overlay state for an instance (Forge-side dev state). */
+  async listApps(slug: string): Promise<
+    Array<{
+      appName: string;
+      mode: string;
+      appRef: string;
+      ignoreVersionRangeUsed: boolean;
+      linkedBranch?: string;
+    }>
+  > {
+    const apps = await this.state.list(slug);
+    return apps.map(a => ({
+      appName: a.appName,
+      mode: a.mode,
+      appRef: a.appRef,
+      ignoreVersionRangeUsed: a.ignoreVersionRangeUsed,
+      linkedBranch: a.linkedBranch,
+    }));
+  }
+
+  /**
    * Slice-1 DB spine: drive the worktree's OWN engine to create the app schema
    * and run its local migrations against the instance DB (`SchemaExists` →
    * `CreateAppSchema` → `RunAppMigrations(MigrationsDir=local)`), then read back

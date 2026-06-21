@@ -599,4 +599,157 @@ for (const [verb, granted] of [
     });
 }
 
+// ── Open-app dev-linking (`mjdev app …`) ─────────────────────────────────────
+// Distinct from `mjdev apps …` (persona application access): this group manages
+// developing Open Apps against an instance with production-install parity.
+const app = program
+  .command('app')
+  .description('Dev-link Open Apps into an instance (install parity)');
+
+app
+  .command('link')
+  .description('Dev-link an Open App (GitHub URL or local path) into an instance')
+  .argument('<slug>')
+  .argument('<appRef>', 'GitHub URL or local path of the open app')
+  .option('--ignore-version-range', 'override the manifest mjVersionRange check (off-tag dev)')
+  .option('--branch <branch>', 'app branch to develop on in this instance')
+  .option('--base-ref <ref>', 'start point for a new app branch')
+  .option('--json', 'machine-readable output')
+  .action(
+    async (
+      slug: string,
+      appRef: string,
+      opts: { ignoreVersionRange?: boolean; branch?: string; baseRef?: string; json?: boolean }
+    ) => {
+      const json = !!opts.json;
+      try {
+        const r = await engine().linkApp(
+          slug,
+          appRef,
+          {
+            ignoreVersionRange: opts.ignoreVersionRange,
+            appBranch: opts.branch,
+            baseRef: opts.baseRef,
+          },
+          makeSink(json)
+        );
+        emitResult(json, { success: true, ...r }, () =>
+          console.log(chalk.green(`\n✓ Dev-linked "${r.appName}" into ${slug}`))
+        );
+      } catch (err) {
+        fail(json, err);
+      }
+    }
+  );
+
+app
+  .command('unlink')
+  .description('Reverse a dev-link (optionally drop the app schema)')
+  .argument('<slug>')
+  .argument('<app>', 'app dir name (see `mjdev app list`)')
+  .option('--drop-schema', 'also drop the app schema + metadata (destructive)')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, opts: { dropSchema?: boolean; json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      await engine().unlinkApp(slug, appName, { dropSchema: opts.dropSchema }, makeSink(json));
+      emitResult(json, { success: true }, () =>
+        console.log(chalk.green(`✓ Unlinked "${appName}"`))
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
+  .command('switch')
+  .description('Switch an app between dev (local source) and installed (published)')
+  .argument('<slug>')
+  .argument('<app>')
+  .argument('<mode>', 'dev | installed')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, mode: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    if (mode !== 'dev' && mode !== 'installed')
+      fail(json, new Error("mode must be 'dev' or 'installed'"));
+    try {
+      await engine().switchAppMode(slug, appName, mode as 'dev' | 'installed', makeSink(json));
+      emitResult(json, { success: true }, () =>
+        console.log(chalk.green(`✓ "${appName}" -> ${mode}`))
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
+  .command('list')
+  .description('List apps dev-linked into an instance')
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const linked = await engine().listApps(slug);
+      emitResult(json, { success: true, apps: linked }, () => {
+        if (linked.length === 0) return console.log(chalk.gray('No dev-linked apps.'));
+        for (const a of linked) {
+          const flag = a.ignoreVersionRangeUsed ? chalk.yellow(' (version-override)') : '';
+          console.log(
+            `  ${chalk.cyan(a.mode)}  ${a.appName}${flag}  ${chalk.gray(a.linkedBranch ?? '')}`
+          );
+        }
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
+  .command('drift')
+  .description('Check a dev-linked app for migration checksum drift')
+  .argument('<slug>')
+  .argument('<app>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().checkAppDrift(slug, appName, makeSink(json));
+      emitResult(json, { success: true, ...r }, () =>
+        console.log(
+          r.valid ? chalk.green('✓ No drift') : chalk.red(`✗ Drift:\n  ${r.errors.join('\n  ')}`)
+        )
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+for (const [verb, label] of [
+  [
+    'reset-schema',
+    'Reset (Clean + re-migrate) — fixes an edited versioned migration (destructive)',
+  ],
+  ['repair-schema', 'Repair migration history (realign failed/baseline rows; does NOT re-run SQL)'],
+] as const) {
+  app
+    .command(verb)
+    .description(label)
+    .argument('<slug>')
+    .argument('<app>')
+    .option('--json', 'machine-readable output')
+    .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+      const json = !!opts.json;
+      try {
+        if (verb === 'reset-schema') await engine().resetAppSchema(slug, appName, makeSink(json));
+        else await engine().repairAppSchema(slug, appName, makeSink(json));
+        emitResult(json, { success: true }, () =>
+          console.log(chalk.green(`✓ ${verb} done for "${appName}"`))
+        );
+      } catch (err) {
+        fail(json, err);
+      }
+    });
+}
+
 program.parseAsync().catch(err => fail(false, err));

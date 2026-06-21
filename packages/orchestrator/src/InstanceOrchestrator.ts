@@ -379,6 +379,123 @@ export class InstanceOrchestrator {
     return written;
   }
 
+  // ── Open apps (Phase B dev-linking) ───────────────────────────────────────
+
+  /** Build the engine DB config (codegen login) for an instance from its secrets. */
+  private async appDbConfig(record: InstanceRecord): Promise<{
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    password: string;
+    trustServerCertificate: boolean;
+  }> {
+    const secrets = await this.store.getSecrets(record.secretsRef);
+    if (!secrets) throw new Error(`No secrets for instance "${record.slug}"`);
+    return {
+      host: 'localhost',
+      port: record.ports.sql,
+      database: record.dbName,
+      user: secrets.codegenUsername,
+      password: secrets.codegenPassword,
+      trustServerCertificate: true,
+    };
+  }
+
+  /** Dev-link an open app (GitHub URL or local path) into an instance. */
+  async linkApp(
+    slug: string,
+    appRef: string,
+    opts: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string } = {},
+    sink: EventSink = noopSink
+  ): Promise<{ appName: string; snapshot: unknown }> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    const r = await this.openApps.linkApp(
+      slug,
+      record.worktreePath,
+      appRef,
+      dbConfig,
+      { ...opts, env },
+      sink
+    );
+    return { appName: r.appName, snapshot: r.snapshot };
+  }
+
+  /** Reverse a dev-link (optionally dropping the app schema). */
+  async unlinkApp(
+    slug: string,
+    appName: string,
+    opts: { dropSchema?: boolean } = {},
+    sink: EventSink = noopSink
+  ): Promise<void> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    await this.openApps.unlinkApp(
+      slug,
+      record.worktreePath,
+      appName,
+      dbConfig,
+      { ...opts, env },
+      sink
+    );
+  }
+
+  /** Toggle an app between dev (local source) and installed (published) resolution. */
+  async switchAppMode(
+    slug: string,
+    appName: string,
+    target: 'dev' | 'installed',
+    sink: EventSink = noopSink
+  ): Promise<void> {
+    const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
+    await this.openApps.switchMode(slug, record.worktreePath, appName, target, { env }, sink);
+  }
+
+  /** List the apps dev-linked into an instance (Forge overlay state). */
+  listApps(slug: string): Promise<
+    Array<{
+      appName: string;
+      mode: string;
+      appRef: string;
+      ignoreVersionRangeUsed: boolean;
+      linkedBranch?: string;
+    }>
+  > {
+    return this.openApps.listApps(slug);
+  }
+
+  /** Detect checksum drift in a dev-linked app's applied migrations. */
+  async checkAppDrift(
+    slug: string,
+    appName: string,
+    sink: EventSink = noopSink
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.checkDrift(slug, record.worktreePath, appName, dbConfig, env, sink);
+  }
+
+  /** Destructively reset an app's schema (Clean + re-migrate) — fixes edited migrations. */
+  async resetAppSchema(slug: string, appName: string, sink: EventSink = noopSink): Promise<void> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    await this.openApps.resetAppSchema(slug, record.worktreePath, appName, dbConfig, env, sink);
+  }
+
+  /** Repair an app's migration history (realign failed/baseline rows; no SQL re-run). */
+  async repairAppSchema(slug: string, appName: string, sink: EventSink = noopSink): Promise<void> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    await this.openApps.repairAppSchema(slug, record.worktreePath, appName, dbConfig, env, sink);
+  }
+
   // ── Setup steps ───────────────────────────────────────────────────────────
 
   async runSetup(
