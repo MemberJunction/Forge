@@ -28,6 +28,14 @@ export interface EngineJobSpec {
   manifestPath?: string;
   /** Explicit schema name for steps that don't load the manifest (e.g. schemaInfo). */
   schemaName?: string;
+  /** Monorepo root the engine mutates (package.json/mj.config.cjs/angular.json). Defaults to the worktree. */
+  repoRoot?: string;
+  /** Server workspace path relative to repoRoot (default `packages/MJAPI`). */
+  serverPackagePath?: string;
+  /** Client workspace path relative to repoRoot (default `packages/MJExplorer`). */
+  clientPackagePath?: string;
+  /** Client bootstrap file subpath (engine default used when omitted). */
+  clientBootstrapSubpath?: string;
   dbConfig: EngineDbConfig;
   mjCoreSchema?: string;
   allowDoubleUnderscore?: boolean;
@@ -89,8 +97,10 @@ export class WorktreeEngineRunner {
     const scratch = path.join(this.worktreePath, SCRATCH_DIR);
     await fs.mkdir(scratch, { recursive: true });
     await fs.writeFile(this.entryPath, this.entrySource);
+    // repoRoot defaults to the worktree (where the engine mutates config/package files).
+    const fullSpec: EngineJobSpec = { repoRoot: this.worktreePath, ...spec };
     const specPath = path.join(scratch, `engine-job-${Date.now()}.json`);
-    await fs.writeFile(specPath, JSON.stringify(spec, null, 2));
+    await fs.writeFile(specPath, JSON.stringify(fullSpec, null, 2));
 
     let captured: EngineRunResult = {
       ok: false,

@@ -81,6 +81,122 @@ async function runStep(step, ctx) {
     return { applied: r.MigrationsApplied, files: r.AppliedFiles, schema: ctx.manifest.schema.name };
   }
 
+  if (step === 'record') {
+    // Reproduce the install orchestrator's RecordInstallationAtomically: create
+    // the MJ: Open Apps row (status 'Installing') inside a TransactionGroup, plus
+    // dependency rows. Idempotent: reuse an existing non-Removed row.
+    const core = await import('@memberjunction/core');
+    const existing = await engine.FindInstalledApp(ctx.contextUser, ctx.manifest.name);
+    if (existing && existing.Status !== 'Removed') {
+      ctx.appId = existing.ID;
+      send('success', 'Record', 'Reusing app record ' + existing.ID + ' (' + existing.Status + ')');
+      return { appId: existing.ID, reused: true, status: existing.Status };
+    }
+    const md = new core.Metadata();
+    const tg = await md.CreateTransactionGroup();
+    const appId = await engine.RecordAppInstallation(ctx.contextUser, ctx.manifest, undefined, tg, 'Installing');
+    if (ctx.manifest.dependencies && Object.keys(ctx.manifest.dependencies).length > 0) {
+      await engine.RecordAppDependencies(ctx.contextUser, appId, ctx.manifest.dependencies, tg);
+    }
+    const ok = await tg.Submit();
+    if (!ok) throw new Error('failed to commit installation record (transaction)');
+    ctx.appId = appId;
+    send('success', 'Record', 'Recorded app installation ' + appId);
+    return { appId: appId, reused: false };
+  }
+
+  if (step === 'addPackages') {
+    if (!ctx.manifest.packages) return { skipped: true, reason: 'no packages in manifest' };
+    send('progress', 'Packages', 'Adding app package deps + installing');
+    const add = engine.AddAppPackages({
+      RepoRoot: ctx.spec.repoRoot,
+      ServerPackages: ctx.manifest.packages.server || [],
+      ClientPackages: ctx.manifest.packages.client || [],
+      SharedPackages: ctx.manifest.packages.shared || [],
+      Version: ctx.manifest.version,
+      ServerPackagePath: ctx.spec.serverPackagePath,
+      ClientPackagePath: ctx.spec.clientPackagePath,
+      PackageManager: 'npm',
+    });
+    if (!add.Success) throw new Error('AddAppPackages failed: ' + add.ErrorMessage);
+    const inst = engine.RunPackageInstall(ctx.spec.repoRoot, false, ctx.manifest.packages.registry, 'npm');
+    if (!inst.Success) throw new Error('RunPackageInstall failed: ' + inst.ErrorMessage);
+    send('success', 'Packages', 'Packages added + installed');
+    return { added: true };
+  }
+
+  if (step === 'serverConfig') {
+    // Server dynamicPackages via the exported handler. The entityPackageName
+    // mapping (NOT exported) is reproduced Forge-side on mj.config.cjs.
+    const r = engine.AddServerDynamicPackages(ctx.spec.repoRoot, ctx.manifest);
+    if (!r.Success) throw new Error('AddServerDynamicPackages failed: ' + r.ErrorMessage);
+    send('success', 'Config', 'Updated dynamicPackages.server');
+    return { ok: true };
+  }
+
+  if (step === 'angularExcludes') {
+    const mgr = new engine.AngularConfigManager(ctx.spec.repoRoot, ctx.spec.clientPackagePath);
+    if (!mgr.Load()) {
+      send('progress', 'Angular', 'angular.json not found; skipping prebundle excludes');
+      return { skipped: true, reason: 'no angular.json' };
+    }
+    const n = mgr.AddPrebundleExcludes(ctx.manifest);
+    const save = mgr.Save();
+    if (!save.Success) throw new Error('angular.json save failed: ' + save.ErrorMessage);
+    send('success', 'Angular', 'Added ' + n + ' prebundle exclude(s)');
+    return { added: n };
+  }
+
+  if (step === 'setActive') {
+    if (!ctx.appId) throw new Error('setActive requires a prior record step');
+    await engine.SetAppStatus(ctx.contextUser, ctx.appId, 'Active');
+    send('success', 'Record', 'App status -> Active');
+    return { appId: ctx.appId, status: 'Active' };
+  }
+
+  if (step === 'clientBootstrap') {
+    // Reproduce HandleClientBootstrapRegeneration: topo-sort installed apps
+    // (deps first), emit client+shared package entries, regenerate the bootstrap.
+    const apps = await engine.ListInstalledApps(ctx.contextUser);
+    const appDeps = new Map();
+    for (const a of apps) {
+      const m = JSON.parse(a.ManifestJSON);
+      appDeps.set(a.Name, m.dependencies ? Object.keys(m.dependencies) : []);
+    }
+    const visited = new Set();
+    const sorted = [];
+    const visit = name => {
+      if (visited.has(name)) return;
+      visited.add(name);
+      for (const d of appDeps.get(name) || []) if (appDeps.has(d)) visit(d);
+      sorted.push(name);
+    };
+    for (const name of appDeps.keys()) visit(name);
+    const byName = new Map(apps.map(a => [a.Name, a]));
+    const entries = [];
+    for (const name of sorted) {
+      const a = byName.get(name);
+      if (!a) continue;
+      const m = JSON.parse(a.ManifestJSON);
+      const pkgs = (m.packages && m.packages.client ? m.packages.client : []).concat(
+        m.packages && m.packages.shared ? m.packages.shared : []
+      );
+      for (const pkg of pkgs) {
+        entries.push({ AppName: a.Name, Version: a.Version, PackageName: pkg.name, Enabled: a.Status === 'Active' });
+      }
+    }
+    engine.RegenerateClientBootstrap(ctx.spec.repoRoot, entries, ctx.spec.clientPackagePath, ctx.spec.clientBootstrapSubpath);
+    send('success', 'Config', 'Regenerated client bootstrap (' + entries.length + ' entr(ies))');
+    return { entries: entries.length };
+  }
+
+  if (step === 'listApps') {
+    const apps = await engine.ListInstalledApps(ctx.contextUser);
+    return {
+      apps: apps.map(a => ({ Name: a.Name, Version: a.Version, Status: a.Status, SchemaName: a.SchemaName })),
+    };
+  }
+
   if (step === 'schemaInfo') {
     // Read the per-app flyway_schema_history so callers can prove migrations
     // tracked in the APP schema (not __mj) and detect checksum drift later.
@@ -160,6 +276,7 @@ async function main() {
       manifest: manifest,
       spec: spec,
       mjCoreSchema: mjCoreSchema,
+      appId: null,
     };
 
     const results = {};

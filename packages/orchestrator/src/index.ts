@@ -14,7 +14,16 @@ export type {
   LinkResolutionResult,
   LinkResolutionOptions,
   SingleCopyResult,
+  ParitySnapshot,
 } from './OpenAppManager.js';
+export {
+  applyAddEntityPackageMapping,
+  addEntityPackageMapping,
+  removeEntityPackageMapping,
+  removeEntityPackageEntry,
+  resolveEntityPackageFromManifest,
+} from './entityPackageMapping.js';
+export type { EntityPackageMappingResult } from './entityPackageMapping.js';
 export { WorktreeEngineRunner, ENGINE_SCRATCH_EXCLUDE } from './WorktreeEngineRunner.js';
 export type { EngineDbConfig, EngineJobSpec, EngineRunResult } from './WorktreeEngineRunner.js';
 export { ENGINE_EVENT_SENTINEL, ENGINE_ENTRY_SOURCE } from './engineEntrySource.js';
