@@ -496,6 +496,26 @@ export class InstanceOrchestrator {
     await this.openApps.repairAppSchema(slug, record.worktreePath, appName, dbConfig, env, sink);
   }
 
+  /** Build a dev-linked app's workspace sub-packages (required before boot). */
+  async buildApp(
+    slug: string,
+    appName: string,
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }> {
+    const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.buildApp(slug, record.worktreePath, appName, env, sink);
+  }
+
+  /** Launchable watcher targets for a dev-linked app (live-edit rebuild). */
+  async appWatchTargets(
+    slug: string,
+    appName: string
+  ): Promise<Array<{ name: string; cwd: string; command: string; args: string[]; note?: string }>> {
+    const record = await this.requireRecord(slug);
+    return this.openApps.appWatchTargets(record.worktreePath, appName);
+  }
+
   // ── Setup steps ───────────────────────────────────────────────────────────
 
   async runSetup(

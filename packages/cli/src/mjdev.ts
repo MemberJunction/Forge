@@ -725,6 +725,50 @@ app
     }
   });
 
+app
+  .command('build')
+  .description("Build a dev-linked app's workspace sub-packages (required before boot)")
+  .argument('<slug>')
+  .argument('<app>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().buildApp(slug, appName, makeSink(json));
+      emitResult(json, { success: r.ok, ...r }, () =>
+        console.log(
+          r.ok
+            ? chalk.green(`✓ Built: ${r.built.join(', ') || '(nothing to build)'}`)
+            : chalk.red(`✗ Build failed: ${r.failed.map(f => f.name).join(', ')}`)
+        )
+      );
+      if (!r.ok) process.exit(1);
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
+  .command('watch-targets')
+  .description("List the watcher commands for a dev-linked app's sub-packages (live-edit)")
+  .argument('<slug>')
+  .argument('<app>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const targets = await engine().appWatchTargets(slug, appName);
+      emitResult(json, { success: true, targets }, () => {
+        for (const t of targets)
+          console.log(
+            `  ${chalk.cyan(t.name)}: ${t.command} ${t.args.join(' ')}${t.note ? chalk.yellow(` (${t.note})`) : ''}`
+          );
+      });
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
 for (const [verb, label] of [
   [
     'reset-schema',

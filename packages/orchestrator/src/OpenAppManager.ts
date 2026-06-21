@@ -597,6 +597,130 @@ export class OpenAppManager {
     }
   }
 
+  /**
+   * Slice-6 mandatory build: every boot entry resolves to `main: dist/index.js`
+   * (dist is gitignored) — a cold dev-linked app boots stale/absent bytes unless
+   * built. Build each of the app's workspace sub-packages (gated). Returns which
+   * built and which failed; "ready" is gated on zero failures by the caller, and a
+   * failure leaves last-good dist (never a silent stale serve).
+   */
+  async buildApp(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }> {
+    const pkgs = await this.appSubPackages(mjWorktreePath, appName);
+    const built: string[] = [];
+    const failed: Array<{ name: string; error: string }> = [];
+    for (const pkg of pkgs) {
+      if (!pkg.hasBuild) continue;
+      emit(sink, slug, 'app-build', 'progress', `Building ${pkg.name}…`);
+      const r = await run('npm', ['run', 'build', '--workspace', pkg.name], {
+        cwd: mjWorktreePath,
+        env,
+        onOutput: s => emit(sink, slug, 'app-build', 'info', s.trimEnd()),
+      });
+      if (r.code === 0) built.push(pkg.name);
+      else
+        failed.push({
+          name: pkg.name,
+          error: (r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n'),
+        });
+    }
+    const ok = failed.length === 0;
+    emit(
+      sink,
+      slug,
+      'app-build',
+      ok ? 'success' : 'error',
+      ok
+        ? `Built ${built.length} app package(s)`
+        : `Build failed: ${failed.map(f => f.name).join(', ')}`
+    );
+    return { ok, built, failed };
+  }
+
+  /**
+   * Slice-6 watcher targets: the commands that rebuild an app's sub-package dist on
+   * change (HMR/server-restart feed off rebuilt dist). Uses each package's own
+   * `watch`/`build:watch` script when present, else falls back to `tsc --watch` for
+   * tsc-built packages. Returned as launchable commands so the existing process
+   * manager runs + tracks them (live-edit fidelity); no script → no watcher (flagged).
+   */
+  async appWatchTargets(
+    mjWorktreePath: string,
+    appName: string
+  ): Promise<Array<{ name: string; cwd: string; command: string; args: string[]; note?: string }>> {
+    const pkgs = await this.appSubPackages(mjWorktreePath, appName);
+    return pkgs.map(pkg => {
+      if (pkg.watchScript) {
+        return { name: pkg.name, cwd: pkg.dir, command: 'npm', args: ['run', pkg.watchScript] };
+      }
+      if (pkg.buildScript === 'tsc') {
+        return {
+          name: pkg.name,
+          cwd: pkg.dir,
+          command: 'npx',
+          args: ['tsc', '--watch', '--preserveWatchOutput'],
+        };
+      }
+      return {
+        name: pkg.name,
+        cwd: pkg.dir,
+        command: 'npm',
+        args: ['run', 'build'],
+        note: 'no watch script; manual rebuild only',
+      };
+    });
+  }
+
+  /** Discover an app's workspace sub-packages (name + build/watch script presence). */
+  private async appSubPackages(
+    mjWorktreePath: string,
+    appName: string
+  ): Promise<
+    Array<{
+      name: string;
+      dir: string;
+      hasBuild: boolean;
+      buildScript?: string;
+      watchScript?: string;
+    }>
+  > {
+    const pkgsDir = path.join(this.memberPathFor(mjWorktreePath, appName), 'packages');
+    const out: Array<{
+      name: string;
+      dir: string;
+      hasBuild: boolean;
+      buildScript?: string;
+      watchScript?: string;
+    }> = [];
+    let entries: string[] = [];
+    try {
+      entries = await fs.readdir(pkgsDir);
+    } catch {
+      return out;
+    }
+    for (const e of entries) {
+      const dir = path.join(pkgsDir, e);
+      const raw = await this.readFileSafe(path.join(dir, 'package.json'));
+      if (!raw) continue;
+      const pkg = JSON.parse(raw) as { name?: string; scripts?: Record<string, string> };
+      if (!pkg.name) continue;
+      const scripts = pkg.scripts ?? {};
+      out.push({
+        name: pkg.name,
+        dir,
+        hasBuild: !!scripts.build,
+        buildScript: scripts.build,
+        watchScript: scripts.watch ? 'watch' : scripts['build:watch'] ? 'build:watch' : undefined,
+      });
+    }
+    return out;
+  }
+
   /** Read + minimally type a member's `mj-app.json`. */
   async readManifest(memberPath: string): Promise<AppManifestLite> {
     const raw = await fs.readFile(path.join(memberPath, 'mj-app.json'), 'utf8');
