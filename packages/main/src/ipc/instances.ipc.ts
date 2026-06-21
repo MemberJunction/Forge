@@ -115,7 +115,12 @@ export function registerInstanceHandlers(): void {
       _e,
       slug: string,
       appRef: string,
-      opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
+      opts?: {
+        ignoreVersionRange?: boolean;
+        allowDoubleUnderscore?: boolean;
+        appBranch?: string;
+        baseRef?: string;
+      }
     ) => engine.linkApp(slug, appRef, opts ?? {}, sink)
   );
 

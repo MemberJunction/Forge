@@ -534,7 +534,12 @@ interface ForgeAPI {
     link: (
       slug: string,
       appRef: string,
-      opts?: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string }
+      opts?: {
+        ignoreVersionRange?: boolean;
+        allowDoubleUnderscore?: boolean;
+        appBranch?: string;
+        baseRef?: string;
+      }
     ) => Promise<{ appName: string; snapshot: unknown }>;
     install: (
       slug: string,

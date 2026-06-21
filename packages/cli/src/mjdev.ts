@@ -612,6 +612,10 @@ app
   .argument('<slug>')
   .argument('<appRef>', 'GitHub URL or local path of the open app')
   .option('--ignore-version-range', 'override the manifest mjVersionRange check (off-tag dev)')
+  .option(
+    '--allow-double-underscore-schema',
+    'allow a reserved `__`-prefixed schema (first-party MJ apps like bizapps-* need this)'
+  )
   .option('--branch <branch>', 'app branch to develop on in this instance')
   .option('--base-ref <ref>', 'start point for a new app branch')
   .option('--json', 'machine-readable output')
@@ -619,7 +623,13 @@ app
     async (
       slug: string,
       appRef: string,
-      opts: { ignoreVersionRange?: boolean; branch?: string; baseRef?: string; json?: boolean }
+      opts: {
+        ignoreVersionRange?: boolean;
+        allowDoubleUnderscoreSchema?: boolean;
+        branch?: string;
+        baseRef?: string;
+        json?: boolean;
+      }
     ) => {
       const json = !!opts.json;
       try {
@@ -628,6 +638,7 @@ app
           appRef,
           {
             ignoreVersionRange: opts.ignoreVersionRange,
+            allowDoubleUnderscore: opts.allowDoubleUnderscoreSchema,
             appBranch: opts.branch,
             baseRef: opts.baseRef,
           },

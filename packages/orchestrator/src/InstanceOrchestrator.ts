@@ -406,7 +406,12 @@ export class InstanceOrchestrator {
   async linkApp(
     slug: string,
     appRef: string,
-    opts: { ignoreVersionRange?: boolean; appBranch?: string; baseRef?: string } = {},
+    opts: {
+      ignoreVersionRange?: boolean;
+      allowDoubleUnderscore?: boolean;
+      appBranch?: string;
+      baseRef?: string;
+    } = {},
     sink: EventSink = noopSink
   ): Promise<{ appName: string; snapshot: unknown }> {
     const record = await this.requireRecord(slug);

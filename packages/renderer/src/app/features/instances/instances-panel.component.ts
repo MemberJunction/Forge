@@ -588,19 +588,18 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                     />
                     <span>Ignore version range</span>
                   </label>
-                } @else {
-                  <label
-                    class="inline"
-                    matTooltip="Required for first-party MJ apps (e.g. bizapps-*) that use a reserved __mj_ schema"
-                  >
-                    <input
-                      type="checkbox"
-                      [(ngModel)]="linkForm.allowDoubleUnderscore"
-                      name="allowDoubleUnderscore"
-                    />
-                    <span>Allow reserved <code>__</code> schema</span>
-                  </label>
                 }
+                <label
+                  class="inline"
+                  matTooltip="Required for first-party MJ apps (e.g. bizapps-*) that use a reserved __mj_ schema"
+                >
+                  <input
+                    type="checkbox"
+                    [(ngModel)]="linkForm.allowDoubleUnderscore"
+                    name="allowDoubleUnderscore"
+                  />
+                  <span>Allow reserved <code>__</code> schema</span>
+                </label>
                 <div class="row">
                   <button
                     mat-flat-button
@@ -1432,6 +1431,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     slug: string;
     appRef: string;
     ignoreVersionRange: boolean;
+    allowDoubleUnderscore: boolean;
     appName: string;
     deps: DepRow[];
   } | null>(null);
@@ -1616,6 +1616,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
           slug,
           appRef,
           ignoreVersionRange: this.linkForm.ignoreVersionRange,
+          allowDoubleUnderscore: this.linkForm.allowDoubleUnderscore,
           appName: resolved?.appName ?? appRef,
           deps: missing.map(d => ({
             name: d.name,
@@ -1628,6 +1629,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       }
       await this.openApps.link(slug, appRef, {
         ignoreVersionRange: this.linkForm.ignoreVersionRange,
+        allowDoubleUnderscore: this.linkForm.allowDoubleUnderscore,
       });
     }
     this.resetLinkFormIfClean(slug, mode);
@@ -1659,7 +1661,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       p.slug,
       p.appRef,
       p.deps.map(d => ({ source: d.source.trim(), mode: d.mode })),
-      { ignoreVersionRange: p.ignoreVersionRange }
+      { ignoreVersionRange: p.ignoreVersionRange, allowDoubleUnderscore: p.allowDoubleUnderscore }
     );
     this.resetLinkFormIfClean(p.slug, 'dev');
   }

@@ -212,6 +212,7 @@ export class OpenAppManager {
     dbConfig: EngineDbConfig,
     opts: {
       ignoreVersionRange?: boolean;
+      allowDoubleUnderscore?: boolean;
       appBranch?: string;
       baseRef?: string;
       env?: NodeJS.ProcessEnv;
@@ -239,7 +240,15 @@ export class OpenAppManager {
       const st = await this.state.get(slug, link.appName);
       if (st) await this.state.upsert({ ...st, ignoreVersionRangeUsed: true });
     }
-    await this.ensureSchemaAndMigrate(slug, mjWorktreePath, link.appName, dbConfig, env, sink);
+    await this.ensureSchemaAndMigrate(
+      slug,
+      mjWorktreePath,
+      link.appName,
+      dbConfig,
+      env,
+      sink,
+      opts.allowDoubleUnderscore === true
+    );
     await this.applyFullMutationSet(slug, mjWorktreePath, link.appName, dbConfig, env, sink);
     const snapshot = await this.captureParitySnapshot(mjWorktreePath, link.appName);
     emit(sink, slug, 'app-link', 'success', `Dev-linked ${link.appName}`);
@@ -409,7 +418,8 @@ export class OpenAppManager {
     appName: string,
     dbConfig: EngineDbConfig,
     env: NodeJS.ProcessEnv = process.env,
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    allowDoubleUnderscore = false
   ): Promise<EngineRunResult> {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     // Keep the engine scratch dir out of the worktree's git status.
@@ -424,6 +434,8 @@ export class OpenAppManager {
         manifestPath: path.join(memberPath, 'mj-app.json'),
         dbConfig,
         mjCoreSchema: '__mj',
+        // First-party MJ apps declare reserved `__mj_*` schemas; opt past the guard.
+        allowDoubleUnderscore,
       },
       env,
       sink

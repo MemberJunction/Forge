@@ -15,6 +15,7 @@ export interface LinkedApp {
 /** Options accepted when dev-linking an app. */
 export interface LinkAppOptions {
   ignoreVersionRange?: boolean;
+  allowDoubleUnderscore?: boolean;
   appBranch?: string;
   baseRef?: string;
 }
