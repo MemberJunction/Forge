@@ -378,6 +378,53 @@ export class OpenAppManager {
     return { appName, dependencies };
   }
 
+  /**
+   * Uninstall an INSTALLED app (the inverse of {@link installApp}) via the worktree's
+   * own exported `RemoveApp`: reverse the package/config mutations, set the
+   * `MJ: Open Apps` row Removed, and DROP the schema unless `keepData`. Identified by
+   * manifest name. Then reconcile `node_modules` and drop the Forge overlay.
+   * (Dev-linked apps are torn down by {@link unlinkApp} instead.) `allowDoubleUnderscore`
+   * defaults true so first-party `__mj_*` app schemas can be dropped.
+   */
+  async removeInstalledApp(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    opts: {
+      keepData?: boolean;
+      force?: boolean;
+      allowDoubleUnderscore?: boolean;
+      env?: NodeJS.ProcessEnv;
+    } = {},
+    sink: EventSink = noopSink
+  ): Promise<void> {
+    const env = opts.env ?? process.env;
+    await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
+    const runner = this.runnerFor(mjWorktreePath);
+    emit(sink, slug, 'app-remove', 'progress', `Removing installed app ${appName}…`);
+    const result = await runner.run(
+      slug,
+      {
+        steps: ['removeApp'],
+        appName,
+        keepData: opts.keepData,
+        force: opts.force,
+        allowDoubleUnderscore: opts.allowDoubleUnderscore !== false,
+        dbConfig,
+        mjCoreSchema: '__mj',
+      },
+      env,
+      sink
+    );
+    if (!result.ok) throw new Error(`Remove failed: ${result.error ?? 'unknown'}`);
+    // RemoveApp edits MJAPI/MJExplorer package.json — reconcile node_modules.
+    emit(sink, slug, 'app-remove', 'progress', 'Reinstalling workspace dependencies…');
+    await this.npmInstall(mjWorktreePath, env, sink);
+    await this.state.remove(slug, appName);
+    emit(sink, slug, 'app-remove', 'success', `Removed ${appName}`);
+  }
+
   /** Recently-used app refs (for the add-app dropdown), newest first. */
   async recentApps(): Promise<string[]> {
     return this.state.listRecents();

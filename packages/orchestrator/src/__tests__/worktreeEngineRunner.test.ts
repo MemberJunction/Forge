@@ -135,9 +135,11 @@ describe('ENGINE_ENTRY_SOURCE — generated-script contract', () => {
       'Clean',
       'Repair',
       'cleanAppMetadata',
-      // Plain-install path (the real `mj app install`)
+      // Plain-install + uninstall path (the real `mj app install` / `RemoveApp`)
       'InstallApp',
+      'RemoveApp',
       'GitHubOptions',
+      'buildOrchestratorContext',
       '@memberjunction/skyway-core',
       '@memberjunction/open-app-engine',
       '@memberjunction/sqlserver-dataprovider',

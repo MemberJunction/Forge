@@ -263,6 +263,7 @@ export const IPC_CHANNELS = {
     INSTALL: 'open-apps:install',
     RESOLVE_DEPS: 'open-apps:resolve-deps',
     RECENTS: 'open-apps:recents',
+    REMOVE: 'open-apps:remove',
     UNLINK: 'open-apps:unlink',
     SWITCH_MODE: 'open-apps:switch-mode',
     LIST: 'open-apps:list',

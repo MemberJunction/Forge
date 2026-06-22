@@ -476,6 +476,45 @@ export class InstanceOrchestrator {
     );
   }
 
+  /**
+   * Remove an app from an instance, **dispatching by mode**: a dev-linked app is torn
+   * down via {@link unlinkApp} (reproduced reversal); an installed app via the engine's
+   * `RemoveApp`. Universal entry for CLI/agents that don't track mode. Drops the schema
+   * by default (`keepData` to preserve); `force` removes even if other apps depend on it.
+   */
+  async removeApp(
+    slug: string,
+    appName: string,
+    opts: { keepData?: boolean; force?: boolean } = {},
+    sink: EventSink = noopSink
+  ): Promise<void> {
+    const record = await this.requireRecord(slug);
+    const apps = await this.openApps.listApps(slug);
+    const mode = apps.find(a => a.appName === appName)?.mode;
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    if (mode === 'installed') {
+      await this.openApps.removeInstalledApp(
+        slug,
+        record.worktreePath,
+        appName,
+        dbConfig,
+        { keepData: opts.keepData, force: opts.force, env },
+        sink
+      );
+    } else {
+      // Dev-linked (or unknown) → unlink. keepData maps to NOT dropping the schema.
+      await this.openApps.unlinkApp(
+        slug,
+        record.worktreePath,
+        appName,
+        dbConfig,
+        { dropSchema: !opts.keepData, env },
+        sink
+      );
+    }
+  }
+
   /** Reverse a dev-link (optionally dropping the app schema). */
   async unlinkApp(
     slug: string,

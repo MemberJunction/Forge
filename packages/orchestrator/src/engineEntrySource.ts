@@ -105,6 +105,27 @@ async function buildSkyway(ctx) {
   return new skMod.Skyway(cfg);
 }
 
+// Build the engine OrchestratorContext from the booted ctx + job spec. Shared by the
+// install and removeApp steps (both call the engine's GitHub-coupled orchestrators).
+function buildOrchestratorContext(ctx) {
+  return {
+    ContextUser: ctx.contextUser,
+    DatabaseProvider: ctx.provider,
+    DatabaseConfig: ctx.dbConfig,
+    GitHubOptions: { Token: ctx.spec.githubToken || process.env.GITHUB_TOKEN },
+    RepoRoot: ctx.spec.repoRoot,
+    MJVersion: ctx.mjVersion,
+    ServerPackagePath: ctx.spec.serverPackagePath,
+    ClientPackagePath: ctx.spec.clientPackagePath,
+    ClientBootstrapSubpath: ctx.spec.clientBootstrapSubpath,
+    MJCoreSchema: ctx.mjCoreSchema,
+    Callbacks: {
+      OnProgress: function (phase, message) { send('progress', phase || 'Engine', message || ''); },
+      OnError: function (phase, message) { send('error', phase || 'Engine', message || ''); },
+    },
+  };
+}
+
 async function runStep(step, ctx) {
   const engine = ctx.engine;
 
@@ -131,22 +152,7 @@ async function runStep(step, ctx) {
     // installs npm packages, and records every MJ: Open Apps row Active. (The dev-link
     // path instead reproduces the granular shell against LOCAL source.)
     if (!ctx.spec.source) throw new Error('install requires spec.source (GitHub URL)');
-    const orCtx = {
-      ContextUser: ctx.contextUser,
-      DatabaseProvider: ctx.provider,
-      DatabaseConfig: ctx.dbConfig,
-      GitHubOptions: { Token: ctx.spec.githubToken || process.env.GITHUB_TOKEN },
-      RepoRoot: ctx.spec.repoRoot,
-      MJVersion: ctx.mjVersion,
-      ServerPackagePath: ctx.spec.serverPackagePath,
-      ClientPackagePath: ctx.spec.clientPackagePath,
-      ClientBootstrapSubpath: ctx.spec.clientBootstrapSubpath,
-      MJCoreSchema: ctx.mjCoreSchema,
-      Callbacks: {
-        OnProgress: function (phase, message) { send('progress', phase || 'Install', message || ''); },
-        OnError: function (phase, message) { send('error', phase || 'Install', message || ''); },
-      },
-    };
+    const orCtx = buildOrchestratorContext(ctx);
     send('progress', 'Install', 'Installing ' + ctx.spec.source + (ctx.spec.version ? ' @ ' + ctx.spec.version : '') + ' (+ transitive deps)');
     const ir = await engine.InstallApp(
       {
@@ -162,6 +168,31 @@ async function runStep(step, ctx) {
     }
     send('success', 'Install', 'Installed ' + ir.AppName + ' v' + ir.Version + ' (' + ir.DurationSeconds + 's)');
     return { appName: ir.AppName, version: ir.Version, action: ir.Action, durationSeconds: ir.DurationSeconds, summary: ir.Summary || null };
+  }
+
+  if (step === 'removeApp') {
+    // Uninstall an INSTALLED app via the engine's exported RemoveApp (inverse of
+    // InstallApp): reverse package/config mutations, set the MJ: Open Apps row Removed,
+    // and DROP the schema unless keepData. Identified by manifest name. (Dev-linked apps
+    // are torn down by the reproduced unlink shell instead.)
+    if (!ctx.spec.appName) throw new Error('removeApp requires spec.appName (manifest name)');
+    const orCtx = buildOrchestratorContext(ctx);
+    send('progress', 'Remove', 'Removing ' + ctx.spec.appName + (ctx.spec.keepData ? ' (keep data)' : ' (drop schema)'));
+    const rr = await engine.RemoveApp(
+      {
+        AppName: ctx.spec.appName,
+        KeepData: ctx.spec.keepData === true,
+        Force: ctx.spec.force === true,
+        Verbose: true,
+        AllowDoubleUnderscoreSchema: ctx.spec.allowDoubleUnderscore === true,
+      },
+      orCtx
+    );
+    if (!rr.Success) {
+      throw new Error('RemoveApp failed (' + (rr.ErrorPhase || '?') + '): ' + (rr.ErrorMessage || 'unknown'));
+    }
+    send('success', 'Remove', 'Removed ' + rr.AppName + ' (' + (rr.Summary || 'done') + ')');
+    return { appName: rr.AppName, action: rr.Action, summary: rr.Summary || null };
   }
 
   if (step === 'driftCheck') {

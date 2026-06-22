@@ -49,6 +49,12 @@ export interface EngineJobSpec {
   version?: string;
   /** GitHub token for `install` (defaults to `GITHUB_TOKEN`; unauthenticated for public repos). */
   githubToken?: string;
+  /** App manifest name for the `removeApp` step (drives the engine's exported `RemoveApp`). */
+  appName?: string;
+  /** `removeApp`: preserve the app schema + data (don't DROP SCHEMA). */
+  keepData?: boolean;
+  /** `removeApp`: remove even if other installed apps depend on it. */
+  force?: boolean;
 }
 
 export interface EngineRunResult {

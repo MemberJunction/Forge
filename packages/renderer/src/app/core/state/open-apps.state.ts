@@ -37,7 +37,7 @@ export interface DepChoice {
 }
 
 /** Ops emitted on the instances event channel that this feature cares about. */
-const APP_EVENT_OPS = /^app-(link|install|unlink|switch|engine)/;
+const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|engine)/;
 
 /**
  * Reactive state for MJ Dev Manager "Open Apps" (Phase B). Wraps the
@@ -87,7 +87,7 @@ export class OpenAppsStateService {
       // Refresh the linked-app list when a mutating op reaches a terminal state.
       if (event.level === 'success' || event.level === 'error') {
         if (
-          /^app-(link|install|unlink|switch)/.test(event.op) &&
+          /^app-(link|install|unlink|remove|switch)/.test(event.op) &&
           event.slug === this.activeSlug()
         ) {
           void this.refresh(event.slug);
@@ -193,6 +193,22 @@ export class OpenAppsStateService {
     if (result) {
       await this.refresh(slug);
       this.notification.success(`Unlinked "${appName}"`);
+    }
+  }
+
+  /**
+   * Remove an app (dispatches by mode: dev-linked → unlink, installed → uninstall).
+   * Drops the schema unless `keepData`.
+   */
+  async remove(
+    slug: string,
+    appName: string,
+    opts?: { keepData?: boolean; force?: boolean }
+  ): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.remove(slug, appName, opts));
+    if (result) {
+      await this.refresh(slug);
+      this.notification.success(`Removed "${appName}"`);
     }
   }
 

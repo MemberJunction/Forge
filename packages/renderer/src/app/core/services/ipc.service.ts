@@ -559,6 +559,11 @@ interface ForgeAPI {
       }>;
     }>;
     recents: () => Promise<string[]>;
+    remove: (
+      slug: string,
+      appName: string,
+      opts?: { keepData?: boolean; force?: boolean }
+    ) => Promise<{ success: boolean }>;
     unlink: (
       slug: string,
       appName: string,

@@ -141,6 +141,14 @@ export function registerInstanceHandlers(): void {
   safeHandle(IPC_CHANNELS.OPEN_APPS.RECENTS, async () => engine.recentApps());
 
   safeHandle(
+    IPC_CHANNELS.OPEN_APPS.REMOVE,
+    async (_e, slug: string, appName: string, opts?: { keepData?: boolean; force?: boolean }) => {
+      await engine.removeApp(slug, appName, opts ?? {}, sink);
+      return { success: true };
+    }
+  );
+
+  safeHandle(
     IPC_CHANNELS.OPEN_APPS.UNLINK,
     async (_e, slug: string, appName: string, opts?: { dropSchema?: boolean }) => {
       await engine.unlinkApp(slug, appName, opts ?? {}, sink);

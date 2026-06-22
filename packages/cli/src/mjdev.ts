@@ -692,6 +692,39 @@ app
   );
 
 app
+  .command('remove')
+  .description(
+    'Remove an app (dev-linked → unlink, installed → uninstall); drops schema by default'
+  )
+  .argument('<slug>')
+  .argument('<app>', 'app name (see `mjdev app list`)')
+  .option('--keep-data', "preserve the app's schema + data (don't drop)")
+  .option('--force', 'remove even if other installed apps depend on it')
+  .option('--json', 'machine-readable output')
+  .action(
+    async (
+      slug: string,
+      appName: string,
+      opts: { keepData?: boolean; force?: boolean; json?: boolean }
+    ) => {
+      const json = !!opts.json;
+      try {
+        await engine().removeApp(
+          slug,
+          appName,
+          { keepData: opts.keepData, force: opts.force },
+          makeSink(json)
+        );
+        emitResult(json, { success: true }, () =>
+          console.log(chalk.green(`✓ Removed "${appName}"`))
+        );
+      } catch (err) {
+        fail(json, err);
+      }
+    }
+  );
+
+app
   .command('unlink')
   .description('Reverse a dev-link (optionally drop the app schema)')
   .argument('<slug>')

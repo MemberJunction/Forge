@@ -644,58 +644,70 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                       }
                     </div>
                     <div class="row wrap linked-actions">
-                      <button
-                        mat-stroked-button
-                        matTooltip="Toggle between dev and installed mode"
-                        (click)="
-                          openApps.switchMode(
-                            inst.slug,
-                            a.appName,
-                            a.mode === 'dev' ? 'installed' : 'dev'
-                          )
-                        "
-                        [disabled]="openApps.busy()"
-                      >
-                        <mat-icon>swap_horiz</mat-icon>
-                        {{ a.mode === 'dev' ? 'Use installed' : 'Use dev' }}
-                      </button>
-                      <button
-                        mat-button
-                        matTooltip="Validate schema against migrations"
-                        (click)="openApps.drift(inst.slug, a.appName)"
-                        [disabled]="openApps.busy()"
-                      >
-                        <mat-icon>fact_check</mat-icon> Check drift
-                      </button>
-                      <button
-                        mat-button
-                        matTooltip="Re-stamp migration tracking (no SQL re-run)"
-                        (click)="confirmRepairSchema(inst.slug, a.appName)"
-                        [disabled]="openApps.busy()"
-                      >
-                        <mat-icon>build</mat-icon> Repair schema
-                      </button>
-                      <button
-                        mat-button
-                        color="warn"
-                        matTooltip="Drop and rebuild the schema from migrations (drops app data)"
-                        (click)="confirmResetSchema(inst.slug, a.appName)"
-                        [disabled]="openApps.busy()"
-                      >
-                        <mat-icon>restart_alt</mat-icon> Reset schema
-                      </button>
-                      <button
-                        mat-button
-                        color="warn"
-                        (click)="confirmUnlink(inst.slug, a.appName)"
-                        [disabled]="openApps.busy()"
-                      >
-                        <mat-icon>link_off</mat-icon> Unlink
-                      </button>
+                      @if (a.mode === 'dev') {
+                        <button
+                          mat-stroked-button
+                          matTooltip="Toggle between dev and installed mode"
+                          (click)="
+                            openApps.switchMode(
+                              inst.slug,
+                              a.appName,
+                              a.mode === 'dev' ? 'installed' : 'dev'
+                            )
+                          "
+                          [disabled]="openApps.busy()"
+                        >
+                          <mat-icon>swap_horiz</mat-icon>
+                          {{ a.mode === 'dev' ? 'Use installed' : 'Use dev' }}
+                        </button>
+                        <button
+                          mat-button
+                          matTooltip="Validate schema against migrations"
+                          (click)="openApps.drift(inst.slug, a.appName)"
+                          [disabled]="openApps.busy()"
+                        >
+                          <mat-icon>fact_check</mat-icon> Check drift
+                        </button>
+                        <button
+                          mat-button
+                          matTooltip="Re-stamp migration tracking (no SQL re-run)"
+                          (click)="confirmRepairSchema(inst.slug, a.appName)"
+                          [disabled]="openApps.busy()"
+                        >
+                          <mat-icon>build</mat-icon> Repair schema
+                        </button>
+                        <button
+                          mat-button
+                          color="warn"
+                          matTooltip="Drop and rebuild the schema from migrations (drops app data)"
+                          (click)="confirmResetSchema(inst.slug, a.appName)"
+                          [disabled]="openApps.busy()"
+                        >
+                          <mat-icon>restart_alt</mat-icon> Reset schema
+                        </button>
+                        <button
+                          mat-button
+                          color="warn"
+                          (click)="confirmUnlink(inst.slug, a.appName)"
+                          [disabled]="openApps.busy()"
+                        >
+                          <mat-icon>link_off</mat-icon> Unlink
+                        </button>
+                      } @else {
+                        <button
+                          mat-button
+                          color="warn"
+                          matTooltip="Uninstall this app (reverses the install; drops its schema + data unless kept)"
+                          (click)="confirmRemove(inst.slug, a.appName)"
+                          [disabled]="openApps.busy()"
+                        >
+                          <mat-icon>delete</mat-icon> Remove
+                        </button>
+                      }
                     </div>
                   </li>
                 } @empty {
-                  <li class="empty">No apps dev-linked yet.</li>
+                  <li class="empty">No apps linked or installed yet.</li>
                 }
               </ul>
 
@@ -768,9 +780,9 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
           <div class="modal" (click)="$event.stopPropagation()">
             <h3>"{{ p.appName }}" needs other apps</h3>
             <p>
-              Dev-linking <code>{{ p.appName }}</code> requires these open apps, which aren't in
-              this instance yet. Choose how to add each — <strong>Install</strong> (for apps you
-              only consume) or <strong>Dev-link</strong> (to edit them too):
+              These open apps aren't in this instance yet. They'll be
+              <strong>dev-linked alongside</strong> <code>{{ p.appName }}</code> (recommended —
+              keeps the instance a consistent dev-link closure and lets you fix them if needed).
             </p>
             <ul class="dep-list">
               @for (d of p.deps; track d.name) {
@@ -780,8 +792,8 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                   </div>
                   <div class="dep-row">
                     <select [(ngModel)]="d.mode" name="depmode-{{ d.name }}">
-                      <option value="installed">Install</option>
-                      <option value="dev">Dev-link</option>
+                      <option value="dev">Dev-link (recommended)</option>
+                      <option value="installed">Install (advanced)</option>
                     </select>
                     <input
                       [(ngModel)]="d.source"
@@ -790,6 +802,15 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                       autocomplete="off"
                     />
                   </div>
+                  @if (d.mode === 'installed') {
+                    <p class="dep-warn">
+                      ⚠ Installing a dependency of a dev-linked app creates a
+                      <strong>mixed instance</strong>, which crashes npm's resolver. It requires the
+                      <code>--legacy-peer-deps</code> escape hatch and is
+                      <strong>completely unsupported</strong>. Only proceed if you know what you're
+                      doing.
+                    </p>
+                  }
                 </li>
               }
             </ul>
@@ -1218,6 +1239,15 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         flex: 1;
         margin-top: 0;
       }
+      .dep-warn {
+        margin: 4px 0 0;
+        font-size: 11px;
+        color: var(--warn, #e0a030);
+        background: rgba(224, 160, 48, 0.1);
+        border: 1px solid #6e5611;
+        border-radius: 4px;
+        padding: 5px 7px;
+      }
       .log-lines {
         background: var(--bg-input, #161616);
         border-radius: 4px;
@@ -1618,10 +1648,12 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
           ignoreVersionRange: this.linkForm.ignoreVersionRange,
           allowDoubleUnderscore: this.linkForm.allowDoubleUnderscore,
           appName: resolved?.appName ?? appRef,
+          // Same-mode closure: a dev-linked app's deps default to DEV-LINK too. Choosing
+          // "install" for a dep creates an unsupported mixed instance (npm crash) — warned.
           deps: missing.map(d => ({
             name: d.name,
             versionRange: d.versionRange,
-            mode: 'installed',
+            mode: 'dev',
             source: d.repository ?? '',
           })),
         });
@@ -1664,6 +1696,18 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       { ignoreVersionRange: p.ignoreVersionRange, allowDoubleUnderscore: p.allowDoubleUnderscore }
     );
     this.resetLinkFormIfClean(p.slug, 'dev');
+  }
+
+  /** Uninstall an installed app after a destructive-action confirmation (drops schema). */
+  confirmRemove(slug: string, appName: string): void {
+    if (
+      confirm(
+        `Remove installed app "${appName}"? This uninstalls it and DROPS its schema and ` +
+          `all its data in this instance. This cannot be undone.`
+      )
+    ) {
+      void this.openApps.remove(slug, appName);
+    }
   }
 
   /** Open the unlink confirmation modal for an app (drop-schema opt-in). */
