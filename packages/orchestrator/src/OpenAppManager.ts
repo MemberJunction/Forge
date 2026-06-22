@@ -374,12 +374,21 @@ export class OpenAppManager {
 
     // Also trust the Forge overlay for THIS instance: anything the user already
     // linked or installed here counts as present. This is robust when the engine
-    // `listApps` step can't run (worktree mid-setup, DB down) and when an app was
-    // recorded under its dir name — deps key on the MANIFEST name, so match on
-    // manifestName (falling back to the overlay key). Without this, a dependency
-    // the user already added gets falsely re-prompted as "missing".
+    // `listApps` step can't run (worktree mid-setup, DB down). Deps key on the
+    // MANIFEST name, but a dev-link's overlay key is the DIR name, and older
+    // entries may have no stored `manifestName` — so resolve the real manifest
+    // name from the app's local source when it isn't recorded. Without this, a
+    // dependency the user already added gets falsely re-prompted as "missing".
     try {
-      for (const a of await this.state.list(slug)) present.add(a.manifestName ?? a.appName);
+      for (const a of await this.state.list(slug)) {
+        present.add(a.appName); // dir-name match (defensive)
+        let mname = a.manifestName;
+        if (!mname) {
+          const dir = a.localDevPath || this.memberPathFor(mjWorktreePath, a.appName);
+          mname = (await this.readManifest(dir).catch(() => undefined))?.name;
+        }
+        if (mname) present.add(mname);
+      }
     } catch {
       // Overlay unavailable — keep whatever MJ-side detection found.
     }
