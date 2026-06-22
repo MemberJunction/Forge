@@ -590,6 +590,15 @@ interface ForgeAPI {
       slug: string,
       appName: string
     ) => Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }>;
+    buildAll: (slug: string) => Promise<{
+      ok: boolean;
+      apps: Array<{
+        appName: string;
+        ok: boolean;
+        built: string[];
+        failed: Array<{ name: string; error: string }>;
+      }>;
+    }>;
     migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
   };
 }

@@ -271,6 +271,7 @@ export const IPC_CHANNELS = {
     RESET_SCHEMA: 'open-apps:reset-schema',
     REPAIR_SCHEMA: 'open-apps:repair-schema',
     BUILD: 'open-apps:build',
+    BUILD_ALL: 'open-apps:build-all',
     MIGRATE: 'open-apps:migrate',
   },
 } as const;

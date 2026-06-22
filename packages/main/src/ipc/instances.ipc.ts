@@ -184,6 +184,10 @@ export function registerInstanceHandlers(): void {
     engine.buildApp(slug, appName, sink)
   );
 
+  safeHandle(IPC_CHANNELS.OPEN_APPS.BUILD_ALL, async (_e, slug: string) =>
+    engine.buildAllApps(slug, sink)
+  );
+
   safeHandle(IPC_CHANNELS.OPEN_APPS.MIGRATE, async (_e, slug: string, appName: string) =>
     engine.migrateApp(slug, appName, sink)
   );

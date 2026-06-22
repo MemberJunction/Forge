@@ -434,6 +434,15 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
               </button>
               @if (identity.appAccess()?.slug === inst.slug) {
                 <div class="app-list">
+                  <button
+                    mat-button
+                    class="app-access-refresh"
+                    matTooltip="Reload the list — pick up apps installed since this panel opened"
+                    (click)="identity.loadAppAccess(inst.slug)"
+                    [disabled]="identity.busy()"
+                  >
+                    <mat-icon>refresh</mat-icon> Refresh apps
+                  </button>
                   @for (a of identity.appAccess()!.apps; track a.name) {
                     <label class="app-row">
                       <input
@@ -579,6 +588,18 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 >
                   <mat-icon>refresh</mat-icon>
                 </button>
+                @if (inst.setup.built && hasDevApps(inst.slug)) {
+                  <button
+                    mat-button
+                    color="primary"
+                    class="build-all"
+                    matTooltip="Rebuild every dev-linked app in dependency order (incremental), then restart the API to pick up changes"
+                    (click)="openApps.buildAll(inst.slug)"
+                    [disabled]="openApps.busy()"
+                  >
+                    <mat-icon>build_circle</mat-icon> Build all
+                  </button>
+                }
               </h3>
 
               <!-- Open-app actions all run inside the instance's MJ worktree, which
@@ -1849,6 +1870,11 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   openAppsFor(slug: string) {
     const loaded = this.openApps.linkedApps();
     return loaded?.slug === slug ? loaded.apps : [];
+  }
+
+  /** True when the instance has at least one dev-linked app (enables "Build all"). */
+  hasDevApps(slug: string): boolean {
+    return this.openAppsFor(slug).some(a => a.mode === 'dev');
   }
 
   /** Add the app named in the form — dev-link or install per mode — then reset on success. */

@@ -951,6 +951,96 @@ export class OpenAppManager {
   }
 
   /**
+   * Rebuild ALL dev-linked apps in an instance, in cross-app dependency order (an
+   * app builds AFTER the apps it depends on — e.g. bizapps-common before
+   * bizapps-accounting, which lists it in its manifest `dependencies`). Each app
+   * still goes through {@link buildApp}'s own intra-app dependency passes, and
+   * builds are incremental per-package (not a clean rebuild). Continues past a
+   * failing app so the user sees every failure in one run. This is the one-click
+   * "build everything that changed, in order, then launch" entry the GUI needs;
+   * `buildApp` alone only covers a single app.
+   */
+  async buildAllApps(
+    slug: string,
+    mjWorktreePath: string,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<{
+    ok: boolean;
+    apps: Array<{
+      appName: string;
+      ok: boolean;
+      built: string[];
+      failed: Array<{ name: string; error: string }>;
+    }>;
+  }> {
+    const devApps = (await this.state.list(slug)).filter(a => a.mode === 'dev');
+    if (devApps.length === 0) {
+      emit(sink, slug, 'app-build', 'info', 'No dev-linked apps to build.');
+      return { ok: true, apps: [] };
+    }
+    // Resolve each app's manifest name + its open-app dependency names (deps key
+    // on the MANIFEST name), then topo-order via repeated passes: place an app
+    // once every in-set dependency is already placed.
+    const nodes = await Promise.all(
+      devApps.map(async a => {
+        const dir = a.localDevPath || this.memberPathFor(mjWorktreePath, a.appName);
+        const manifest = await this.readManifest(dir).catch(() => undefined);
+        return {
+          overlayKey: a.appName,
+          manifestName: a.manifestName ?? manifest?.name ?? a.appName,
+          deps: Object.keys(manifest?.dependencies ?? {}),
+        };
+      })
+    );
+    const known = new Set(nodes.map(n => n.manifestName));
+    const ordered: typeof nodes = [];
+    const placed = new Set<string>();
+    let progressed = true;
+    while (ordered.length < nodes.length && progressed) {
+      progressed = false;
+      for (const n of nodes) {
+        if (placed.has(n.manifestName)) continue;
+        if (n.deps.every(d => !known.has(d) || placed.has(d))) {
+          ordered.push(n);
+          placed.add(n.manifestName);
+          progressed = true;
+        }
+      }
+    }
+    // Any remaining (dependency cycle) — append in original order so we still try.
+    for (const n of nodes) if (!placed.has(n.manifestName)) ordered.push(n);
+
+    emit(
+      sink,
+      slug,
+      'app-build',
+      'progress',
+      `Building ${ordered.length} app(s) in order: ${ordered.map(n => n.manifestName).join(' → ')}`
+    );
+    const apps: Array<{
+      appName: string;
+      ok: boolean;
+      built: string[];
+      failed: Array<{ name: string; error: string }>;
+    }> = [];
+    let ok = true;
+    for (const n of ordered) {
+      const r = await this.buildApp(slug, mjWorktreePath, n.overlayKey, env, sink);
+      apps.push({ appName: n.overlayKey, ok: r.ok, built: r.built, failed: r.failed });
+      if (!r.ok) ok = false; // keep going so every failing app is surfaced
+    }
+    emit(
+      sink,
+      slug,
+      'app-build',
+      ok ? 'success' : 'error',
+      ok ? `Built all ${ordered.length} app(s)` : 'Some apps failed to build — see log'
+    );
+    return { ok, apps };
+  }
+
+  /**
    * Slice-6 watcher targets: the commands that rebuild an app's sub-package dist on
    * change (HMR/server-restart feed off rebuilt dist). Uses each package's own
    * `watch`/`build:watch` script when present, else falls back to `tsc --watch` for

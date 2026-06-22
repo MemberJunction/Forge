@@ -94,6 +94,15 @@ export class IdentityStateService {
     this._appAccess.set(null);
   }
 
+  /**
+   * Reload the app-access list if it's currently open for this slug. Called after
+   * an open app is installed/linked/removed so newly-registered Applications show
+   * up (and removed ones drop) without the user closing + reopening the panel.
+   */
+  async refreshAppAccess(slug: string): Promise<void> {
+    if (this._appAccess()?.slug === slug) await this.loadAppAccess(slug);
+  }
+
   /** Toggle one app on/off for the instance's persona and refresh the list. */
   async toggleAppAccess(slug: string, appName: string, granted: boolean): Promise<void> {
     const apps = await this.guard(() => this.ipc.identity.setAppAccess(slug, appName, granted));

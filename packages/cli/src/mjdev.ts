@@ -831,6 +831,35 @@ app
   });
 
 app
+  .command('build-all')
+  .description('Rebuild all dev-linked apps in an instance, in cross-app dependency order')
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().buildAllApps(slug, makeSink(json));
+      emitResult(json, { success: r.ok, ...r }, () =>
+        console.log(
+          r.ok
+            ? chalk.green(
+                `✓ Built ${r.apps.length} app(s): ${r.apps.map(a => a.appName).join(', ')}`
+              )
+            : chalk.red(
+                `✗ Build failed: ${r.apps
+                  .filter(a => !a.ok)
+                  .map(a => a.appName)
+                  .join(', ')}`
+              )
+        )
+      );
+      if (!r.ok) process.exit(1);
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
   .command('migrate')
   .description("Run a dev-linked app's schema migrations (apply newly-added migration files)")
   .argument('<slug>')

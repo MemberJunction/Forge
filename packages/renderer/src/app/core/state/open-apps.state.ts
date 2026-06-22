@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type { InstanceEvent } from '@mj-forge/shared';
 import { IpcService } from '../services/ipc.service';
 import { NotificationService } from '../services/notification.service';
+import { IdentityStateService } from './identity.state';
 
 /** A single dev-linked Open App, as reported by `openApps.list`. */
 export interface LinkedApp {
@@ -53,6 +54,7 @@ const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|eng
 export class OpenAppsStateService {
   private readonly ipc = inject(IpcService);
   private readonly notification = inject(NotificationService);
+  private readonly identity = inject(IdentityStateService);
 
   /** Linked apps for the currently inspected instance (keyed by slug). */
   private readonly _linkedApps = signal<{ slug: string; apps: LinkedApp[] } | null>(null);
@@ -91,6 +93,9 @@ export class OpenAppsStateService {
           event.slug === this.activeSlug()
         ) {
           void this.refresh(event.slug);
+          // An install/remove changes the set of MJ Applications, so keep the
+          // persona app-access panel current if it's open for this instance.
+          void this.identity.refreshAppAccess(event.slug);
         }
       }
     });
@@ -256,6 +261,30 @@ export class OpenAppsStateService {
     } else {
       const which = result.failed.map(f => f.name).join(', ') || 'see activity log';
       this.notification.error(`Build failed for "${appName}": ${which}`);
+    }
+  }
+
+  /**
+   * Rebuild ALL dev-linked apps in the instance, in cross-app dependency order
+   * (e.g. bizapps-common before bizapps-accounting). Incremental, not a clean
+   * rebuild — run this before launching the API to pick up edits across apps.
+   */
+  async buildAll(slug: string): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.buildAll(slug));
+    if (!result) return;
+    await this.refresh(slug);
+    if (result.apps.length === 0) {
+      this.notification.info('No dev-linked apps to build');
+    } else if (result.ok) {
+      this.notification.success(
+        `Rebuilt ${result.apps.length} app(s) — restart the API to pick up server changes`
+      );
+    } else {
+      const failed = result.apps
+        .filter(a => !a.ok)
+        .map(a => a.appName)
+        .join(', ');
+      this.notification.error(`Build failed for: ${failed || 'see activity log'}`);
     }
   }
 

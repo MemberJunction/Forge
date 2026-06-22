@@ -607,6 +607,24 @@ export class InstanceOrchestrator {
     return this.openApps.buildApp(slug, record.worktreePath, appName, env, sink);
   }
 
+  /** Rebuild ALL dev-linked apps in an instance, in cross-app dependency order. */
+  async buildAllApps(
+    slug: string,
+    sink: EventSink = noopSink
+  ): Promise<{
+    ok: boolean;
+    apps: Array<{
+      appName: string;
+      ok: boolean;
+      built: string[];
+      failed: Array<{ name: string; error: string }>;
+    }>;
+  }> {
+    const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.buildAllApps(slug, record.worktreePath, env, sink);
+  }
+
   /** Re-run a dev-linked app's schema migrations (apply newly-added migration files). */
   async migrateApp(
     slug: string,
