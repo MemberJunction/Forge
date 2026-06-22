@@ -1,4 +1,13 @@
-import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -271,7 +280,7 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
 
         <ul>
           @for (i of state.instances(); track i.slug) {
-            <li [class.active]="i.slug === state.selectedSlug()" (click)="state.select(i.slug)">
+            <li [class.active]="i.slug === state.selectedSlug()" (click)="selectInstance(i.slug)">
               <span class="dot" [class]="i.status"></span>
               <div class="meta">
                 <strong>{{ i.name }}</strong>
@@ -608,7 +617,10 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                   }
                 </label>
                 @if (linkForm.mode === 'dev') {
-                  <label class="inline">
+                  <label
+                    class="inline"
+                    matTooltip="Bypass the app's declared mjVersionRange check. Use only for off-tag development — when this instance's MJ version is outside the range the app declares it supports — to dev-link it anyway. Leave off normally; an incompatible MJ can cause runtime errors."
+                  >
                     <input
                       type="checkbox"
                       [(ngModel)]="linkForm.ignoreVersionRange"
@@ -697,12 +709,13 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                       @if (a.mode === 'dev') {
                         <button
                           mat-stroked-button
-                          matTooltip="Toggle between dev and installed mode"
+                          matTooltip="Switch this app's resolution mode (confirmation required — can create an unsupported mixed instance)"
                           (click)="
-                            openApps.switchMode(
+                            confirmSwitchMode(
                               inst.slug,
                               a.appName,
-                              a.mode === 'dev' ? 'installed' : 'dev'
+                              a.mode === 'dev' ? 'installed' : 'dev',
+                              inst.appMode ?? 'dev'
                             )
                           "
                           [disabled]="openApps.busy()"
@@ -775,7 +788,7 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
           <!-- Event log -->
           <div class="card log">
             <h3>Activity <button mat-button (click)="state.clearLog()">Clear</button></h3>
-            <div class="log-lines">
+            <div class="log-lines" #logLines>
               @for (e of state.log(); track $index) {
                 <div class="line {{ e.level }}">[{{ e.op }}] {{ e.message }}</div>
               }
@@ -1395,6 +1408,17 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         padding: 6px;
         border-radius: 4px;
       }
+      /* Picking a value from the recents <datalist> makes Chrome apply autofill
+         styling (a white background). Force the dark input bg + text back. */
+      .link-form input:-webkit-autofill,
+      .link-form input:-webkit-autofill:hover,
+      .link-form input:-webkit-autofill:focus,
+      .link-form input:autofill {
+        -webkit-text-fill-color: var(--text-primary, #eee);
+        -webkit-box-shadow: 0 0 0 1000px var(--bg-input, #1e1e1e) inset;
+        box-shadow: 0 0 0 1000px var(--bg-input, #1e1e1e) inset;
+        caret-color: var(--text-primary, #eee);
+      }
       label.inline {
         flex-direction: row !important;
         align-items: center;
@@ -1505,6 +1529,9 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
    */
   static readonly TEMP_DEFAULT_BASE_REF = 'fix-notifier-injection-bug';
 
+  /** The activity-log scroll container (for stick-to-bottom). */
+  private readonly logLines = viewChild<ElementRef<HTMLElement>>('logLines');
+
   readonly creating = signal(false);
   readonly showSetupPrompt = signal(false);
   readonly managingPersonas = signal(false);
@@ -1575,6 +1602,16 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
         this.openApps.clear();
       }
     });
+
+    // Keep the activity log pinned to the newest entry — but only when the user is
+    // already at/near the bottom, so it never yanks them away while reading history.
+    effect(() => {
+      const log = this.state.log();
+      const el = this.logLines()?.nativeElement;
+      if (!el || !log.length) return;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      if (nearBottom) setTimeout(() => (el.scrollTop = el.scrollHeight), 0);
+    });
   }
 
   ngOnInit(): void {
@@ -1582,6 +1619,10 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     this.openApps.startListening();
     void this.state.refresh();
     void this.identity.refresh();
+    // If an instance is already selected when the panel mounts, load its open apps
+    // immediately (so they show on open, like the running-process list does).
+    const slug = this.state.selectedSlug();
+    if (slug) void this.openApps.refresh(slug);
   }
 
   ngOnDestroy(): void {
@@ -1591,6 +1632,20 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
 
   toggleCreate(): void {
     this.creating.update(v => !v);
+  }
+
+  /**
+   * Select an instance and refresh its open apps on EVERY click (parity with how
+   * `state.select` always refreshes processes) — so the Open Apps list is current
+   * the moment you open an instance, even on re-select. The constructor effect also
+   * refreshes on selection change; this covers same-slug re-clicks.
+   */
+  selectInstance(slug: string): void {
+    // Clear the previous instance's progress strip up front so it never bleeds across
+    // instances, then select + load this instance's open apps.
+    this.openApps.clearProgress();
+    this.state.select(slug);
+    void this.openApps.refresh(slug);
   }
 
   async submitCreate(): Promise<void> {
@@ -1786,6 +1841,24 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       { ignoreVersionRange: p.ignoreVersionRange, allowDoubleUnderscore: p.allowDoubleUnderscore }
     );
     this.resetLinkFormIfClean(p.slug, 'dev');
+  }
+
+  /**
+   * Confirm a per-app mode switch. Switching an app to a mode different from the
+   * instance's mode creates an UNSUPPORTED mixed instance (npm-resolver crash) — warn
+   * loudly; switching back toward the instance's mode just restores consistency.
+   */
+  confirmSwitchMode(
+    slug: string,
+    appName: string,
+    target: 'dev' | 'installed',
+    instanceMode: 'dev' | 'installed'
+  ): void {
+    const createsMix = target !== instanceMode;
+    const msg = createsMix
+      ? `Switch "${appName}" to "${target}" mode?\n\nThis is a ${instanceMode}-mode instance, so this creates a MIXED instance — dev-linked + installed open apps in one instance crash npm's dependency resolver (require the --legacy-peer-deps escape hatch) and are COMPLETELY UNSUPPORTED.\n\nOnly continue if you know exactly what you're doing.`
+      : `Switch "${appName}" back to "${target}" mode (matching this ${instanceMode}-mode instance)?`;
+    if (confirm(msg)) void this.openApps.switchMode(slug, appName, target);
   }
 
   /** Uninstall an installed app after a destructive-action confirmation (drops schema). */

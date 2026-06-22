@@ -176,10 +176,14 @@ export class OpenAppManager {
     );
 
     // 3) Record dev-link state (Forge-side overlay) + remember the ref for re-adding.
+    // Capture the MANIFEST name now (from the clone) so removal works later even after
+    // the member worktree is gone (e.g. after a switch to installed mode).
+    const manifestName = (await this.readManifest(clonePath).catch(() => undefined))?.name;
     await this.state.addRecent(appRef);
     await this.state.upsert({
       slug,
       appName,
+      manifestName,
       appRef,
       mode: 'dev',
       localDevPath: clonePath,
@@ -308,6 +312,8 @@ export class OpenAppManager {
     await this.state.upsert({
       slug,
       appName,
+      // For installs the result AppName IS the manifest name — same as the overlay key.
+      manifestName: appName,
       appRef: source,
       mode: 'installed',
       localDevPath: '',
@@ -401,13 +407,22 @@ export class OpenAppManager {
   ): Promise<void> {
     const env = opts.env ?? process.env;
     await this.appRepos.addWorktreeExclude(mjWorktreePath, ENGINE_SCRATCH_EXCLUDE);
+    // The engine's RemoveApp keys on the MANIFEST name, which can differ from the
+    // overlay key (a dev-link stores the dir name). Resolve it: prefer the captured
+    // manifestName, else read the clone/member manifest, else fall back to appName.
+    const state = await this.state.get(slug, appName);
+    let manifestName = state?.manifestName;
+    if (!manifestName) {
+      const dir = state?.localDevPath || this.memberPathFor(mjWorktreePath, appName);
+      manifestName = (await this.readManifest(dir).catch(() => undefined))?.name ?? appName;
+    }
     const runner = this.runnerFor(mjWorktreePath);
     emit(sink, slug, 'app-remove', 'progress', `Removing installed app ${appName}…`);
     const result = await runner.run(
       slug,
       {
         steps: ['removeApp'],
-        appName,
+        appName: manifestName,
         keepData: opts.keepData,
         force: opts.force,
         allowDoubleUnderscore: opts.allowDoubleUnderscore !== false,

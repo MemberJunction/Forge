@@ -110,6 +110,29 @@ export class WorktreeEngineRunner {
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink
   ): Promise<EngineRunResult> {
+    // Preflight (real entry only): the entry imports the worktree's BUILT
+    // @memberjunction packages (dist/). If the instance hasn't been set up (deps +
+    // build), bail with a clear, actionable message instead of a cryptic "Cannot find
+    // package" from the spawned entry. Skipped when a test injects a fake entrySource
+    // (which doesn't import those packages).
+    if (this.entrySource === ENGINE_ENTRY_SOURCE) {
+      const builtProbe = path.join(
+        this.worktreePath,
+        'node_modules/@memberjunction/sqlserver-dataprovider/dist/index.js'
+      );
+      try {
+        await fs.access(builtProbe);
+      } catch {
+        return {
+          ok: false,
+          rawOutput: '',
+          error:
+            "Instance worktree isn't built — @memberjunction/sqlserver-dataprovider/dist " +
+            'is missing. Run `mjdev setup <slug> all` (or at least deps + build) before ' +
+            'linking, installing, or removing open apps.',
+        };
+      }
+    }
     const scratch = path.join(this.worktreePath, SCRATCH_DIR);
     await fs.mkdir(scratch, { recursive: true });
     await fs.writeFile(this.entryPath, this.entrySource);

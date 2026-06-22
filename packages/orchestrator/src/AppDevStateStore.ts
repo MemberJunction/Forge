@@ -25,8 +25,14 @@ export interface ReversibleFileEdit {
 export interface AppDevState {
   /** Instance slug the app is linked into. */
   slug: string;
-  /** App identity (manifest name, falls back to the clone dir name). */
+  /** Overlay key — the clone DIR name for dev-links, the manifest name for installs. */
   appName: string;
+  /**
+   * The app's MANIFEST name (`mj-app.json` `name`) — the identity MJ's `MJ: Open Apps`
+   * row + `RemoveApp` key on. May differ from {@link appName} for a dev-link (dir name).
+   * Captured at link/install so removal works even after the member worktree is gone.
+   */
+  manifestName?: string;
   /** GitHub URL or local path the app was linked from. */
   appRef: string;
   mode: OpenAppMode;
