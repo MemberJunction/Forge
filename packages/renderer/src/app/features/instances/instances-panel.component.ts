@@ -791,6 +791,14 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                           </button>
                           <button
                             mat-button
+                            matTooltip="Regenerate this app's entity classes from the instance DB, then rebuild. Run AFTER Migrate when you've changed the app's schema. Reads the live DB and overwrites the app's generated files."
+                            (click)="openApps.codegen(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>auto_fix_high</mat-icon> Codegen
+                          </button>
+                          <button
+                            mat-button
                             matTooltip="Validate schema against migrations"
                             (click)="openApps.drift(inst.slug, a.appName)"
                             [disabled]="openApps.busy()"

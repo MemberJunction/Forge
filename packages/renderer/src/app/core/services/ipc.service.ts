@@ -600,6 +600,7 @@ interface ForgeAPI {
       }>;
     }>;
     migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
+    codegen: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
   };
 }
 

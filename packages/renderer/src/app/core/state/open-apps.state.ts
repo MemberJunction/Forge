@@ -38,7 +38,7 @@ export interface DepChoice {
 }
 
 /** Ops emitted on the instances event channel that this feature cares about. */
-const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|engine)/;
+const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|codegen|engine)/;
 
 /**
  * Reactive state for MJ Dev Manager "Open Apps" (Phase B). Wraps the
@@ -296,6 +296,24 @@ export class OpenAppsStateService {
     else
       this.notification.error(
         `Migrate failed for "${appName}": ${result.error ?? 'see activity log'}`
+      );
+  }
+
+  /**
+   * Regenerate a dev-linked app's entities from the instance DB and rebuild it
+   * (open-app codegen). Run after Migrate when the app's schema changed. Slower
+   * than Rebuild — it queries the DB, rewrites generated files, then builds.
+   */
+  async codegen(slug: string, appName: string): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.codegen(slug, appName));
+    if (!result) return;
+    if (result.ok)
+      this.notification.success(
+        `CodeGen complete for "${appName}" — restart the API to pick up changes`
+      );
+    else
+      this.notification.error(
+        `CodeGen failed for "${appName}": ${result.error ?? 'see activity log'}`
       );
   }
 

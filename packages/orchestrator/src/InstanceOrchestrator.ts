@@ -645,6 +645,17 @@ export class InstanceOrchestrator {
     return { ok: r.ok, error: r.error };
   }
 
+  /** Regenerate a dev-linked app's entities from the instance DB + rebuild (open-app codegen). */
+  async codegenApp(
+    slug: string,
+    appName: string,
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; error?: string }> {
+    const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.codegenApp(slug, record.worktreePath, appName, env, sink);
+  }
+
   /** Launchable watcher targets for a dev-linked app (live-edit rebuild). */
   async appWatchTargets(
     slug: string,

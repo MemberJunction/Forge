@@ -1041,6 +1041,63 @@ export class OpenAppManager {
   }
 
   /**
+   * Regenerate a dev-linked app's entity subclasses (and its other generated code)
+   * from the instance DB, then run the app's own post-codegen build hooks — the
+   * open-app equivalent of the instance "Codegen" step. Runs the WORKTREE's `mj
+   * codegen` with cwd set to the app member so MJ discovers the APP's mj.config.cjs
+   * (output → the app's Entities/src/generated, scoped to the app's schema). The
+   * instance's `entityPackageName` mapping makes instance-level codegen SKIP this
+   * app, so this app-dir run is the only thing that regenerates it. DB connection
+   * comes from the instance `.env` (same source the instance codegen step uses).
+   * Run AFTER {@link migrateApp} when the app schema changed — codegen reads the
+   * LIVE DB, so new tables must already be migrated in. Overwrites generated files.
+   */
+  async codegenApp(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; error?: string }> {
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+    try {
+      await fs.access(memberPath);
+    } catch {
+      return {
+        ok: false,
+        error: `App "${appName}" is not dev-linked (no member at ${memberPath}). Codegen is for dev-linked apps.`,
+      };
+    }
+    const mjBin = path.join(mjWorktreePath, 'packages', 'MJCLI', 'bin', 'run.js');
+    const envFile = path.join(mjWorktreePath, '.env');
+    emit(
+      sink,
+      slug,
+      'app-codegen',
+      'progress',
+      `Running CodeGen for ${appName} (regenerate entities from DB + rebuild)…`
+    );
+    // The MJ AI engine logs noisy CRITICAL credential errors when no AI keys are
+    // configured (advanced-description generation). It's NON-FATAL — codegen falls
+    // back and completes — so drop that spam from the strip to keep useful lines.
+    const noise = /CredentialValidation|candidatesChecked|modelsChecked/;
+    const result = await run('node', ['-r', 'dotenv/config', mjBin, 'codegen'], {
+      cwd: memberPath,
+      env: { ...env, DOTENV_CONFIG_PATH: envFile },
+      onOutput: s => {
+        const line = s.trimEnd();
+        if (line && !noise.test(line)) emit(sink, slug, 'app-codegen', 'info', line);
+      },
+    });
+    if (result.code !== 0) {
+      const tail = (result.stderr || result.stdout).trim().split('\n').slice(-4).join('\n');
+      return { ok: false, error: `CodeGen exited ${result.code}: ${tail}` };
+    }
+    emit(sink, slug, 'app-codegen', 'success', `CodeGen complete for ${appName}`);
+    return { ok: true };
+  }
+
+  /**
    * Slice-6 watcher targets: the commands that rebuild an app's sub-package dist on
    * change (HMR/server-restart feed off rebuilt dist). Uses each package's own
    * `watch`/`build:watch` script when present, else falls back to `tsc --watch` for

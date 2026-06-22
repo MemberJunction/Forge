@@ -883,6 +883,31 @@ app
   });
 
 app
+  .command('codegen')
+  .description(
+    "Regenerate a dev-linked app's entities from the instance DB + rebuild (run after migrate)"
+  )
+  .argument('<slug>')
+  .argument('<app>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().codegenApp(slug, appName, makeSink(json));
+      emitResult(json, { success: r.ok, ...r }, () =>
+        console.log(
+          r.ok
+            ? chalk.green(`✓ CodeGen complete for ${appName}`)
+            : chalk.red(`✗ CodeGen failed: ${r.error ?? 'unknown'}`)
+        )
+      );
+      if (!r.ok) process.exit(1);
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
   .command('watch-targets')
   .description("List the watcher commands for a dev-linked app's sub-packages (live-edit)")
   .argument('<slug>')

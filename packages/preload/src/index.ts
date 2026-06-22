@@ -632,6 +632,7 @@ export interface ForgeAPI {
       }>;
     }>;
     migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
+    codegen: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
   };
 }
 
@@ -787,6 +788,7 @@ const forgeAPI: ForgeAPI = {
     build: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.BUILD, slug, appName),
     buildAll: slug => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.BUILD_ALL, slug),
     migrate: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.MIGRATE, slug, appName),
+    codegen: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.CODEGEN, slug, appName),
   },
 
   database: {
