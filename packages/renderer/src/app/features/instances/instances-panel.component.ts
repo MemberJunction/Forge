@@ -799,6 +799,14 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                           </button>
                           <button
                             mat-button
+                            matTooltip="Push this app's metadata seed (reference data like currencies) into the instance DB (mj sync push)"
+                            (click)="openApps.sync(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>cloud_sync</mat-icon> Sync metadata
+                          </button>
+                          <button
+                            mat-button
                             matTooltip="Validate schema against migrations"
                             (click)="openApps.drift(inst.slug, a.appName)"
                             [disabled]="openApps.busy()"

@@ -908,6 +908,45 @@ app
   });
 
 app
+  .command('sync')
+  .description("Push a dev-linked app's metadata seed (e.g. currencies) into the instance DB")
+  .argument('<slug>')
+  .argument('<app>')
+  .option('--dir <dir>', 'metadata directory (relative to the app), default: metadata')
+  .option('--include <entity>', 'limit to one entity/section (e.g. currencies)')
+  .option('--pull', 'pull DB → files instead of push')
+  .option('--status', 'show status instead of push')
+  .option('--json', 'machine-readable output')
+  .action(
+    async (
+      slug: string,
+      appName: string,
+      opts: { dir?: string; include?: string; pull?: boolean; status?: boolean; json?: boolean }
+    ) => {
+      const json = !!opts.json;
+      const mode = opts.status ? 'status' : opts.pull ? 'pull' : 'push';
+      try {
+        const r = await engine().syncApp(
+          slug,
+          appName,
+          { dir: opts.dir, include: opts.include, mode },
+          makeSink(json)
+        );
+        emitResult(json, { success: r.ok, ...r }, () =>
+          console.log(
+            r.ok
+              ? chalk.green(`✓ Metadata ${mode} complete for ${appName}`)
+              : chalk.red(`✗ Metadata sync failed: ${r.error ?? 'unknown'}`)
+          )
+        );
+        if (!r.ok) process.exit(1);
+      } catch (err) {
+        fail(json, err);
+      }
+    }
+  );
+
+app
   .command('watch-targets')
   .description("List the watcher commands for a dev-linked app's sub-packages (live-edit)")
   .argument('<slug>')

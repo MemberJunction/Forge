@@ -192,6 +192,16 @@ export function registerInstanceHandlers(): void {
     engine.codegenApp(slug, appName, sink)
   );
 
+  safeHandle(
+    IPC_CHANNELS.OPEN_APPS.SYNC,
+    async (
+      _e,
+      slug: string,
+      appName: string,
+      opts?: { dir?: string; include?: string; mode?: 'push' | 'pull' | 'status' }
+    ) => engine.syncApp(slug, appName, opts ?? {}, sink)
+  );
+
   safeHandle(IPC_CHANNELS.OPEN_APPS.MIGRATE, async (_e, slug: string, appName: string) =>
     engine.migrateApp(slug, appName, sink)
   );

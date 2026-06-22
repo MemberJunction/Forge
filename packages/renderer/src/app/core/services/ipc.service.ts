@@ -601,6 +601,11 @@ interface ForgeAPI {
     }>;
     migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
     codegen: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
+    sync: (
+      slug: string,
+      appName: string,
+      opts?: { dir?: string; include?: string; mode?: 'push' | 'pull' | 'status' }
+    ) => Promise<{ ok: boolean; error?: string }>;
   };
 }
 

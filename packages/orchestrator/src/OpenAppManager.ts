@@ -914,6 +914,10 @@ export class OpenAppManager {
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink
   ): Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }> {
+    // Self-heal: ensure the instance MJAPI serves dev-app resolvers (idempotent). This
+    // back-fills instances dev-linked before the resolver-wiring change so a plain
+    // `app build` makes their app API live without a re-link.
+    await addMjapiDevAppResolverGlob(mjWorktreePath).catch(() => {});
     const pkgs = (await this.appSubPackages(mjWorktreePath, appName)).filter(p => p.hasBuild);
     const built: string[] = [];
     let failed: Array<{ name: string; error: string }> = [];
@@ -1114,6 +1118,66 @@ export class OpenAppManager {
       return { ok: false, error: `CodeGen exited ${result.code}: ${tail}` };
     }
     emit(sink, slug, 'app-codegen', 'success', `CodeGen complete for ${appName}`);
+    return { ok: true };
+  }
+
+  /**
+   * Push a dev-linked app's metadata seed (reference data like currencies) into the
+   * instance DB via the worktree's `mj sync push`. Open apps ship seed/config data as
+   * MJ metadata under a `metadata/` dir; `mj sync push` is the only mechanism for it
+   * and had no `mjdev` exposure. Runs the worktree's `mj` from the app member dir with
+   * the instance `.env` (same connection codegen uses); `--dir` defaults to `metadata`,
+   * `--include` narrows to specific entities. A no-op (clear message) if the dir is absent.
+   */
+  async syncApp(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink,
+    opts: { dir?: string; include?: string; mode?: 'push' | 'pull' | 'status' } = {}
+  ): Promise<{ ok: boolean; error?: string }> {
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+    try {
+      await fs.access(memberPath);
+    } catch {
+      return {
+        ok: false,
+        error: `App "${appName}" is not dev-linked (no member at ${memberPath}).`,
+      };
+    }
+    const dir = opts.dir?.trim() || 'metadata';
+    const mode = opts.mode ?? 'push';
+    try {
+      await fs.access(path.join(memberPath, dir));
+    } catch {
+      emit(sink, slug, 'app-sync', 'info', `No "${dir}" dir in ${appName} — nothing to sync.`);
+      return { ok: true };
+    }
+    const mjBin = path.join(mjWorktreePath, 'packages', 'MJCLI', 'bin', 'run.js');
+    const envFile = path.join(mjWorktreePath, '.env');
+    const args = ['-r', 'dotenv/config', mjBin, 'sync', mode, '--dir', dir];
+    if (opts.include) args.push(`--include=${opts.include}`);
+    emit(
+      sink,
+      slug,
+      'app-sync',
+      'progress',
+      `Metadata sync (${mode}) for ${appName} from ${dir}${opts.include ? ` [${opts.include}]` : ''}…`
+    );
+    const result = await run('node', args, {
+      cwd: memberPath,
+      env: { ...env, DOTENV_CONFIG_PATH: envFile },
+      onOutput: s => {
+        const line = s.trimEnd();
+        if (line) emit(sink, slug, 'app-sync', 'info', line);
+      },
+    });
+    if (result.code !== 0) {
+      const tail = (result.stderr || result.stdout).trim().split('\n').slice(-4).join('\n');
+      return { ok: false, error: `Metadata sync exited ${result.code}: ${tail}` };
+    }
+    emit(sink, slug, 'app-sync', 'success', `Metadata sync (${mode}) complete for ${appName}`);
     return { ok: true };
   }
 

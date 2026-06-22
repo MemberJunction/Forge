@@ -274,6 +274,7 @@ export const IPC_CHANNELS = {
     BUILD_ALL: 'open-apps:build-all',
     MIGRATE: 'open-apps:migrate',
     CODEGEN: 'open-apps:codegen',
+    SYNC: 'open-apps:sync',
   },
 } as const;
 

@@ -656,6 +656,18 @@ export class InstanceOrchestrator {
     return this.openApps.codegenApp(slug, record.worktreePath, appName, env, sink);
   }
 
+  /** Push (or pull/status) a dev-linked app's metadata seed (e.g. currencies) via `mj sync`. */
+  async syncApp(
+    slug: string,
+    appName: string,
+    opts: { dir?: string; include?: string; mode?: 'push' | 'pull' | 'status' } = {},
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; error?: string }> {
+    const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
+    return this.openApps.syncApp(slug, record.worktreePath, appName, env, sink, opts);
+  }
+
   /** Launchable watcher targets for a dev-linked app (live-edit rebuild). */
   async appWatchTargets(
     slug: string,

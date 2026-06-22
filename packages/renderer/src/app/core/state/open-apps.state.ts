@@ -38,7 +38,7 @@ export interface DepChoice {
 }
 
 /** Ops emitted on the instances event channel that this feature cares about. */
-const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|codegen|engine)/;
+const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|codegen|sync|engine)/;
 
 /**
  * Reactive state for MJ Dev Manager "Open Apps" (Phase B). Wraps the
@@ -314,6 +314,17 @@ export class OpenAppsStateService {
     else
       this.notification.error(
         `CodeGen failed for "${appName}": ${result.error ?? 'see activity log'}`
+      );
+  }
+
+  /** Push a dev-linked app's metadata seed (e.g. currencies) into the instance DB. */
+  async sync(slug: string, appName: string): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.sync(slug, appName));
+    if (!result) return;
+    if (result.ok) this.notification.success(`Metadata synced for "${appName}"`);
+    else
+      this.notification.error(
+        `Metadata sync failed for "${appName}": ${result.error ?? 'see activity log'}`
       );
   }
 
