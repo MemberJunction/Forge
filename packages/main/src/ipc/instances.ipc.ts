@@ -179,4 +179,12 @@ export function registerInstanceHandlers(): void {
     await engine.repairAppSchema(slug, appName, sink);
     return { success: true };
   });
+
+  safeHandle(IPC_CHANNELS.OPEN_APPS.BUILD, async (_e, slug: string, appName: string) =>
+    engine.buildApp(slug, appName, sink)
+  );
+
+  safeHandle(IPC_CHANNELS.OPEN_APPS.MIGRATE, async (_e, slug: string, appName: string) =>
+    engine.migrateApp(slug, appName, sink)
+  );
 }

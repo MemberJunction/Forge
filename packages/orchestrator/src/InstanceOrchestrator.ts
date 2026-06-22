@@ -607,6 +607,26 @@ export class InstanceOrchestrator {
     return this.openApps.buildApp(slug, record.worktreePath, appName, env, sink);
   }
 
+  /** Re-run a dev-linked app's schema migrations (apply newly-added migration files). */
+  async migrateApp(
+    slug: string,
+    appName: string,
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; error?: string }> {
+    const record = await this.requireRecord(slug);
+    const dbConfig = await this.appDbConfig(record);
+    const env = this.instanceEnv(record, slug, sink);
+    const r = await this.openApps.migrateApp(
+      slug,
+      record.worktreePath,
+      appName,
+      dbConfig,
+      env,
+      sink
+    );
+    return { ok: r.ok, error: r.error };
+  }
+
   /** Launchable watcher targets for a dev-linked app (live-edit rebuild). */
   async appWatchTargets(
     slug: string,

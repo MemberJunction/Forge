@@ -752,6 +752,23 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                             {{ a.mode === 'dev' ? 'Use installed' : 'Use dev' }}
                           </button>
                           <button
+                            mat-stroked-button
+                            color="primary"
+                            matTooltip="Rebuild this app's packages from your edited local source, then restart the API to pick up server changes"
+                            (click)="openApps.build(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>build_circle</mat-icon> Rebuild
+                          </button>
+                          <button
+                            mat-button
+                            matTooltip="Run this app's schema migrations (apply newly-added migration files)"
+                            (click)="openApps.migrate(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>moving</mat-icon> Migrate
+                          </button>
+                          <button
                             mat-button
                             matTooltip="Validate schema against migrations"
                             (click)="openApps.drift(inst.slug, a.appName)"

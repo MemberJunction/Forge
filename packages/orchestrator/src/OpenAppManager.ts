@@ -369,7 +369,19 @@ export class OpenAppManager {
         (r.results?.listApps as { apps?: Array<{ Name: string; Status: string }> })?.apps ?? [];
       for (const a of apps) if (a.Status === 'Active') present.add(a.Name);
     } catch {
-      // Instance not migrated yet / DB unreachable — treat every dep as missing.
+      // Instance not migrated yet / DB unreachable — fall back to the overlay below.
+    }
+
+    // Also trust the Forge overlay for THIS instance: anything the user already
+    // linked or installed here counts as present. This is robust when the engine
+    // `listApps` step can't run (worktree mid-setup, DB down) and when an app was
+    // recorded under its dir name — deps key on the MANIFEST name, so match on
+    // manifestName (falling back to the overlay key). Without this, a dependency
+    // the user already added gets falsely re-prompted as "missing".
+    try {
+      for (const a of await this.state.list(slug)) present.add(a.manifestName ?? a.appName);
+    } catch {
+      // Overlay unavailable — keep whatever MJ-side detection found.
     }
 
     const dependencies: AppDependency[] = names.map(name => {
@@ -509,6 +521,35 @@ export class OpenAppManager {
   }
 
   /**
+   * Re-run a dev-linked app's schema migrations on demand (apply newly-added
+   * migration files after the app was first linked). Idempotent: Skyway skips
+   * already-applied versions. Auto-detects the double-underscore allowance from
+   * the app's own manifest schema name (first-party `__mj_*` apps need it) so the
+   * GUI/CLI caller doesn't have to thread it. Reuses {@link ensureSchemaAndMigrate}.
+   */
+  async migrateApp(
+    slug: string,
+    mjWorktreePath: string,
+    appName: string,
+    dbConfig: EngineDbConfig,
+    env: NodeJS.ProcessEnv = process.env,
+    sink: EventSink = noopSink
+  ): Promise<EngineRunResult> {
+    const memberPath = this.memberPathFor(mjWorktreePath, appName);
+    const manifest = await this.readManifest(memberPath).catch(() => undefined);
+    const allowDoubleUnderscore = manifest?.schema?.name?.startsWith('__') ?? false;
+    return this.ensureSchemaAndMigrate(
+      slug,
+      mjWorktreePath,
+      appName,
+      dbConfig,
+      env,
+      sink,
+      allowDoubleUnderscore
+    );
+  }
+
+  /**
    * Slice-2 full mutation set: reproduce the install orchestrator's ordered shell
    * for everything after schema/migrations — record the `MJ: Open Apps` row,
    * `AddAppPackages` + `RunPackageInstall`, `AddServerDynamicPackages`, the
@@ -585,7 +626,7 @@ export class OpenAppManager {
     mjWorktreePath: string,
     appName: string,
     dbConfig: EngineDbConfig,
-    opts: { dropSchema?: boolean; env?: NodeJS.ProcessEnv } = {},
+    opts: { dropSchema?: boolean; allowDoubleUnderscore?: boolean; env?: NodeJS.ProcessEnv } = {},
     sink: EventSink = noopSink
   ): Promise<void> {
     const env = opts.env ?? process.env;
@@ -612,6 +653,11 @@ export class OpenAppManager {
         steps,
         memberPath,
         manifestPath: path.join(memberPath, 'mj-app.json'),
+        // Teardown must be able to DROP a first-party `__mj_*` app schema. The
+        // double-underscore guard exists to prevent *creating* apps in reserved
+        // schemas, not to block removing an app that legitimately uses one — so
+        // default it on for the dropSchema step (mirrors removeInstalledApp).
+        allowDoubleUnderscore: opts.allowDoubleUnderscore !== false,
         dbConfig,
         mjCoreSchema: '__mj',
       },

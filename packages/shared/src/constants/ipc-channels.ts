@@ -270,6 +270,8 @@ export const IPC_CHANNELS = {
     DRIFT: 'open-apps:drift',
     RESET_SCHEMA: 'open-apps:reset-schema',
     REPAIR_SCHEMA: 'open-apps:repair-schema',
+    BUILD: 'open-apps:build',
+    MIGRATE: 'open-apps:migrate',
   },
 } as const;
 

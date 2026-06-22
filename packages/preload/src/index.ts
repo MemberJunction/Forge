@@ -618,6 +618,11 @@ export interface ForgeAPI {
     drift: (slug: string, appName: string) => Promise<{ valid: boolean; errors: string[] }>;
     resetSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
     repairSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
+    build: (
+      slug: string,
+      appName: string
+    ) => Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }>;
+    migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
   };
 }
 
@@ -770,6 +775,8 @@ const forgeAPI: ForgeAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.RESET_SCHEMA, slug, appName),
     repairSchema: (slug, appName) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.REPAIR_SCHEMA, slug, appName),
+    build: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.BUILD, slug, appName),
+    migrate: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.MIGRATE, slug, appName),
   },
 
   database: {

@@ -37,7 +37,7 @@ export interface DepChoice {
 }
 
 /** Ops emitted on the instances event channel that this feature cares about. */
-const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|engine)/;
+const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|engine)/;
 
 /**
  * Reactive state for MJ Dev Manager "Open Apps" (Phase B). Wraps the
@@ -244,6 +244,30 @@ export class OpenAppsStateService {
   async repairSchema(slug: string, appName: string): Promise<void> {
     const result = await this.guard(() => this.ipc.openApps.repairSchema(slug, appName));
     if (result) this.notification.success(`Repaired schema tracking for "${appName}"`);
+  }
+
+  /** Rebuild a dev-linked app's workspace sub-packages (after editing its source). */
+  async build(slug: string, appName: string): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.build(slug, appName));
+    if (!result) return;
+    await this.refresh(slug);
+    if (result.ok) {
+      this.notification.success(`Rebuilt "${appName}" — restart the API to pick up server changes`);
+    } else {
+      const which = result.failed.map(f => f.name).join(', ') || 'see activity log';
+      this.notification.error(`Build failed for "${appName}": ${which}`);
+    }
+  }
+
+  /** Re-run a dev-linked app's schema migrations (apply newly-added migration files). */
+  async migrate(slug: string, appName: string): Promise<void> {
+    const result = await this.guard(() => this.ipc.openApps.migrate(slug, appName));
+    if (!result) return;
+    if (result.ok) this.notification.success(`Ran migrations for "${appName}"`);
+    else
+      this.notification.error(
+        `Migrate failed for "${appName}": ${result.error ?? 'see activity log'}`
+      );
   }
 
   private async guard<T>(fn: () => Promise<T>): Promise<T | null> {

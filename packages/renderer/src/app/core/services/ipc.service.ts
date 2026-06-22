@@ -586,6 +586,11 @@ interface ForgeAPI {
     drift: (slug: string, appName: string) => Promise<{ valid: boolean; errors: string[] }>;
     resetSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
     repairSchema: (slug: string, appName: string) => Promise<{ success: boolean }>;
+    build: (
+      slug: string,
+      appName: string
+    ) => Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }>;
+    migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
   };
 }
 
