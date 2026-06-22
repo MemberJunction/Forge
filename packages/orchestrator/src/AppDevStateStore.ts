@@ -5,6 +5,19 @@ import type { ResolvedPaths } from './paths.js';
 export type OpenAppMode = 'dev' | 'installed';
 
 /**
+ * Per-APP setup progress, tracked independently of the instance-level `setup.*`
+ * flags (which only cover MJ core — instance migrate/codegen SKIP app schemas). A
+ * dev-linked app needs its OWN migrate → codegen → build → sync, so the GUI/CLI can
+ * show accurate per-app status instead of inheriting the instance's misleading "done".
+ */
+export interface AppSetupState {
+  migrated?: boolean;
+  codegen?: boolean;
+  built?: boolean;
+  synced?: boolean;
+}
+
+/**
  * A reversible edit made to a worktree file during dev-link (e.g. neutralizing an
  * app sub-package's `@memberjunction/*` pin to `"*"` so it dedupes to the host
  * copy). Captured so a mode switch / unlink can restore the original bytes.
@@ -51,6 +64,8 @@ export interface AppDevState {
   pinTransforms?: ReversibleFileEdit[];
   /** Original MJAPI/MJExplorer dependency entries, captured before first link for verbatim restore on unlink. */
   capturedHostDeps?: ReversibleFileEdit[];
+  /** Per-app setup progress (migrate/codegen/build/sync), updated as those ops succeed. */
+  setup?: AppSetupState;
   createdAt: string;
 }
 
@@ -117,6 +132,18 @@ export class AppDevStateStore {
     else file.apps.push(state);
     await this.atomicWrite(file);
     return state;
+  }
+
+  /**
+   * Mark per-app setup steps done (merges into {@link AppDevState.setup}). No-op if
+   * the app isn't in the overlay (e.g. building before the link record exists).
+   */
+  async markSetup(slug: string, appName: string, patch: AppSetupState): Promise<void> {
+    const file = await this.read();
+    const app = file.apps.find(a => a.slug === slug && a.appName === appName);
+    if (!app) return;
+    app.setup = { ...app.setup, ...patch };
+    await this.atomicWrite(file);
   }
 
   /** Remove one app's state. No-op if absent. */

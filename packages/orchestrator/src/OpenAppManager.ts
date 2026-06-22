@@ -13,7 +13,16 @@ import {
   type EngineRunResult,
 } from './WorktreeEngineRunner.js';
 import { addEntityPackageMapping, removeEntityPackageMapping } from './entityPackageMapping.js';
-import { addMjapiDevAppResolverGlob, removeMjapiDevAppResolverGlob } from './mjapiResolverPaths.js';
+import {
+  addMjapiDevAppResolverGlob,
+  removeMjapiDevAppResolverGlob,
+  hasMjapiDevAppResolverGlob,
+} from './mjapiResolverPaths.js';
+import {
+  addExplorerBootstrapImport,
+  removeExplorerBootstrapImport,
+  hasExplorerBootstrapImport,
+} from './explorerBootstrapImport.js';
 
 /** The minimal manifest shape the manager reads from a member's `mj-app.json`. */
 interface AppManifestLite {
@@ -475,6 +484,7 @@ export class OpenAppManager {
       appRef: string;
       ignoreVersionRangeUsed: boolean;
       linkedBranch?: string;
+      setup?: { migrated?: boolean; codegen?: boolean; built?: boolean; synced?: boolean };
     }>
   > {
     const apps = await this.state.list(slug);
@@ -484,7 +494,51 @@ export class OpenAppManager {
       appRef: a.appRef,
       ignoreVersionRangeUsed: a.ignoreVersionRangeUsed,
       linkedBranch: a.linkedBranch,
+      setup: a.setup,
     }));
+  }
+
+  /**
+   * Instance-level WIRING status: whether the instance MJAPI serves dev-app GraphQL
+   * resolvers and whether MJExplorer imports the dev-app client bootstrap. Both are
+   * app-agnostic worktree edits (one glob / one import covering all dev-apps), so
+   * wiring is per-instance, not per-app.
+   */
+  async appWiring(
+    mjWorktreePath: string
+  ): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
+    const [resolvers, clientBootstrap] = await Promise.all([
+      hasMjapiDevAppResolverGlob(mjWorktreePath),
+      hasExplorerBootstrapImport(mjWorktreePath),
+    ]);
+    return { resolvers, clientBootstrap };
+  }
+
+  /**
+   * Apply the dev-app wiring (idempotent): MJAPI resolver glob + MJExplorer client
+   * bootstrap import. Use to back-fill an instance dev-linked before the wiring
+   * changes, or to re-wire after a manual edit. Returns the resulting status.
+   */
+  async wireApp(
+    slug: string,
+    mjWorktreePath: string,
+    sink: EventSink = noopSink
+  ): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
+    emit(sink, slug, 'app-wire', 'progress', 'Wiring dev-apps into MJAPI + MJExplorer…');
+    const rp = await addMjapiDevAppResolverGlob(mjWorktreePath);
+    if (!rp.success) emit(sink, slug, 'app-wire', 'warn', `MJAPI resolver wiring: ${rp.error}`);
+    const cb = await addExplorerBootstrapImport(mjWorktreePath);
+    if (!cb.success)
+      emit(sink, slug, 'app-wire', 'warn', `MJExplorer bootstrap wiring: ${cb.error}`);
+    const status = await this.appWiring(mjWorktreePath);
+    emit(
+      sink,
+      slug,
+      'app-wire',
+      status.resolvers && status.clientBootstrap ? 'success' : 'warn',
+      `Wiring: resolvers=${status.resolvers ? 'on' : 'off'}, client bootstrap=${status.clientBootstrap ? 'on' : 'off'} — restart MJAPI/MJExplorer to take effect.`
+    );
+    return status;
   }
 
   /**
@@ -548,7 +602,7 @@ export class OpenAppManager {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     const manifest = await this.readManifest(memberPath).catch(() => undefined);
     const allowDoubleUnderscore = manifest?.schema?.name?.startsWith('__') ?? false;
-    return this.ensureSchemaAndMigrate(
+    const r = await this.ensureSchemaAndMigrate(
       slug,
       mjWorktreePath,
       appName,
@@ -557,6 +611,8 @@ export class OpenAppManager {
       sink,
       allowDoubleUnderscore
     );
+    if (r.ok) await this.state.markSetup(slug, appName, { migrated: true }).catch(() => {});
+    return r;
   }
 
   /**
@@ -635,6 +691,21 @@ export class OpenAppManager {
           : 'MJAPI already serves dev-app resolvers (no-op)'
         : `Could not wire app resolvers into MJAPI: ${rp.error ?? 'unknown'}`
     );
+
+    // Client twin of the resolver wiring: make MJExplorer import the generated
+    // open-app bootstrap so the app's Angular UI registers (otherwise it's dead code).
+    const cb = await addExplorerBootstrapImport(mjWorktreePath);
+    emit(
+      sink,
+      slug,
+      'app-link',
+      cb.success ? (cb.changed ? 'success' : 'info') : 'warn',
+      cb.success
+        ? cb.changed
+          ? 'Wired dev-app client bootstrap into MJExplorer'
+          : 'MJExplorer already imports the dev-app client bootstrap (no-op)'
+        : `Could not wire client bootstrap into MJExplorer: ${cb.error ?? 'unknown'}`
+    );
     return result;
   }
 
@@ -705,8 +776,9 @@ export class OpenAppManager {
     await fs.rm(memberPath, { recursive: true, force: true }).catch(() => {});
     if (await this.noDevAppMembersRemain(mjWorktreePath)) {
       await this.removeWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB);
-      // Last dev-app gone → restore MJAPI's resolverPaths to its single-entry default.
+      // Last dev-app gone → restore MJAPI's resolverPaths + MJExplorer's main.ts.
       await removeMjapiDevAppResolverGlob(mjWorktreePath);
+      await removeExplorerBootstrapImport(mjWorktreePath);
     }
     emit(sink, slug, 'app-unlink', 'progress', 'Reinstalling workspace dependencies…');
     await this.npmInstall(mjWorktreePath, env, sink);
@@ -914,10 +986,12 @@ export class OpenAppManager {
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink
   ): Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }> {
-    // Self-heal: ensure the instance MJAPI serves dev-app resolvers (idempotent). This
-    // back-fills instances dev-linked before the resolver-wiring change so a plain
-    // `app build` makes their app API live without a re-link.
+    // Self-heal: ensure the instance is fully WIRED (idempotent) — MJAPI serves the
+    // app's GraphQL resolvers AND MJExplorer imports the app's client bootstrap. This
+    // back-fills instances dev-linked before the wiring changes so a plain `app build`
+    // makes the app's API + UI live without a re-link.
     await addMjapiDevAppResolverGlob(mjWorktreePath).catch(() => {});
+    await addExplorerBootstrapImport(mjWorktreePath).catch(() => {});
     const pkgs = (await this.appSubPackages(mjWorktreePath, appName)).filter(p => p.hasBuild);
     const built: string[] = [];
     let failed: Array<{ name: string; error: string }> = [];
@@ -971,6 +1045,7 @@ export class OpenAppManager {
         ? `Built ${built.length} app package(s)`
         : `Build failed: ${failed.map(f => f.name).join(', ')}`
     );
+    if (ok) await this.state.markSetup(slug, appName, { built: true }).catch(() => {});
     return { ok, built, failed };
   }
 
@@ -1118,6 +1193,7 @@ export class OpenAppManager {
       return { ok: false, error: `CodeGen exited ${result.code}: ${tail}` };
     }
     emit(sink, slug, 'app-codegen', 'success', `CodeGen complete for ${appName}`);
+    await this.state.markSetup(slug, appName, { codegen: true }).catch(() => {});
     return { ok: true };
   }
 
@@ -1178,6 +1254,8 @@ export class OpenAppManager {
       return { ok: false, error: `Metadata sync exited ${result.code}: ${tail}` };
     }
     emit(sink, slug, 'app-sync', 'success', `Metadata sync (${mode}) complete for ${appName}`);
+    if (mode === 'push')
+      await this.state.markSetup(slug, appName, { synced: true }).catch(() => {});
     return { ok: true };
   }
 

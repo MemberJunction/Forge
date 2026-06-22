@@ -275,6 +275,9 @@ export const IPC_CHANNELS = {
     MIGRATE: 'open-apps:migrate',
     CODEGEN: 'open-apps:codegen',
     SYNC: 'open-apps:sync',
+    SETUP: 'open-apps:setup',
+    WIRING: 'open-apps:wiring',
+    WIRE: 'open-apps:wire',
   },
 } as const;
 

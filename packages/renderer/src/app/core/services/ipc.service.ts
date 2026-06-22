@@ -581,6 +581,7 @@ interface ForgeAPI {
         appRef: string;
         ignoreVersionRangeUsed: boolean;
         linkedBranch?: string;
+        setup?: { migrated?: boolean; codegen?: boolean; built?: boolean; synced?: boolean };
       }>
     >;
     drift: (slug: string, appName: string) => Promise<{ valid: boolean; errors: string[] }>;
@@ -606,6 +607,12 @@ interface ForgeAPI {
       appName: string,
       opts?: { dir?: string; include?: string; mode?: 'push' | 'pull' | 'status' }
     ) => Promise<{ ok: boolean; error?: string }>;
+    setup: (
+      slug: string,
+      appName: string
+    ) => Promise<{ ok: boolean; steps: Record<string, boolean> }>;
+    wiring: (slug: string) => Promise<{ resolvers: boolean; clientBootstrap: boolean }>;
+    wire: (slug: string) => Promise<{ resolvers: boolean; clientBootstrap: boolean }>;
   };
 }
 

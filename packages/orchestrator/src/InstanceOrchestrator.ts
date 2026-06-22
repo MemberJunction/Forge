@@ -558,9 +558,54 @@ export class InstanceOrchestrator {
       appRef: string;
       ignoreVersionRangeUsed: boolean;
       linkedBranch?: string;
+      setup?: { migrated?: boolean; codegen?: boolean; built?: boolean; synced?: boolean };
     }>
   > {
     return this.openApps.listApps(slug);
+  }
+
+  /** Whether the instance MJAPI/MJExplorer are wired to serve dev-linked apps. */
+  async appWiring(slug: string): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
+    const record = await this.requireRecord(slug);
+    return this.openApps.appWiring(record.worktreePath);
+  }
+
+  /** Apply dev-app wiring (MJAPI resolvers + MJExplorer client bootstrap) — idempotent. */
+  async wireApp(
+    slug: string,
+    sink: EventSink = noopSink
+  ): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
+    const record = await this.requireRecord(slug);
+    return this.openApps.wireApp(slug, record.worktreePath, sink);
+  }
+
+  /**
+   * Bring a dev-linked app to ready in one step, in the order MJ's metadata config
+   * implies (directoryOrder puts schema-info/entities before data): migrate →
+   * **sync → codegen** → build. Sync runs BEFORE codegen so the app's authored
+   * metadata (Schema Info / Entities with their fixed IDs) lands first and codegen
+   * finds it instead of creating conflicting rows; sync failures are non-fatal
+   * (a re-run after codegen collides — expected) so the chain still completes.
+   */
+  async setupApp(
+    slug: string,
+    appName: string,
+    sink: EventSink = noopSink
+  ): Promise<{ ok: boolean; steps: Record<string, boolean> }> {
+    const steps: Record<string, boolean> = {};
+    const m = await this.migrateApp(slug, appName, sink);
+    steps.migrate = m.ok;
+    if (!m.ok) return { ok: false, steps };
+    // Sync app-authored metadata first (best-effort: codegen-owned rows may collide
+    // on a re-run; that's fine, codegen handles them).
+    const s = await this.syncApp(slug, appName, {}, sink).catch(() => ({ ok: false }));
+    steps.sync = s.ok;
+    const c = await this.codegenApp(slug, appName, sink);
+    steps.codegen = c.ok;
+    if (!c.ok) return { ok: false, steps };
+    const b = await this.buildApp(slug, appName, sink);
+    steps.build = b.ok;
+    return { ok: b.ok, steps };
   }
 
   /** Recently-used app refs across instances (for the add-app dropdown), newest first. */

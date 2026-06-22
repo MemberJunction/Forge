@@ -105,6 +105,16 @@ export async function addMjapiDevAppResolverGlob(
   }
 }
 
+/** Whether the instance MJAPI currently serves dev-app resolvers (wiring status). */
+export async function hasMjapiDevAppResolverGlob(mjWorktreePath: string): Promise<boolean> {
+  try {
+    const content = await fs.readFile(path.join(mjWorktreePath, MJAPI_INDEX_SUBPATH), 'utf-8');
+    return content.includes(MARKER);
+  } catch {
+    return false;
+  }
+}
+
 /** File-level reversal: remove the dev-app resolver glob from MJAPI's index. */
 export async function removeMjapiDevAppResolverGlob(
   mjWorktreePath: string

@@ -737,6 +737,41 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 <mat-progress-bar mode="indeterminate" />
               }
 
+              <!-- Instance wiring status: is MJAPI/MJExplorer set up to serve dev apps? -->
+              @if (wiringFor(inst.slug); as w) {
+                <div class="wiring-status" [class.incomplete]="!w.resolvers || !w.clientBootstrap">
+                  <span class="wiring-label">App wiring:</span>
+                  <span
+                    class="wiring-chip"
+                    [class.on]="w.resolvers"
+                    [class.off]="!w.resolvers"
+                    matTooltip="MJAPI serves the dev-linked apps' GraphQL resolvers (mutations/queries)"
+                    >API {{ w.resolvers ? '✓' : '✗' }}</span
+                  >
+                  <span
+                    class="wiring-chip"
+                    [class.on]="w.clientBootstrap"
+                    [class.off]="!w.clientBootstrap"
+                    matTooltip="MJExplorer imports the dev-linked apps' client bootstrap (the app UI loads)"
+                    >UI {{ w.clientBootstrap ? '✓' : '✗' }}</span
+                  >
+                  @if (!w.resolvers || !w.clientBootstrap) {
+                    <button
+                      mat-flat-button
+                      color="primary"
+                      class="wire-btn"
+                      matTooltip="Wire the dev-linked apps into the instance MJAPI + MJExplorer, then restart them"
+                      (click)="openApps.wire(inst.slug)"
+                      [disabled]="openApps.busy()"
+                    >
+                      <mat-icon>cable</mat-icon> Wire apps
+                    </button>
+                  } @else {
+                    <span class="wiring-ok">— restart MJAPI/MJExplorer to apply changes</span>
+                  }
+                </div>
+              }
+
               <!-- Currently dev-linked apps -->
               <ul class="linked-list">
                 @for (a of openAppsFor(inst.slug); track a.appName) {
@@ -752,10 +787,30 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                           >ver override</span
                         >
                       }
+                      @if (a.mode === 'dev') {
+                        <span
+                          class="setup-chips"
+                          matTooltip="Per-app setup progress (this app, not the instance)"
+                        >
+                          <span class="setup-chip" [class.done]="a.setup?.migrated">migrate</span>
+                          <span class="setup-chip" [class.done]="a.setup?.synced">sync</span>
+                          <span class="setup-chip" [class.done]="a.setup?.codegen">codegen</span>
+                          <span class="setup-chip" [class.done]="a.setup?.built">build</span>
+                        </span>
+                      }
                     </div>
                     @if (inst.setup.built) {
                       <div class="row wrap linked-actions">
                         @if (a.mode === 'dev') {
+                          <button
+                            mat-flat-button
+                            color="primary"
+                            matTooltip="Bring this app to ready in one step: migrate → sync → codegen → build (then restart the API)"
+                            (click)="openApps.setupApp(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>playlist_add_check</mat-icon> Set up
+                          </button>
                           <button
                             mat-stroked-button
                             matTooltip="Switch this app's resolution mode (confirmation required — can create an unsupported mixed instance)"
@@ -1503,6 +1558,64 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         font-style: italic;
         color: var(--text-secondary, #888);
       }
+      /* Instance wiring status (MJAPI resolvers + MJExplorer client bootstrap). */
+      .wiring-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 6px 10px;
+        margin: 8px 0;
+        border-radius: 6px;
+        font-size: 12px;
+        background: var(--bg-secondary, #2a2a2a);
+        border: 1px solid var(--border-color, #444);
+      }
+      .wiring-status.incomplete {
+        border-color: var(--warn-color, #b07a1e);
+      }
+      .wiring-label {
+        color: var(--text-secondary, #aaa);
+      }
+      .wiring-chip {
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-weight: 600;
+      }
+      .wiring-chip.on {
+        background: rgba(56, 142, 60, 0.25);
+        color: #6cc070;
+      }
+      .wiring-chip.off {
+        background: rgba(176, 122, 30, 0.25);
+        color: #d9a441;
+      }
+      .wiring-ok {
+        color: var(--text-secondary, #888);
+        font-style: italic;
+      }
+      .wire-btn {
+        transform: scale(0.85);
+      }
+      /* Per-app setup progress chips in the linked-app head. */
+      .setup-chips {
+        display: inline-flex;
+        gap: 4px;
+        margin-left: 4px;
+      }
+      .setup-chip {
+        font-size: 10px;
+        padding: 0 6px;
+        border-radius: 8px;
+        background: var(--bg-input, #1e1e1e);
+        color: var(--text-secondary, #888);
+        border: 1px solid var(--border-color, #444);
+      }
+      .setup-chip.done {
+        background: rgba(56, 142, 60, 0.22);
+        color: #6cc070;
+        border-color: rgba(56, 142, 60, 0.4);
+      }
       .link-form {
         display: flex;
         flex-direction: column;
@@ -1891,6 +2004,12 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** True when the instance has at least one dev-linked app (enables "Build all"). */
   hasDevApps(slug: string): boolean {
     return this.openAppsFor(slug).some(a => a.mode === 'dev');
+  }
+
+  /** Wiring status for the given slug, only when loaded for it (drives the wiring banner). */
+  wiringFor(slug: string) {
+    const w = this.openApps.wiring();
+    return w?.slug === slug ? w.wiring : null;
   }
 
   /** Add the app named in the form — dev-link or install per mode — then reset on success. */

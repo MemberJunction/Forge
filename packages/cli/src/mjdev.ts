@@ -908,6 +908,54 @@ app
   });
 
 app
+  .command('setup')
+  .description('Bring a dev-linked app to ready: migrate → sync → codegen → build (one step)')
+  .argument('<slug>')
+  .argument('<app>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().setupApp(slug, appName, makeSink(json));
+      emitResult(json, { success: r.ok, ...r }, () =>
+        console.log(
+          r.ok
+            ? chalk.green(`✓ ${appName} set up (migrate→sync→codegen→build)`)
+            : chalk.red(
+                `✗ Setup incomplete: ${Object.entries(r.steps)
+                  .map(([k, v]) => `${k}=${v ? 'ok' : 'fail'}`)
+                  .join(' ')}`
+              )
+        )
+      );
+      if (!r.ok) process.exit(1);
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
+  .command('wire')
+  .description('Wire dev-apps into the instance MJAPI (GraphQL resolvers) + MJExplorer (client UI)')
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const w = await engine().wireApp(slug, makeSink(json));
+      emitResult(json, { success: true, ...w }, () =>
+        console.log(
+          chalk.green(
+            `✓ Wiring: resolvers=${w.resolvers ? 'on' : 'off'}, client bootstrap=${w.clientBootstrap ? 'on' : 'off'} (restart MJAPI/MJExplorer)`
+          )
+        )
+      );
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+app
   .command('sync')
   .description("Push a dev-linked app's metadata seed (e.g. currencies) into the instance DB")
   .argument('<slug>')
