@@ -581,109 +581,136 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 </button>
               </h3>
 
-              <!-- Add an app in the INSTANCE's mode (single-mode topology). The
+              <!-- Open-app actions all run inside the instance's MJ worktree, which
+                   the engine boots from its built dist/. Gate the interactive area on
+                   setup completion so users don't add an app and then hit a cryptic
+                   "worktree isn't built" failure on the next action. -->
+              @if (!inst.setup.built) {
+                <div class="not-ready">
+                  <mat-icon>lock</mat-icon>
+                  <div>
+                    <p><strong>Finish setup to manage open apps.</strong></p>
+                    <p>
+                      Open apps run inside this instance's built MJ worktree, so linking,
+                      installing, or removing an app needs the worktree's dependencies installed and
+                      built first.
+                    </p>
+                    <p>
+                      Run <strong>full setup</strong> (deps → migrate → codegen → build) — this
+                      section unlocks once the build completes.
+                    </p>
+                    @if (!state.busy()) {
+                      <button mat-flat-button color="primary" (click)="runFull(inst.slug)">
+                        <mat-icon>play_arrow</mat-icon> Run full setup
+                      </button>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <!-- Add an app in the INSTANCE's mode (single-mode topology). The
                    cross-mode override is tucked into Advanced, below. -->
-              <form class="link-form" (ngSubmit)="submitLink(inst.slug)">
-                <p class="mode-note">
-                  <mat-icon>{{
-                    (inst.appMode ?? 'dev') === 'installed' ? 'inventory_2' : 'link'
-                  }}</mat-icon>
-                  <span
-                    >{{ (inst.appMode ?? 'dev') === 'installed' ? 'Install' : 'Dev-link' }} instance
-                    — apps are added in
-                    {{ (inst.appMode ?? 'dev') === 'installed' ? 'install' : 'dev-link' }}
-                    mode.</span
-                  >
-                </p>
-                <label
-                  >App URL{{ linkForm.mode === 'dev' ? ' or local path' : '' }}
-                  <input
-                    [(ngModel)]="linkForm.appRef"
-                    name="appRef"
-                    [placeholder]="
-                      linkForm.mode === 'dev'
-                        ? 'https://github.com/org/app or /path/to/app'
-                        : 'https://github.com/org/app'
-                    "
-                    list="open-app-recents"
-                    autocomplete="off"
-                  />
-                  @if (openApps.recents().length) {
-                    <datalist id="open-app-recents">
-                      @for (r of openApps.recents(); track r) {
-                        <option [value]="r"></option>
-                      }
-                    </datalist>
+                <form class="link-form" (ngSubmit)="submitLink(inst.slug)">
+                  <p class="mode-note">
+                    <mat-icon>{{
+                      (inst.appMode ?? 'dev') === 'installed' ? 'inventory_2' : 'link'
+                    }}</mat-icon>
+                    <span
+                      >{{ (inst.appMode ?? 'dev') === 'installed' ? 'Install' : 'Dev-link' }}
+                      instance — apps are added in
+                      {{ (inst.appMode ?? 'dev') === 'installed' ? 'install' : 'dev-link' }}
+                      mode.</span
+                    >
+                  </p>
+                  <label
+                    >App URL{{ linkForm.mode === 'dev' ? ' or local path' : '' }}
+                    <input
+                      [(ngModel)]="linkForm.appRef"
+                      name="appRef"
+                      [placeholder]="
+                        linkForm.mode === 'dev'
+                          ? 'https://github.com/org/app or /path/to/app'
+                          : 'https://github.com/org/app'
+                      "
+                      list="open-app-recents"
+                      autocomplete="off"
+                    />
+                    @if (openApps.recents().length) {
+                      <datalist id="open-app-recents">
+                        @for (r of openApps.recents(); track r) {
+                          <option [value]="r"></option>
+                        }
+                      </datalist>
+                    }
+                  </label>
+                  @if (linkForm.mode === 'dev') {
+                    <label
+                      class="inline"
+                      matTooltip="Bypass the app's declared mjVersionRange check. Use only for off-tag development — when this instance's MJ version is outside the range the app declares it supports — to dev-link it anyway. Leave off normally; an incompatible MJ can cause runtime errors."
+                    >
+                      <input
+                        type="checkbox"
+                        [(ngModel)]="linkForm.ignoreVersionRange"
+                        name="ignoreVersionRange"
+                      />
+                      <span>Ignore version range</span>
+                    </label>
                   }
-                </label>
-                @if (linkForm.mode === 'dev') {
                   <label
                     class="inline"
-                    matTooltip="Bypass the app's declared mjVersionRange check. Use only for off-tag development — when this instance's MJ version is outside the range the app declares it supports — to dev-link it anyway. Leave off normally; an incompatible MJ can cause runtime errors."
+                    matTooltip="Required for first-party MJ apps (e.g. bizapps-*) that use a reserved __mj_ schema"
                   >
                     <input
                       type="checkbox"
-                      [(ngModel)]="linkForm.ignoreVersionRange"
-                      name="ignoreVersionRange"
+                      [(ngModel)]="linkForm.allowDoubleUnderscore"
+                      name="allowDoubleUnderscore"
                     />
-                    <span>Ignore version range</span>
+                    <span>Allow reserved <code>__</code> schema</span>
                   </label>
-                }
-                <label
-                  class="inline"
-                  matTooltip="Required for first-party MJ apps (e.g. bizapps-*) that use a reserved __mj_ schema"
-                >
-                  <input
-                    type="checkbox"
-                    [(ngModel)]="linkForm.allowDoubleUnderscore"
-                    name="allowDoubleUnderscore"
-                  />
-                  <span>Allow reserved <code>__</code> schema</span>
-                </label>
-                <div class="row">
-                  <button
-                    mat-flat-button
-                    color="primary"
-                    type="submit"
-                    [disabled]="!linkForm.appRef.trim() || openApps.busy()"
-                  >
-                    @if (linkForm.mode === 'dev') {
-                      <mat-icon>link</mat-icon> Link app for development
-                    } @else {
-                      <mat-icon>download</mat-icon> Install app
+                  <div class="row">
+                    <button
+                      mat-flat-button
+                      color="primary"
+                      type="submit"
+                      [disabled]="!linkForm.appRef.trim() || openApps.busy()"
+                    >
+                      @if (linkForm.mode === 'dev') {
+                        <mat-icon>link</mat-icon> Link app for development
+                      } @else {
+                        <mat-icon>download</mat-icon> Install app
+                      }
+                    </button>
+                  </div>
+                  <p class="hint">
+                    {{
+                      linkForm.mode === 'dev'
+                        ? 'Dev-link runs the app from editable local source (edit → see it live).'
+                        : 'Install pulls the published release + its open-app dependencies — for apps you only consume.'
+                    }}
+                  </p>
+                  <details class="advanced">
+                    <summary>Advanced</summary>
+                    <label
+                      >Add-mode override
+                      <select [(ngModel)]="linkForm.mode" name="addMode">
+                        <option value="dev">Dev-link</option>
+                        <option value="installed">Install</option>
+                      </select>
+                    </label>
+                    @if (linkForm.mode !== (inst.appMode ?? 'dev')) {
+                      <p class="dep-warn">
+                        ⚠ This differs from the instance's
+                        <strong>{{
+                          (inst.appMode ?? 'dev') === 'installed' ? 'install' : 'dev-link'
+                        }}</strong>
+                        mode. Mixing dev-link + install in one instance crashes npm's resolver
+                        (requires <code>--legacy-peer-deps</code>) and is
+                        <strong>completely unsupported</strong>. Use only if you know what you're
+                        doing.
+                      </p>
                     }
-                  </button>
-                </div>
-                <p class="hint">
-                  {{
-                    linkForm.mode === 'dev'
-                      ? 'Dev-link runs the app from editable local source (edit → see it live).'
-                      : 'Install pulls the published release + its open-app dependencies — for apps you only consume.'
-                  }}
-                </p>
-                <details class="advanced">
-                  <summary>Advanced</summary>
-                  <label
-                    >Add-mode override
-                    <select [(ngModel)]="linkForm.mode" name="addMode">
-                      <option value="dev">Dev-link</option>
-                      <option value="installed">Install</option>
-                    </select>
-                  </label>
-                  @if (linkForm.mode !== (inst.appMode ?? 'dev')) {
-                    <p class="dep-warn">
-                      ⚠ This differs from the instance's
-                      <strong>{{
-                        (inst.appMode ?? 'dev') === 'installed' ? 'install' : 'dev-link'
-                      }}</strong>
-                      mode. Mixing dev-link + install in one instance crashes npm's resolver
-                      (requires <code>--legacy-peer-deps</code>) and is
-                      <strong>completely unsupported</strong>. Use only if you know what you're
-                      doing.
-                    </p>
-                  }
-                </details>
-              </form>
+                  </details>
+                </form>
+              }
 
               @if (openApps.busy()) {
                 <mat-progress-bar mode="indeterminate" />
@@ -705,69 +732,73 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                         >
                       }
                     </div>
-                    <div class="row wrap linked-actions">
-                      @if (a.mode === 'dev') {
-                        <button
-                          mat-stroked-button
-                          matTooltip="Switch this app's resolution mode (confirmation required — can create an unsupported mixed instance)"
-                          (click)="
-                            confirmSwitchMode(
-                              inst.slug,
-                              a.appName,
-                              a.mode === 'dev' ? 'installed' : 'dev',
-                              inst.appMode ?? 'dev'
-                            )
-                          "
-                          [disabled]="openApps.busy()"
-                        >
-                          <mat-icon>swap_horiz</mat-icon>
-                          {{ a.mode === 'dev' ? 'Use installed' : 'Use dev' }}
-                        </button>
-                        <button
-                          mat-button
-                          matTooltip="Validate schema against migrations"
-                          (click)="openApps.drift(inst.slug, a.appName)"
-                          [disabled]="openApps.busy()"
-                        >
-                          <mat-icon>fact_check</mat-icon> Check drift
-                        </button>
-                        <button
-                          mat-button
-                          matTooltip="Re-stamp migration tracking (no SQL re-run)"
-                          (click)="confirmRepairSchema(inst.slug, a.appName)"
-                          [disabled]="openApps.busy()"
-                        >
-                          <mat-icon>build</mat-icon> Repair schema
-                        </button>
-                        <button
-                          mat-button
-                          color="warn"
-                          matTooltip="Drop and rebuild the schema from migrations (drops app data)"
-                          (click)="confirmResetSchema(inst.slug, a.appName)"
-                          [disabled]="openApps.busy()"
-                        >
-                          <mat-icon>restart_alt</mat-icon> Reset schema
-                        </button>
-                        <button
-                          mat-button
-                          color="warn"
-                          (click)="confirmUnlink(inst.slug, a.appName)"
-                          [disabled]="openApps.busy()"
-                        >
-                          <mat-icon>link_off</mat-icon> Unlink
-                        </button>
-                      } @else {
-                        <button
-                          mat-button
-                          color="warn"
-                          matTooltip="Uninstall this app (reverses the install; drops its schema + data unless kept)"
-                          (click)="confirmRemove(inst.slug, a.appName)"
-                          [disabled]="openApps.busy()"
-                        >
-                          <mat-icon>delete</mat-icon> Remove
-                        </button>
-                      }
-                    </div>
+                    @if (inst.setup.built) {
+                      <div class="row wrap linked-actions">
+                        @if (a.mode === 'dev') {
+                          <button
+                            mat-stroked-button
+                            matTooltip="Switch this app's resolution mode (confirmation required — can create an unsupported mixed instance)"
+                            (click)="
+                              confirmSwitchMode(
+                                inst.slug,
+                                a.appName,
+                                a.mode === 'dev' ? 'installed' : 'dev',
+                                inst.appMode ?? 'dev'
+                              )
+                            "
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>swap_horiz</mat-icon>
+                            {{ a.mode === 'dev' ? 'Use installed' : 'Use dev' }}
+                          </button>
+                          <button
+                            mat-button
+                            matTooltip="Validate schema against migrations"
+                            (click)="openApps.drift(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>fact_check</mat-icon> Check drift
+                          </button>
+                          <button
+                            mat-button
+                            matTooltip="Re-stamp migration tracking (no SQL re-run)"
+                            (click)="confirmRepairSchema(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>build</mat-icon> Repair schema
+                          </button>
+                          <button
+                            mat-button
+                            color="warn"
+                            matTooltip="Drop and rebuild the schema from migrations (drops app data)"
+                            (click)="confirmResetSchema(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>restart_alt</mat-icon> Reset schema
+                          </button>
+                          <button
+                            mat-button
+                            color="warn"
+                            (click)="confirmUnlink(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>link_off</mat-icon> Unlink
+                          </button>
+                        } @else {
+                          <button
+                            mat-button
+                            color="warn"
+                            matTooltip="Uninstall this app (reverses the install; drops its schema + data unless kept)"
+                            (click)="confirmRemove(inst.slug, a.appName)"
+                            [disabled]="openApps.busy()"
+                          >
+                            <mat-icon>delete</mat-icon> Remove
+                          </button>
+                        }
+                      </div>
+                    } @else {
+                      <p class="actions-locked">Finish setup to manage this app.</p>
+                    }
                   </li>
                 } @empty {
                   <li class="empty">No apps linked or installed yet.</li>
@@ -1386,6 +1417,37 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
       /* ── Open Apps card ────────────────────────────────────── */
       .open-apps {
         grid-column: 1 / -1;
+      }
+      /* Setup-not-complete gate inside the Open Apps card. */
+      .not-ready {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 12px;
+        border: 1px dashed var(--border-color, #444);
+        border-radius: 6px;
+        background: var(--bg-secondary, #2a2a2a);
+      }
+      .not-ready mat-icon {
+        color: var(--text-secondary, #aaa);
+        flex: 0 0 auto;
+      }
+      .not-ready p {
+        margin: 0 0 6px;
+        font-size: 12px;
+        color: var(--text-secondary, #bbb);
+      }
+      .not-ready p:first-child {
+        color: var(--text-primary, #eee);
+      }
+      .not-ready button {
+        margin-top: 4px;
+      }
+      .actions-locked {
+        margin: 0;
+        font-size: 12px;
+        font-style: italic;
+        color: var(--text-secondary, #888);
       }
       .link-form {
         display: flex;
