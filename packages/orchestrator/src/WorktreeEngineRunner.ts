@@ -159,9 +159,25 @@ export class WorktreeEngineRunner {
       }
     };
 
-    const result = await run('node', [this.entryPath, specPath], {
+    // Load the instance's own `.env` into the engine process (when present) so it
+    // boots with the same secrets the running MJAPI gets via dotenv — notably
+    // MJ_BASE_ENCRYPTION_KEY (encrypted-field paths). The engine still uses the
+    // EXPLICIT spec.dbConfig for the provider; this only supplies env-driven
+    // secrets. Gated on the file existing so fake-entry tests (no .env) are unaffected.
+    const envFile = path.join(this.worktreePath, '.env');
+    let nodeArgs = [this.entryPath, specPath];
+    let spawnEnv: NodeJS.ProcessEnv = env;
+    try {
+      await fs.access(envFile);
+      nodeArgs = ['-r', 'dotenv/config', ...nodeArgs];
+      spawnEnv = { ...env, DOTENV_CONFIG_PATH: envFile };
+    } catch {
+      // No .env (e.g. unit tests) — spawn without dotenv preload.
+    }
+
+    const result = await run('node', nodeArgs, {
       cwd: this.worktreePath,
-      env,
+      env: spawnEnv,
       onOutput: chunk => {
         buffer += chunk;
         let nl = buffer.indexOf('\n');

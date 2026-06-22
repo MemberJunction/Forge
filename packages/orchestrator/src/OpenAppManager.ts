@@ -13,6 +13,7 @@ import {
   type EngineRunResult,
 } from './WorktreeEngineRunner.js';
 import { addEntityPackageMapping, removeEntityPackageMapping } from './entityPackageMapping.js';
+import { addMjapiDevAppResolverGlob, removeMjapiDevAppResolverGlob } from './mjapiResolverPaths.js';
 
 /** The minimal manifest shape the manager reads from a member's `mj-app.json`. */
 interface AppManifestLite {
@@ -617,6 +618,23 @@ export class OpenAppManager {
         ? 'Added entityPackageName mapping'
         : 'entityPackageName: no entities package (no-op)'
     );
+
+    // Dev-link-only: make the instance's core MJAPI serve this app's GraphQL
+    // resolvers (one app-agnostic glob over packages/dev-apps/*; idempotent). Without
+    // this the app's classes register but its mutations/queries aren't in the running
+    // schema. Best-effort: warn (don't fail the link) if MJAPI changed shape.
+    const rp = await addMjapiDevAppResolverGlob(mjWorktreePath);
+    emit(
+      sink,
+      slug,
+      'app-link',
+      rp.success ? (rp.changed ? 'success' : 'info') : 'warn',
+      rp.success
+        ? rp.changed
+          ? 'Wired dev-app GraphQL resolvers into the instance MJAPI'
+          : 'MJAPI already serves dev-app resolvers (no-op)'
+        : `Could not wire app resolvers into MJAPI: ${rp.error ?? 'unknown'}`
+    );
     return result;
   }
 
@@ -687,6 +705,8 @@ export class OpenAppManager {
     await fs.rm(memberPath, { recursive: true, force: true }).catch(() => {});
     if (await this.noDevAppMembersRemain(mjWorktreePath)) {
       await this.removeWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB);
+      // Last dev-app gone → restore MJAPI's resolverPaths to its single-entry default.
+      await removeMjapiDevAppResolverGlob(mjWorktreePath);
     }
     emit(sink, slug, 'app-unlink', 'progress', 'Reinstalling workspace dependencies…');
     await this.npmInstall(mjWorktreePath, env, sink);
