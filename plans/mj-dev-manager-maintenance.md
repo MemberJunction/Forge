@@ -92,6 +92,14 @@ This is exactly the **`validate-as-install` Full tier**. Automation target: a CI
 
 ---
 
+## Known boot behaviors (not bugs — don't "fix")
+
+- **First boot mutates `MJAPI/package.json` + nudges `npm install`.** MJAPI's prestart runs `mj codegen manifest`, which scans the dependency tree for `@RegisterClass` and adds any discovered-but-undeclared packages (e.g. an app's `*-core-entities-server`, which `mj-app.json` doesn't list) to `MJAPI/package.json`. This happens identically for a real `mj app install` and for dev-link — boot still works because the app packages are workspace members (resolvable regardless). The parity oracle is unaffected (it compares dev-link vs real-install both pre-boot). Don't pre-empt it in the link flow.
+- **`dynamicPackages.server` StartupExport is a no-op in MJ 5.40.2.** Class registration loads via the manifest (`class-registrations-manifest.ts`, imported by `MJAPI/src/index.ts`); the server-extension/StartupExport path has no consumer in 5.40.2 ("Loaded 0 server extensions"). Re-verify per MJ branch (watch-list item #1).
+
+---
+
 ## Changelog
 
+- **2026-06-22** — Recorded known boot behaviors (manifest prestart dep-add; StartupExport no-op in 5.40.2) after the live capstone.
 - **2026-06-21** — Created. Recorded the pure-topology decision (no mixed install+dev-link), the reproduced-surface watch-list, supported-app alignment, and the automatable compliance check.

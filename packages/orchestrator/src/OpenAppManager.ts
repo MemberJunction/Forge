@@ -824,23 +824,48 @@ export class OpenAppManager {
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink
   ): Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }> {
-    const pkgs = await this.appSubPackages(mjWorktreePath, appName);
+    const pkgs = (await this.appSubPackages(mjWorktreePath, appName)).filter(p => p.hasBuild);
     const built: string[] = [];
-    const failed: Array<{ name: string; error: string }> = [];
-    for (const pkg of pkgs) {
-      if (!pkg.hasBuild) continue;
-      emit(sink, slug, 'app-build', 'progress', `Building ${pkg.name}…`);
-      const r = await run('npm', ['run', 'build', '--workspace', pkg.name], {
-        cwd: mjWorktreePath,
-        env,
-        onOutput: s => emit(sink, slug, 'app-build', 'info', s.trimEnd()),
-      });
-      if (r.code === 0) built.push(pkg.name);
-      else
-        failed.push({
-          name: pkg.name,
-          error: (r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n'),
+    let failed: Array<{ name: string; error: string }> = [];
+    // Build in DEPENDENCY order without parsing the graph: a sub-package may depend
+    // on a sibling that sorts later in directory order (e.g. Angular before Entities),
+    // so iterate passes — each pass retries the not-yet-built packages — until a full
+    // pass produces no new success. Whatever still fails then is a genuine error.
+    let remaining = pkgs;
+    let pass = 0;
+    while (remaining.length) {
+      pass++;
+      const stillFailing: Array<{ pkg: (typeof pkgs)[number]; error: string }> = [];
+      let progressed = false;
+      for (const pkg of remaining) {
+        emit(
+          sink,
+          slug,
+          'app-build',
+          'progress',
+          `Building ${pkg.name}…${pass > 1 ? ` (pass ${pass})` : ''}`
+        );
+        const r = await run('npm', ['run', 'build', '--workspace', pkg.name], {
+          cwd: mjWorktreePath,
+          env,
+          onOutput: s => emit(sink, slug, 'app-build', 'info', s.trimEnd()),
         });
+        if (r.code === 0) {
+          built.push(pkg.name);
+          progressed = true;
+        } else {
+          stillFailing.push({
+            pkg,
+            error: (r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n'),
+          });
+        }
+      }
+      if (!progressed) {
+        // No package built this pass → the rest have a real (non-ordering) failure.
+        failed = stillFailing.map(s => ({ name: s.pkg.name, error: s.error }));
+        break;
+      }
+      remaining = stillFailing.map(s => s.pkg);
     }
     const ok = failed.length === 0;
     emit(
