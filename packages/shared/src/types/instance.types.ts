@@ -39,6 +39,16 @@ export interface InstanceContainer {
 }
 
 /**
+ * How an instance brings in open apps. `dev` = dev-link (the primary mode —
+ * editable local source); `installed` = plain install (published releases). An
+ * instance is **single-mode**: every open app it carries uses this mode, which
+ * keeps a pure npm topology. Mixing dev-link + install in one instance crashes
+ * npm's resolver (registry peerDeps onto workspace symlinks) and is unsupported —
+ * power users can still override per-app, but it is a deliberate, warned escape.
+ */
+export type InstanceAppMode = 'dev' | 'installed';
+
+/**
  * The persisted record for a single managed instance. Stored in
  * `~/.mjdev/instances.json` and read by both the GUI and the CLI.
  */
@@ -67,6 +77,12 @@ export interface InstanceRecord {
   personaId?: string;
   /** Node version spec to run setup/build/serve under (`'auto'` = highest installed). */
   node?: string;
+  /**
+   * The instance's single open-app mode (chosen at creation). Every open app is
+   * added in this mode to keep a pure topology. Missing on pre-existing records →
+   * treat as `'dev'`. See {@link InstanceAppMode}.
+   */
+  appMode?: InstanceAppMode;
   /** ISO-8601 creation timestamp. */
   createdAt: string;
 }
@@ -91,6 +107,12 @@ export interface InstanceConfig {
   auth?: {
     provider?: 'none' | 'entra' | 'auth0';
   };
+  /**
+   * Open-app mode for this instance (`'dev'` default). Determines how open apps
+   * are added — dev-linked (editable source) or installed (published). Single per
+   * instance to keep a pure npm topology. See {@link InstanceAppMode}.
+   */
+  appMode?: InstanceAppMode;
   /**
    * Node version to run this instance's setup/build/serve under (independent of
    * the Forge app's own Node). A major ("24"), full ("24.16.0"), or `'auto'`

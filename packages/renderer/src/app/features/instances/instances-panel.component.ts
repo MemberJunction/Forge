@@ -25,6 +25,8 @@ interface CreateForm {
   name: string;
   branch: string;
   baseRef: string;
+  /** The instance's single open-app mode (dev-link primary, install for consume-only). */
+  appMode: 'dev' | 'installed';
 }
 
 /** Inputs for adding a new Open App (dev-link or plain install). */
@@ -238,6 +240,13 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
               >Base ref <small>(for new branch)</small
               ><input [(ngModel)]="form.baseRef" name="baseRef" placeholder="HEAD"
             /></label>
+            <label
+              >Open-app mode
+              <select [(ngModel)]="form.appMode" name="appMode">
+                <option value="dev">Dev-link — develop apps from local source</option>
+                <option value="installed">Install — consume published apps</option>
+              </select>
+            </label>
             <div class="row">
               <button
                 mat-flat-button
@@ -251,6 +260,11 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
             </div>
             <p class="hint">
               Provisions a SQL container, git worktree, and config. Heavy setup runs afterward.
+              {{
+                form.appMode === 'dev'
+                  ? ' Apps will be dev-linked (editable source) — the primary mode.'
+                  : ' Apps will be installed from published releases (consume-only).'
+              }}
             </p>
           </form>
         }
@@ -263,6 +277,15 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 <strong>{{ i.name }}</strong>
                 <small>{{ i.branch }} · API :{{ i.ports.api }}</small>
               </div>
+              <mat-icon
+                class="mode-icon"
+                [matTooltip]="
+                  (i.appMode ?? 'dev') === 'installed'
+                    ? 'Install mode — consumes published apps'
+                    : 'Dev-link mode — develops apps from local source'
+                "
+                >{{ (i.appMode ?? 'dev') === 'installed' ? 'inventory_2' : 'link' }}</mat-icon
+              >
             </li>
           } @empty {
             <li class="empty">No instances yet. Click + to create one.</li>
@@ -549,15 +572,20 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 </button>
               </h3>
 
-              <!-- Add an app: dev-link local source, or plain-install from GitHub -->
+              <!-- Add an app in the INSTANCE's mode (single-mode topology). The
+                   cross-mode override is tucked into Advanced, below. -->
               <form class="link-form" (ngSubmit)="submitLink(inst.slug)">
-                <label
-                  >How to add
-                  <select [(ngModel)]="linkForm.mode" name="addMode">
-                    <option value="dev">Dev-link (develop local source)</option>
-                    <option value="installed">Install (published release + deps)</option>
-                  </select>
-                </label>
+                <p class="mode-note">
+                  <mat-icon>{{
+                    (inst.appMode ?? 'dev') === 'installed' ? 'inventory_2' : 'link'
+                  }}</mat-icon>
+                  <span
+                    >{{ (inst.appMode ?? 'dev') === 'installed' ? 'Install' : 'Dev-link' }} instance
+                    — apps are added in
+                    {{ (inst.appMode ?? 'dev') === 'installed' ? 'install' : 'dev-link' }}
+                    mode.</span
+                  >
+                </p>
                 <label
                   >App URL{{ linkForm.mode === 'dev' ? ' or local path' : '' }}
                   <input
@@ -621,6 +649,28 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                       : 'Install pulls the published release + its open-app dependencies — for apps you only consume.'
                   }}
                 </p>
+                <details class="advanced">
+                  <summary>Advanced</summary>
+                  <label
+                    >Add-mode override
+                    <select [(ngModel)]="linkForm.mode" name="addMode">
+                      <option value="dev">Dev-link</option>
+                      <option value="installed">Install</option>
+                    </select>
+                  </label>
+                  @if (linkForm.mode !== (inst.appMode ?? 'dev')) {
+                    <p class="dep-warn">
+                      ⚠ This differs from the instance's
+                      <strong>{{
+                        (inst.appMode ?? 'dev') === 'installed' ? 'install' : 'dev-link'
+                      }}</strong>
+                      mode. Mixing dev-link + install in one instance crashes npm's resolver
+                      (requires <code>--legacy-peer-deps</code>) and is
+                      <strong>completely unsupported</strong>. Use only if you know what you're
+                      doing.
+                    </p>
+                  }
+                </details>
               </form>
 
               @if (openApps.busy()) {
@@ -1248,6 +1298,40 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         border-radius: 4px;
         padding: 5px 7px;
       }
+      /* Instance-mode icon in the list + the add-form mode note */
+      .list li .mode-icon {
+        margin-left: auto;
+        font-size: 16px;
+        height: 16px;
+        width: 16px;
+        color: var(--text-secondary, #888);
+        flex: 0 0 auto;
+      }
+      .mode-note {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 0 4px;
+        font-size: 12px;
+        color: var(--text-secondary, #999);
+      }
+      .mode-note mat-icon {
+        font-size: 16px;
+        height: 16px;
+        width: 16px;
+      }
+      .link-form .advanced {
+        margin-top: 6px;
+        font-size: 12px;
+      }
+      .link-form .advanced summary {
+        cursor: pointer;
+        color: var(--text-secondary, #888);
+        font-size: 11px;
+      }
+      .link-form .advanced label {
+        margin-top: 6px;
+      }
       .log-lines {
         background: var(--bg-input, #161616);
         border-radius: 4px;
@@ -1431,6 +1515,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     name: '',
     branch: '',
     baseRef: InstancesPanelComponent.TEMP_DEFAULT_BASE_REF,
+    appMode: 'dev',
   };
   personaForm: PersonaForm = {
     name: '',
@@ -1483,6 +1568,9 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       if (slug) {
         this.openApps.clearProgress();
         void this.openApps.refresh(slug);
+        // Default the add-app mode to the instance's single mode (enforces pure
+        // topology); the cross-mode override lives in the advanced section.
+        this.linkForm.mode = this.state.selected()?.appMode ?? 'dev';
       } else {
         this.openApps.clear();
       }
@@ -1511,6 +1599,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       name: this.form.name.trim(),
       branch: this.form.branch.trim() || undefined,
       baseRef: this.form.baseRef.trim() || undefined,
+      appMode: this.form.appMode,
     };
     const record = await this.state.create(config);
     if (record) {
@@ -1519,6 +1608,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
         name: '',
         branch: '',
         baseRef: InstancesPanelComponent.TEMP_DEFAULT_BASE_REF,
+        appMode: 'dev',
       };
       this.showSetupPrompt.set(true);
     }

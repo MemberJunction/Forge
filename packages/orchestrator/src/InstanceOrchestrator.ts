@@ -159,6 +159,9 @@ export class InstanceOrchestrator {
         built: false,
       },
       node: config.node ?? 'auto',
+      // Single open-app mode for the instance (dev-link primary). Enforces a pure
+      // topology — every app added uses this mode unless a power user overrides.
+      appMode: config.appMode ?? 'dev',
       createdAt: new Date().toISOString(),
     };
 
