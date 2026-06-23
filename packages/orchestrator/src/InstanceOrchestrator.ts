@@ -145,6 +145,7 @@ export class InstanceOrchestrator {
       slug,
       name: config.name,
       branch,
+      baseRef,
       worktreePath,
       container: { name: `mjdev-${slug}`, volume: `mjdev-${slug}-data` },
       ports,
@@ -386,6 +387,42 @@ export class InstanceOrchestrator {
     await this.store.upsert(record);
     emit(sink, slug, 'config', 'success', `Regenerated ${written.length} config file(s)`);
     return written;
+  }
+
+  // ── Branch sync (no switching — diverging migrations make that unsafe) ─────
+
+  /** Pull the instance's MJ worktree branch from its remote upstream (fast-forward only). */
+  async pullInstance(
+    slug: string,
+    sink: EventSink = noopSink
+  ): Promise<{ updated: boolean; message: string }> {
+    const record = await this.requireRecord(slug);
+    emit(sink, slug, 'git-pull', 'progress', `Pulling ${record.branch}…`);
+    const result = await this.worktrees.pull(record.worktreePath);
+    emit(sink, slug, 'git-pull', result.updated ? 'success' : 'info', result.message);
+    return result;
+  }
+
+  /**
+   * Merge the instance's base branch (what it was created from) into its worktree branch —
+   * the way to pick up commits that landed on the base (e.g. MJ wiring fixes). Re-run
+   * migrate + build afterward to apply schema/code changes the merge brought in.
+   */
+  async mergeInstanceFromBase(
+    slug: string,
+    sink: EventSink = noopSink
+  ): Promise<{ updated: boolean; message: string }> {
+    const record = await this.requireRecord(slug);
+    if (!record.baseRef) {
+      throw new Error(
+        `Instance "${slug}" has no recorded base branch (created before base tracking) — ` +
+          `make a fresh instance to pick up base-branch changes.`
+      );
+    }
+    emit(sink, slug, 'git-merge', 'progress', `Merging ${record.baseRef} into ${record.branch}…`);
+    const result = await this.worktrees.mergeBaseRef(record.worktreePath, record.baseRef);
+    emit(sink, slug, 'git-merge', result.updated ? 'success' : 'info', result.message);
+    return result;
   }
 
   // ── Open apps (Phase B dev-linking) ───────────────────────────────────────

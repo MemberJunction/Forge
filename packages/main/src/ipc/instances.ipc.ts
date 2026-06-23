@@ -55,6 +55,14 @@ export function registerInstanceHandlers(): void {
 
   safeHandle(IPC_CHANNELS.INSTANCES.STOP, async (_e, slug: string) => engine.stop(slug, sink));
 
+  safeHandle(IPC_CHANNELS.INSTANCES.PULL, async (_e, slug: string) =>
+    engine.pullInstance(slug, sink)
+  );
+
+  safeHandle(IPC_CHANNELS.INSTANCES.MERGE_BASE, async (_e, slug: string) =>
+    engine.mergeInstanceFromBase(slug, sink)
+  );
+
   safeHandle(IPC_CHANNELS.INSTANCES.DELETE, async (_e, slug: string) => {
     await engine.delete(slug, sink);
     return { success: true };

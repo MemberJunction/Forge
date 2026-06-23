@@ -219,6 +219,9 @@ export const IPC_CHANNELS = {
     STOP: 'instances:stop',
     DELETE: 'instances:delete',
     OPEN_VSCODE: 'instances:open-vscode',
+    // Branch sync (no switching): pull the branch's upstream / merge from its base branch
+    PULL: 'instances:pull',
+    MERGE_BASE: 'instances:merge-base',
     // On-demand setup steps (deps | migrate | codegen | build | all)
     SETUP_RUN: 'instances:setup-run',
     // Process launcher / manager

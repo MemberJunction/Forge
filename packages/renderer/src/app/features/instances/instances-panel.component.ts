@@ -369,6 +369,10 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
             <div class="card">
               <h3>Ports &amp; connection</h3>
               <dl>
+                <dt>Branch</dt>
+                <dd>{{ inst.branch }}</dd>
+                <dt>Based on</dt>
+                <dd>{{ inst.baseRef || '—' }}</dd>
                 <dt>SQL Server</dt>
                 <dd>localhost:{{ inst.ports.sql }}</dd>
                 <dt>MJAPI</dt>
@@ -380,6 +384,33 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 <dt>Container</dt>
                 <dd>{{ inst.container.name }}</dd>
               </dl>
+
+              <!-- Branch sync: pull the branch upstream / merge in the base branch.
+                   (No branch switching — make a new instance to change branches.) -->
+              <div class="branch-actions">
+                <button
+                  mat-stroked-button
+                  (click)="state.pull(inst.slug)"
+                  [disabled]="state.busy()"
+                  matTooltip="git pull --ff-only — update this branch from its remote upstream (no-op if it has none)"
+                >
+                  <mat-icon>download</mat-icon> Pull
+                </button>
+                @if (inst.baseRef) {
+                  <button
+                    mat-stroked-button
+                    (click)="state.mergeFromBase(inst.slug)"
+                    [disabled]="state.busy()"
+                    [matTooltip]="
+                      'Merge ' +
+                      inst.baseRef +
+                      ' in to pick up base-branch commits (then re-run migrate + build)'
+                    "
+                  >
+                    <mat-icon>merge</mat-icon> Merge from {{ inst.baseRef }}
+                  </button>
+                }
+              </div>
             </div>
 
             <!-- Identity (Phase 2) -->
@@ -1236,6 +1267,12 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
       }
       .card .full {
         font-size: 11px;
+      }
+      .branch-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
       }
       dl {
         display: grid;

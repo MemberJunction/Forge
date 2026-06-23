@@ -121,6 +121,22 @@ export class InstancesStateService {
     await this.refresh();
   }
 
+  /** Pull the instance branch from its remote upstream (ff-only). */
+  async pull(slug: string): Promise<void> {
+    const r = await this.guard(() => this.ipc.instances.pull(slug));
+    if (r) this.notification.info(r.message);
+  }
+
+  /** Merge the instance's base branch in (pick up base-branch commits). */
+  async mergeFromBase(slug: string): Promise<void> {
+    const r = await this.guard(() => this.ipc.instances.mergeFromBase(slug));
+    if (r)
+      (r.updated ? this.notification.success : this.notification.info).call(
+        this.notification,
+        r.message
+      );
+  }
+
   async delete(slug: string): Promise<void> {
     await this.guard(() => this.ipc.instances.delete(slug));
     if (this._selectedSlug() === slug) this._selectedSlug.set(null);

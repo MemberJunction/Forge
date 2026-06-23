@@ -497,6 +497,8 @@ interface ForgeAPI {
     ) => Promise<{ record: InstanceRecord; containerState?: string; processes: ManagedProcess[] }>;
     start: (slug: string) => Promise<InstanceRecord>;
     stop: (slug: string) => Promise<InstanceRecord>;
+    pull: (slug: string) => Promise<{ updated: boolean; message: string }>;
+    mergeFromBase: (slug: string) => Promise<{ updated: boolean; message: string }>;
     delete: (slug: string) => Promise<{ success: boolean }>;
     openInVSCode: (slug: string) => Promise<{ success: boolean; path: string }>;
     runSetup: (slug: string, step: SetupStep | 'all') => Promise<InstanceRecord>;

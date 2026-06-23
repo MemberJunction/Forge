@@ -147,6 +147,38 @@ for (const verb of ['start', 'stop'] as const) {
 }
 
 program
+  .command('pull')
+  .description('Pull the instance branch from its remote upstream (fast-forward only)')
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().pullInstance(slug, makeSink(json));
+      emitResult(json, { success: true, ...r }, () => console.log(chalk.green(`✓ ${r.message}`)));
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
+  .command('merge')
+  .description(
+    "Merge the instance's base branch in to pick up base-branch commits (re-run migrate + build after)"
+  )
+  .argument('<slug>')
+  .option('--json', 'machine-readable output')
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    const json = !!opts.json;
+    try {
+      const r = await engine().mergeInstanceFromBase(slug, makeSink(json));
+      emitResult(json, { success: true, ...r }, () => console.log(chalk.green(`✓ ${r.message}`)));
+    } catch (err) {
+      fail(json, err);
+    }
+  });
+
+program
   .command('delete')
   .description('Delete an instance (container, volume, worktree, record)')
   .argument('<slug>')

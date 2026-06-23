@@ -57,6 +57,14 @@ export interface InstanceRecord {
   slug: string;
   name: string;
   branch: string;
+  /**
+   * The branch this instance's `branch` was created from (e.g. `MT-create-mjdev-app`).
+   * Recorded so the UI can show it and offer "merge from base" to pull forward base-branch
+   * commits. Missing on pre-existing records → unknown (shown as such, merge falls back to
+   * the configured default base). Branch SWITCHING is intentionally not supported (diverging
+   * migrations are hard to reconcile — make a new instance instead).
+   */
+  baseRef?: string;
   /** Absolute path to the git worktree, e.g. `~/mj-worktrees/<slug>`. */
   worktreePath: string;
   container: InstanceContainer;

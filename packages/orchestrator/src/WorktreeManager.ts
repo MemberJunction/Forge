@@ -37,6 +37,76 @@ export class WorktreeManager {
     return baseRef;
   }
 
+  private async head(worktreePath: string): Promise<string> {
+    return (await runOrThrow('git', ['-C', worktreePath, 'rev-parse', 'HEAD'])).stdout.trim();
+  }
+
+  /**
+   * Pull the worktree's current branch from its remote upstream (fast-forward only —
+   * never creates a merge commit or leaves a conflicted tree). A branch with no upstream
+   * (the common case for a local dev instance) is reported as a clear no-op, not an error;
+   * use {@link mergeBaseRef} to pick up changes that landed on the base branch.
+   */
+  async pull(worktreePath: string): Promise<{ updated: boolean; message: string }> {
+    const upstream = await run('git', [
+      '-C',
+      worktreePath,
+      'rev-parse',
+      '--abbrev-ref',
+      '--symbolic-full-name',
+      '@{u}',
+    ]);
+    if (upstream.code !== 0) {
+      return {
+        updated: false,
+        message:
+          'This branch has no remote upstream — nothing to pull. Use "Merge from base" to pick up base-branch changes.',
+      };
+    }
+    const before = await this.head(worktreePath);
+    const r = await run('git', ['-C', worktreePath, 'pull', '--ff-only']);
+    if (r.code !== 0) {
+      throw new Error(
+        `git pull failed: ${(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' ')}`
+      );
+    }
+    const after = await this.head(worktreePath);
+    return before === after
+      ? { updated: false, message: 'Already up to date with upstream.' }
+      : { updated: true, message: `Pulled ${before.slice(0, 7)} → ${after.slice(0, 7)}.` };
+  }
+
+  /**
+   * Merge `baseRef` (the branch this instance was created from) into the worktree's current
+   * branch — bringing forward commits that landed on the base (e.g. MJ wiring fixes). On a
+   * merge conflict the merge is ABORTED so the worktree is never left half-merged; the caller
+   * gets a clear error. After a successful merge the instance should re-run migrate + build.
+   */
+  async mergeBaseRef(
+    worktreePath: string,
+    baseRef: string
+  ): Promise<{ updated: boolean; message: string }> {
+    const ref = await this.resolveBaseRef(baseRef);
+    const before = await this.head(worktreePath);
+    const r = await run('git', ['-C', worktreePath, 'merge', '--no-edit', ref]);
+    if (r.code !== 0) {
+      // Never leave a conflicted/half-merged tree behind.
+      await run('git', ['-C', worktreePath, 'merge', '--abort']);
+      const detail = (r.stderr || r.stdout).trim().split('\n')[0] ?? '';
+      throw new Error(
+        `Merge from ${ref} hit conflicts and was aborted — resolve them on the base branch, ` +
+          `or make a fresh instance. ${detail}`.trim()
+      );
+    }
+    const after = await this.head(worktreePath);
+    return before === after
+      ? { updated: false, message: `Already up to date with ${ref}.` }
+      : {
+          updated: true,
+          message: `Merged ${ref} (${before.slice(0, 7)} → ${after.slice(0, 7)}). Re-run migrate + build to apply.`,
+        };
+  }
+
   /**
    * Create a worktree at `worktreePath` checking out `branch`. If `branch`
    * doesn't exist it is created off `baseRef`. Throws with actionable messages

@@ -526,6 +526,8 @@ export interface ForgeAPI {
     ) => Promise<{ record: InstanceRecord; containerState?: string; processes: ManagedProcess[] }>;
     start: (slug: string) => Promise<InstanceRecord>;
     stop: (slug: string) => Promise<InstanceRecord>;
+    pull: (slug: string) => Promise<{ updated: boolean; message: string }>;
+    mergeFromBase: (slug: string) => Promise<{ updated: boolean; message: string }>;
     delete: (slug: string) => Promise<{ success: boolean }>;
     openInVSCode: (slug: string) => Promise<{ success: boolean; path: string }>;
     runSetup: (slug: string, step: SetupStep | 'all') => Promise<InstanceRecord>;
@@ -745,6 +747,8 @@ const forgeAPI: ForgeAPI = {
     info: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.INFO, slug),
     start: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.START, slug),
     stop: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.STOP, slug),
+    pull: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PULL, slug),
+    mergeFromBase: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.MERGE_BASE, slug),
     delete: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.DELETE, slug),
     openInVSCode: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.OPEN_VSCODE, slug),
     runSetup: (slug, step) => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.SETUP_RUN, slug, step),
