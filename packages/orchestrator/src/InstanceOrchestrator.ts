@@ -64,7 +64,7 @@ export class InstanceOrchestrator {
     this.paths = resolvePaths(options);
     this.store = new InstanceStore(this.paths);
     this.personas = new PersonaStore(this.paths);
-    this.docker = docker ?? new DockerManager();
+    this.docker = docker ?? new DockerManager(undefined, this.paths.containerPrefix);
     this.identity = new IdentityManager(this.store, this.personas, this.docker);
     this.worktrees = new WorktreeManager(this.paths.mjRepoPath);
     this.repo = new RepoManager(this.paths.mjClonePath, this.paths.mjSourcePath);
@@ -147,7 +147,10 @@ export class InstanceOrchestrator {
       branch,
       baseRef,
       worktreePath,
-      container: { name: `mjdev-${slug}`, volume: `mjdev-${slug}-data` },
+      container: {
+        name: `${this.paths.containerPrefix}-${slug}`,
+        volume: `${this.paths.containerPrefix}-${slug}-data`,
+      },
       ports,
       dbName,
       secretsRef,

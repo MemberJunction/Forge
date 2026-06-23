@@ -18,6 +18,7 @@
     "dev": "npm run build && concurrently -k \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "npm run start --workspace=@mj-forge/renderer",
     "dev:main": "wait-on http://localhost:4200 && unset ELECTRON_RUN_AS_NODE && NODE_ENV=development npm run start --workspace=@mj-forge/main",
+    "dev:isolated": "MJDEV_WORKSPACE_DIR=\"$HOME/MJDev-dev\" MJDEV_CONFIG_DIR=\"$HOME/.mjdev-dev\" MJDEV_CONTAINER_PREFIX=mjdev-dev MJDEV_MJ_SOURCE=\"$HOME/MJDev/repos/mj\" npm run dev",
     "start": "turbo run start",
     "watch": "turbo run watch",
     "test": "vitest run",

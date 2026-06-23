@@ -20,6 +20,12 @@ export interface OrchestratorOptions {
   worktreesDir?: string;
   /** Hidden secrets/state directory (defaults to `~/.mjdev`). */
   configDir?: string;
+  /**
+   * Prefix for this workspace's Docker container/volume names (defaults to
+   * `mjdev`). An isolated dev workspace sets `mjdev-dev` so its containers can
+   * never collide with — or be mistaken for — the production `mjdev-<slug>` ones.
+   */
+  containerPrefix?: string;
 }
 
 /** Fully-resolved paths used throughout the engine. */
@@ -42,6 +48,8 @@ export interface ResolvedPaths {
   worktreesDir: string;
   /** Hidden secrets/state root (`~/.mjdev`). */
   configDir: string;
+  /** Docker container/volume name prefix for this workspace (`mjdev` or `mjdev-dev`). */
+  containerPrefix: string;
   instancesFile: string;
   instancesDir: string;
   secretsFile: string;
@@ -81,6 +89,9 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
   // (escape hatch: `MJDEV_MJ_REPO` / `options.mjRepoPath` skips the managed clone).
   const mjRepoPath = options.mjRepoPath ?? process.env.MJDEV_MJ_REPO ?? mjClonePath;
   const worktreesDir = options.worktreesDir ?? process.env.MJDEV_WORKTREES_DIR ?? instancesRootDir;
+  // Container/volume name prefix — scopes this workspace's Docker objects so an
+  // isolated dev workspace (`mjdev-dev`) never collides with production (`mjdev`).
+  const containerPrefix = options.containerPrefix ?? process.env.MJDEV_CONTAINER_PREFIX ?? 'mjdev';
 
   return {
     workspaceRoot,
@@ -92,6 +103,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
     instancesRootDir,
     worktreesDir,
     configDir,
+    containerPrefix,
     instancesFile: path.join(configDir, 'instances.json'),
     instancesDir: path.join(configDir, 'instances'),
     secretsFile: path.join(configDir, 'secrets.json'),

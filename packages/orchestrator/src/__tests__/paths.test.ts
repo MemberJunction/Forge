@@ -9,6 +9,7 @@ const ENV_KEYS = [
   'MJDEV_MJ_REPO',
   'MJDEV_MJ_SOURCE',
   'MJDEV_WORKTREES_DIR',
+  'MJDEV_CONTAINER_PREFIX',
 ] as const;
 
 let saved: Record<string, string | undefined>;
@@ -76,5 +77,38 @@ describe('resolvePaths layout', () => {
     expect(resolvePaths({ configDir: '/cfg', mjSourcePath: '/opt-source' }).mjSourcePath).toBe(
       '/opt-source'
     );
+  });
+
+  it('containerPrefix defaults to "mjdev" and is overridable via env / options', () => {
+    expect(resolvePaths({ configDir: '/cfg' }).containerPrefix).toBe('mjdev');
+    process.env.MJDEV_CONTAINER_PREFIX = 'mjdev-dev';
+    expect(resolvePaths({ configDir: '/cfg' }).containerPrefix).toBe('mjdev-dev');
+    // Explicit option beats the env var.
+    expect(resolvePaths({ configDir: '/cfg', containerPrefix: 'mjdev-x' }).containerPrefix).toBe(
+      'mjdev-x'
+    );
+  });
+
+  it('an isolated dev workspace is fully separated from production (the dev:isolated combo)', () => {
+    // Mirrors `npm run dev:isolated`: distinct workspace, config, container prefix.
+    const dev = resolvePaths({
+      workspaceRoot: '/home/u/MJDev-dev',
+      configDir: '/home/u/.mjdev-dev',
+      containerPrefix: 'mjdev-dev',
+    });
+    const prod = resolvePaths({
+      workspaceRoot: '/home/u/MJDev',
+      configDir: '/home/u/.mjdev',
+      containerPrefix: 'mjdev',
+    });
+    // Repos, instances, and all secrets/state live in non-overlapping trees.
+    expect(dev.mjClonePath).not.toBe(prod.mjClonePath);
+    expect(dev.instancesRootDir.startsWith('/home/u/MJDev-dev')).toBe(true);
+    expect(dev.instancesFile.startsWith('/home/u/.mjdev-dev')).toBe(true);
+    expect(prod.instancesFile.startsWith('/home/u/.mjdev')).toBe(true);
+    expect(prod.instancesFile.startsWith('/home/u/.mjdev-dev')).toBe(false);
+    // Container prefixes can't collide, so `mjdev-dev-<slug>` ≠ `mjdev-<slug>`.
+    expect(dev.containerPrefix).toBe('mjdev-dev');
+    expect(prod.containerPrefix).toBe('mjdev');
   });
 });

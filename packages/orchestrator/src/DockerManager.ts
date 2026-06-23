@@ -15,10 +15,13 @@ export const SLUG_LABEL = 'mjdev.slug';
  */
 export class DockerManager {
   private readonly docker: Dockerode;
+  /** Name prefix for containers this instance owns (`mjdev` or `mjdev-dev`). */
+  private readonly containerPrefix: string;
 
-  constructor(docker?: Dockerode) {
+  constructor(docker?: Dockerode, containerPrefix = 'mjdev') {
     // Match Forge's detector default; allow injection for tests/cross-platform.
     this.docker = docker ?? new Dockerode({ socketPath: '/var/run/docker.sock' });
+    this.containerPrefix = containerPrefix;
   }
 
   /** Throw a clear error if the Docker daemon isn't reachable. */
@@ -264,17 +267,31 @@ export class DockerManager {
     return (await this.findByName(name))?.State;
   }
 
-  /** All containers this tool manages, keyed by slug. */
+  /**
+   * Containers THIS workspace manages, keyed by slug. Scoped to {@link containerPrefix}
+   * so an isolated dev workspace never sees — much less acts on — the production
+   * workspace's `mjdev-<slug>` containers (and vice-versa). The shared
+   * `mjdev.managed` label still tags every container for daemon-wide tooling, but
+   * this method deliberately narrows to its own prefix.
+   */
   async listManaged(): Promise<Array<{ slug: string; name: string; state: string }>> {
     const containers = await this.docker.listContainers({
       all: true,
       filters: { label: [`${MANAGED_LABEL}=true`] },
     });
-    return containers.map(c => ({
-      slug: c.Labels[SLUG_LABEL] ?? '',
-      name: (c.Names[0] ?? '').replace(/^\//, ''),
-      state: c.State,
-    }));
+    return (
+      containers
+        .map(c => ({
+          slug: c.Labels[SLUG_LABEL] ?? '',
+          name: (c.Names[0] ?? '').replace(/^\//, ''),
+          state: c.State,
+        }))
+        // Reconstruct the exact name from prefix+slug rather than a `startsWith`:
+        // `mjdev` is itself a prefix of `mjdev-dev`, so a naive `startsWith('mjdev-')`
+        // would let the production workspace pick up dev's `mjdev-dev-<slug>` containers.
+        // Exact equality avoids that overlap in both directions.
+        .filter(c => c.slug !== '' && c.name === `${this.containerPrefix}-${c.slug}`)
+    );
   }
 
   /** Host ports currently published by ANY Docker container (managed or not). */
