@@ -3,6 +3,9 @@
  */
 
 import { app, BrowserWindow } from 'electron';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { resolvePaths, syncAgentDocs, InstanceOrchestrator } from '@mj-forge/orchestrator';
 import { createMainWindow } from './window';
 import { createMenu } from './menu';
 import { registerAllHandlers } from './ipc';
@@ -20,6 +23,39 @@ import { cleanupWorkspaceWatchers } from './ipc/workspace.ipc';
 import { disposeInstances } from './ipc/instances.ipc';
 
 const log = createLogger('App');
+
+/**
+ * Resolve the built mjdev CLI entry (`packages/cli/dist/mjdev.js`) so the
+ * generated `~/MJDev/bin/mjdev` launcher can exec it. Tries the locations the
+ * app root takes in dev (packages/main) and at the repo root; returns '' if not
+ * found (the launcher then emits a clear "CLI not built" message).
+ */
+function resolveCliEntry(): string {
+  const appRoot = app.getAppPath();
+  const candidates = [
+    path.resolve(appRoot, '../cli/dist/mjdev.js'),
+    path.resolve(appRoot, 'packages/cli/dist/mjdev.js'),
+    path.resolve(appRoot, '../../packages/cli/dist/mjdev.js'),
+  ];
+  return candidates.find(p => fs.existsSync(p)) ?? '';
+}
+
+/**
+ * Publish agent docs + the CLI launcher into the visible workspace root on
+ * launch. Best-effort: never blocks or crashes startup. Skipped under the test
+ * harness so e2e runs don't write into a developer's real ~/MJDev.
+ */
+async function publishAgentDocs(): Promise<void> {
+  if (process.env.FORGE_TEST === '1') return;
+  try {
+    const paths = resolvePaths();
+    const instances = await new InstanceOrchestrator().list().catch(() => []);
+    const res = await syncAgentDocs(paths, { cliEntry: resolveCliEntry(), instances });
+    log.info(`Agent docs synced to ${res.docsDir} (${res.copied.length} docs)`);
+  } catch (err) {
+    log.warn(`Agent docs sync skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 // This is only needed for Windows Squirrel installers
@@ -53,6 +89,9 @@ if (!gotTheLock) {
     // Preload all credentials into memory cache (single keychain access at startup)
     const credentialStore = CredentialStore.getInstance();
     await credentialStore.loadAllIntoCache();
+
+    // Publish agent docs + CLI launcher into ~/MJDev (best-effort, before handlers).
+    await publishAgentDocs();
 
     // Register IPC handlers
     registerAllHandlers();

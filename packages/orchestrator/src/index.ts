@@ -69,6 +69,8 @@ export { ProcessManager } from './ProcessManager.js';
 export type { LaunchTarget } from './ProcessManager.js';
 export { resolvePaths } from './paths.js';
 export type { OrchestratorOptions, ResolvedPaths } from './paths.js';
+export { syncAgentDocs, upsertManagedRegion } from './AgentDocs.js';
+export type { SyncAgentDocsOptions, SyncAgentDocsResult } from './AgentDocs.js';
 export {
   slugify,
   generatePassword,

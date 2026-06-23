@@ -1,0 +1,76 @@
+# Dev loops
+
+Concrete edit→verify loops for the two kinds of work in this workspace. Both end
+in the **dual CLI+GUI validation** from @.mjdev-docs/TEST-PROTOCOL.md.
+
+## A. Developing MJ Dev Manager itself (the tool)
+
+You're editing `packages/*` in the Forge repo (use the **dev worktree**, not the
+human's running checkout).
+
+```sh
+npm run build            # affected packages (turbo)
+npm test                 # orchestrator/shared/etc unit tests
+npm run test:e2e         # seeded + exploratory + visual GUI specs
+npm run dev:isolated     # relaunch the Electron app against ~/MJDev-dev / ~/.mjdev-dev
+# commit (never push)
+```
+
+- Renderer/main or workflow changes → add/extend a **seeded GUI spec** that asserts
+  the control is present AND does its job (presence + behavior).
+- Engine semantics → unit + integration; only spin a live instance when a behavior
+  can't be faked.
+- No main-process hot-reload — build + relaunch is the loop (acceptable).
+
+## B. Developing an open app (or MJ) INSIDE an instance
+
+You're editing app/MJ source in `instances/<slug>/mj/...` (or the dev-linked app
+member). **Order matters** on schema/data changes:
+
+```sh
+# code-only change (server or client):
+mjdev app build <slug> <app>           # rebuild the app's workspace sub-packages
+mjdev run <slug> api                    # (restart api to pick up server dist; no HMR)
+
+# schema change:
+mjdev app migrate <slug> <app>          # apply new migration files
+mjdev app codegen <slug> <app>          # regenerate entities/resolvers
+mjdev app build <slug> <app>
+
+# reference-data seed:
+mjdev app sync <slug> <app>             # push metadata (e.g. currencies)
+
+# one-shot "bring to ready":
+mjdev app setup <slug> <app>            # migrate -> sync -> codegen -> build
+
+# verify:
+mjdev e2e <slug> --check apps           # app renders + GraphQL live
+mjdev app list <slug>                    # per-app status: migrated/codegen/built/synced
+```
+
+- **Edit → see live:** server changes need a **rebuild + API restart** (plain `node`,
+  no HMR). Client changes HMR off the rebuilt dist (`mjdev app watch-targets` prints
+  the turbo watch filter).
+- Per-app status (`mjdev app list`) tracks migrate/codegen/build/sync **independently**
+  of instance-level `setup.*` flags — an instance can be "built" while a freshly-linked
+  app still needs its own setup.
+- Edited an already-applied migration? `mjdev app drift` detects checksum drift;
+  `mjdev app reset-schema` (destructive) is the fix; `repair-schema` only realigns
+  history rows and does NOT re-run SQL.
+
+## GUI control inventory (what the exploratory test walks)
+
+The Instances + Open-Apps panels expose (drive each; fail on any console/pageerror):
+
+- **Create dialog** (name, baseRef/branch, optional port overrides).
+- **Setup steps** (deps / migrate / codegen / build / run-all) with status indicators.
+- **Process launcher** (Start MJAPI / Explorer / run-script) + running-process list (stop/logs).
+- **Branch panel** (Branch + Based-on rows + Pull + Merge-from-base buttons).
+- **Persona** roster + active-identity picker + per-instance persona + "Open Explorer as…".
+- **App access** toggles (enable/disable per app).
+- **Open Apps card**: link app, dev⇄install toggle, unlink, reset-schema, repair-schema,
+  Light test, Full installer test, dependency popup, recents dropdown, advanced/mixed-mode warning.
+- **Activity log** tail.
+
+For each control note its show/enable guard (e.g. setup buttons gated on prior step;
+merge hidden when no baseRef) — the seeded specs assert these guards.
