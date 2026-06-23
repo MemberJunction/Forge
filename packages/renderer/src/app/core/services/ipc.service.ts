@@ -611,8 +611,6 @@ interface ForgeAPI {
       slug: string,
       appName: string
     ) => Promise<{ ok: boolean; steps: Record<string, boolean> }>;
-    wiring: (slug: string) => Promise<{ resolvers: boolean; clientBootstrap: boolean }>;
-    wire: (slug: string) => Promise<{ resolvers: boolean; clientBootstrap: boolean }>;
   };
 }
 

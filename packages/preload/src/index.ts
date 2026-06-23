@@ -643,8 +643,6 @@ export interface ForgeAPI {
       slug: string,
       appName: string
     ) => Promise<{ ok: boolean; steps: Record<string, boolean> }>;
-    wiring: (slug: string) => Promise<{ resolvers: boolean; clientBootstrap: boolean }>;
-    wire: (slug: string) => Promise<{ resolvers: boolean; clientBootstrap: boolean }>;
   };
 }
 
@@ -804,8 +802,6 @@ const forgeAPI: ForgeAPI = {
     sync: (slug, appName, opts) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.SYNC, slug, appName, opts),
     setup: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.SETUP, slug, appName),
-    wiring: slug => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.WIRING, slug),
-    wire: slug => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.WIRE, slug),
   },
 
   database: {

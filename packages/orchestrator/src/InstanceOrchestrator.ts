@@ -366,10 +366,16 @@ export class InstanceOrchestrator {
     if (!current) throw new Error(`No secrets found for instance "${slug}"`);
     const secrets: InstanceSecrets = {
       ...current,
+      // Preserve an existing base encryption key at all costs — regenerating it would
+      // make every previously-encrypted field in this instance undecryptable. Only mint
+      // one when a (pre-encryption) instance has none. Same preserve-if-present rule for
+      // the system API key + magic-link signing key.
+      encryptionKey: current.encryptionKey || generateEncryptionKey(),
       systemApiKey: current.systemApiKey || generateApiToken(),
       magicLinkPrivateKey: current.magicLinkPrivateKey || generateRsaKeyPair(),
     };
     if (
+      secrets.encryptionKey !== current.encryptionKey ||
       secrets.systemApiKey !== current.systemApiKey ||
       secrets.magicLinkPrivateKey !== current.magicLinkPrivateKey
     ) {
@@ -562,21 +568,6 @@ export class InstanceOrchestrator {
     }>
   > {
     return this.openApps.listApps(slug);
-  }
-
-  /** Whether the instance MJAPI/MJExplorer are wired to serve dev-linked apps. */
-  async appWiring(slug: string): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
-    const record = await this.requireRecord(slug);
-    return this.openApps.appWiring(record.worktreePath);
-  }
-
-  /** Apply dev-app wiring (MJAPI resolvers + MJExplorer client bootstrap) — idempotent. */
-  async wireApp(
-    slug: string,
-    sink: EventSink = noopSink
-  ): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
-    const record = await this.requireRecord(slug);
-    return this.openApps.wireApp(slug, record.worktreePath, sink);
   }
 
   /**

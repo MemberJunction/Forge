@@ -737,41 +737,6 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 <mat-progress-bar mode="indeterminate" />
               }
 
-              <!-- Instance wiring status: is MJAPI/MJExplorer set up to serve dev apps? -->
-              @if (wiringFor(inst.slug); as w) {
-                <div class="wiring-status" [class.incomplete]="!w.resolvers || !w.clientBootstrap">
-                  <span class="wiring-label">App wiring:</span>
-                  <span
-                    class="wiring-chip"
-                    [class.on]="w.resolvers"
-                    [class.off]="!w.resolvers"
-                    matTooltip="MJAPI serves the dev-linked apps' GraphQL resolvers (mutations/queries)"
-                    >API {{ w.resolvers ? '✓' : '✗' }}</span
-                  >
-                  <span
-                    class="wiring-chip"
-                    [class.on]="w.clientBootstrap"
-                    [class.off]="!w.clientBootstrap"
-                    matTooltip="MJExplorer imports the dev-linked apps' client bootstrap (the app UI loads)"
-                    >UI {{ w.clientBootstrap ? '✓' : '✗' }}</span
-                  >
-                  @if (!w.resolvers || !w.clientBootstrap) {
-                    <button
-                      mat-flat-button
-                      color="primary"
-                      class="wire-btn"
-                      matTooltip="Wire the dev-linked apps into the instance MJAPI + MJExplorer, then restart them"
-                      (click)="openApps.wire(inst.slug)"
-                      [disabled]="openApps.busy()"
-                    >
-                      <mat-icon>cable</mat-icon> Wire apps
-                    </button>
-                  } @else {
-                    <span class="wiring-ok">— restart MJAPI/MJExplorer to apply changes</span>
-                  }
-                </div>
-              }
-
               <!-- Currently dev-linked apps -->
               <ul class="linked-list">
                 @for (a of openAppsFor(inst.slug); track a.appName) {
@@ -1558,45 +1523,6 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
         font-style: italic;
         color: var(--text-secondary, #888);
       }
-      /* Instance wiring status (MJAPI resolvers + MJExplorer client bootstrap). */
-      .wiring-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        padding: 6px 10px;
-        margin: 8px 0;
-        border-radius: 6px;
-        font-size: 12px;
-        background: var(--bg-secondary, #2a2a2a);
-        border: 1px solid var(--border-color, #444);
-      }
-      .wiring-status.incomplete {
-        border-color: var(--warn-color, #b07a1e);
-      }
-      .wiring-label {
-        color: var(--text-secondary, #aaa);
-      }
-      .wiring-chip {
-        padding: 1px 8px;
-        border-radius: 10px;
-        font-weight: 600;
-      }
-      .wiring-chip.on {
-        background: rgba(56, 142, 60, 0.25);
-        color: #6cc070;
-      }
-      .wiring-chip.off {
-        background: rgba(176, 122, 30, 0.25);
-        color: #d9a441;
-      }
-      .wiring-ok {
-        color: var(--text-secondary, #888);
-        font-style: italic;
-      }
-      .wire-btn {
-        transform: scale(0.85);
-      }
       /* Per-app setup progress chips in the linked-app head. */
       .setup-chips {
         display: inline-flex;
@@ -1749,14 +1675,18 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
 
   /**
    * TODO(REMOVE BEFORE ANY PR): temporary default base ref so newly-created
-   * instances are cut from the notifier-fix branch (which carries the MJExplorer
-   * `MJNotificationService` injection fix needed for magic-link login). This is a
+   * instances are cut from `MT-create-mjdev-app` — our MJ dev branch, which is
+   * fast-forwarded onto the PR'd notifier-fix branch
+   * (`fix/explorer-notification-service-ordering`, carrying the MJExplorer
+   * `MJNotificationService` injection fix needed for magic-link login) and is
+   * where MJ-side wiring fixes are committed before being chain-PR'd. This is a
    * convenience for local testing only and MUST be dropped before the tool is
-   * PR'd — it hardcodes a branch that may never merge. GUI-only; the CLI keeps no
-   * default base (see mjdev create). NOTE: only takes effect once the notifier
-   * fix is committed on that branch (a worktree checks out the branch's commit).
+   * PR'd — it hardcodes a dev branch. Once the notifier + wiring PRs merge,
+   * instances should base off `next`. GUI-only; the CLI keeps no default base
+   * (see mjdev create). NOTE: takes effect via the app-managed clone, which must
+   * carry this branch (a worktree checks out the branch's commit).
    */
-  static readonly TEMP_DEFAULT_BASE_REF = 'fix-notifier-injection-bug';
+  static readonly TEMP_DEFAULT_BASE_REF = 'MT-create-mjdev-app';
 
   /** The activity-log scroll container (for stick-to-bottom). */
   private readonly logLines = viewChild<ElementRef<HTMLElement>>('logLines');
@@ -2004,12 +1934,6 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** True when the instance has at least one dev-linked app (enables "Build all"). */
   hasDevApps(slug: string): boolean {
     return this.openAppsFor(slug).some(a => a.mode === 'dev');
-  }
-
-  /** Wiring status for the given slug, only when loaded for it (drives the wiring banner). */
-  wiringFor(slug: string) {
-    const w = this.openApps.wiring();
-    return w?.slug === slug ? w.wiring : null;
   }
 
   /** Add the app named in the form — dev-link or install per mode — then reset on success. */

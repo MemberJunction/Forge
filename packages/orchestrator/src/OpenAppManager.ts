@@ -13,16 +13,7 @@ import {
   type EngineRunResult,
 } from './WorktreeEngineRunner.js';
 import { addEntityPackageMapping, removeEntityPackageMapping } from './entityPackageMapping.js';
-import {
-  addMjapiDevAppResolverGlob,
-  removeMjapiDevAppResolverGlob,
-  hasMjapiDevAppResolverGlob,
-} from './mjapiResolverPaths.js';
-import {
-  addExplorerBootstrapImport,
-  removeExplorerBootstrapImport,
-  hasExplorerBootstrapImport,
-} from './explorerBootstrapImport.js';
+import { detectOpenAppRuntimeSupport } from './openAppRuntimeSupport.js';
 
 /** The minimal manifest shape the manager reads from a member's `mj-app.json`. */
 interface AppManifestLite {
@@ -499,49 +490,6 @@ export class OpenAppManager {
   }
 
   /**
-   * Instance-level WIRING status: whether the instance MJAPI serves dev-app GraphQL
-   * resolvers and whether MJExplorer imports the dev-app client bootstrap. Both are
-   * app-agnostic worktree edits (one glob / one import covering all dev-apps), so
-   * wiring is per-instance, not per-app.
-   */
-  async appWiring(
-    mjWorktreePath: string
-  ): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
-    const [resolvers, clientBootstrap] = await Promise.all([
-      hasMjapiDevAppResolverGlob(mjWorktreePath),
-      hasExplorerBootstrapImport(mjWorktreePath),
-    ]);
-    return { resolvers, clientBootstrap };
-  }
-
-  /**
-   * Apply the dev-app wiring (idempotent): MJAPI resolver glob + MJExplorer client
-   * bootstrap import. Use to back-fill an instance dev-linked before the wiring
-   * changes, or to re-wire after a manual edit. Returns the resulting status.
-   */
-  async wireApp(
-    slug: string,
-    mjWorktreePath: string,
-    sink: EventSink = noopSink
-  ): Promise<{ resolvers: boolean; clientBootstrap: boolean }> {
-    emit(sink, slug, 'app-wire', 'progress', 'Wiring dev-apps into MJAPI + MJExplorer…');
-    const rp = await addMjapiDevAppResolverGlob(mjWorktreePath);
-    if (!rp.success) emit(sink, slug, 'app-wire', 'warn', `MJAPI resolver wiring: ${rp.error}`);
-    const cb = await addExplorerBootstrapImport(mjWorktreePath);
-    if (!cb.success)
-      emit(sink, slug, 'app-wire', 'warn', `MJExplorer bootstrap wiring: ${cb.error}`);
-    const status = await this.appWiring(mjWorktreePath);
-    emit(
-      sink,
-      slug,
-      'app-wire',
-      status.resolvers && status.clientBootstrap ? 'success' : 'warn',
-      `Wiring: resolvers=${status.resolvers ? 'on' : 'off'}, client bootstrap=${status.clientBootstrap ? 'on' : 'off'} — restart MJAPI/MJExplorer to take effect.`
-    );
-    return status;
-  }
-
-  /**
    * Slice-1 DB spine: drive the worktree's OWN engine to create the app schema
    * and run its local migrations against the instance DB (`SchemaExists` →
    * `CreateAppSchema` → `RunAppMigrations(MigrationsDir=local)`), then read back
@@ -675,37 +623,38 @@ export class OpenAppManager {
         : 'entityPackageName: no entities package (no-op)'
     );
 
-    // Dev-link-only: make the instance's core MJAPI serve this app's GraphQL
-    // resolvers (one app-agnostic glob over packages/dev-apps/*; idempotent). Without
-    // this the app's classes register but its mutations/queries aren't in the running
-    // schema. Best-effort: warn (don't fail the link) if MJAPI changed shape.
-    const rp = await addMjapiDevAppResolverGlob(mjWorktreePath);
-    emit(
-      sink,
-      slug,
-      'app-link',
-      rp.success ? (rp.changed ? 'success' : 'info') : 'warn',
-      rp.success
-        ? rp.changed
-          ? 'Wired dev-app GraphQL resolvers into the instance MJAPI'
-          : 'MJAPI already serves dev-app resolvers (no-op)'
-        : `Could not wire app resolvers into MJAPI: ${rp.error ?? 'unknown'}`
-    );
-
-    // Client twin of the resolver wiring: make MJExplorer import the generated
-    // open-app bootstrap so the app's Angular UI registers (otherwise it's dead code).
-    const cb = await addExplorerBootstrapImport(mjWorktreePath);
-    emit(
-      sink,
-      slug,
-      'app-link',
-      cb.success ? (cb.changed ? 'success' : 'info') : 'warn',
-      cb.success
-        ? cb.changed
-          ? 'Wired dev-app client bootstrap into MJExplorer'
-          : 'MJExplorer already imports the dev-app client bootstrap (no-op)'
-        : `Could not wire client bootstrap into MJExplorer: ${cb.error ?? 'unknown'}`
-    );
+    // The dev-link has now written everything MJ's native runtime consumers read:
+    // `dynamicPackages.server` (server resolvers) and the regenerated client bootstrap
+    // (Angular UI). Modern MJ consumes both at boot, so the tool no longer patches MJ
+    // source. Probe this base and warn (don't fail) if it predates the fix — the app's
+    // classes still register, but its API/UI won't fully load until the instance is on a
+    // base that includes the consumers.
+    const support = await detectOpenAppRuntimeSupport(mjWorktreePath);
+    if (!support.serverResolvers || !support.clientBootstrap) {
+      const missing = [
+        support.serverResolvers ? null : 'server resolvers (dynamicPackages.server consumer)',
+        support.clientBootstrap ? null : 'client UI (app.module bootstrap import)',
+      ]
+        .filter(Boolean)
+        .join(' and ');
+      emit(
+        sink,
+        slug,
+        'app-link',
+        'warn',
+        `This instance's MJ base predates the Open-App runtime wiring — missing ${missing}. ` +
+          `The app's classes register but it won't fully load at runtime; recreate the instance ` +
+          `on a base that includes the fix (e.g. MT-create-mjdev-app or a release containing it).`
+      );
+    } else {
+      emit(
+        sink,
+        slug,
+        'app-link',
+        'info',
+        'MJ natively serves dev-linked app resolvers + client UI'
+      );
+    }
     return result;
   }
 
@@ -776,9 +725,6 @@ export class OpenAppManager {
     await fs.rm(memberPath, { recursive: true, force: true }).catch(() => {});
     if (await this.noDevAppMembersRemain(mjWorktreePath)) {
       await this.removeWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB);
-      // Last dev-app gone → restore MJAPI's resolverPaths + MJExplorer's main.ts.
-      await removeMjapiDevAppResolverGlob(mjWorktreePath);
-      await removeExplorerBootstrapImport(mjWorktreePath);
     }
     emit(sink, slug, 'app-unlink', 'progress', 'Reinstalling workspace dependencies…');
     await this.npmInstall(mjWorktreePath, env, sink);
@@ -986,12 +932,6 @@ export class OpenAppManager {
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink
   ): Promise<{ ok: boolean; built: string[]; failed: Array<{ name: string; error: string }> }> {
-    // Self-heal: ensure the instance is fully WIRED (idempotent) — MJAPI serves the
-    // app's GraphQL resolvers AND MJExplorer imports the app's client bootstrap. This
-    // back-fills instances dev-linked before the wiring changes so a plain `app build`
-    // makes the app's API + UI live without a re-link.
-    await addMjapiDevAppResolverGlob(mjWorktreePath).catch(() => {});
-    await addExplorerBootstrapImport(mjWorktreePath).catch(() => {});
     const pkgs = (await this.appSubPackages(mjWorktreePath, appName)).filter(p => p.hasBuild);
     const built: string[] = [];
     let failed: Array<{ name: string; error: string }> = [];

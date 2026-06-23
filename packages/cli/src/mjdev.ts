@@ -935,27 +935,6 @@ app
   });
 
 app
-  .command('wire')
-  .description('Wire dev-apps into the instance MJAPI (GraphQL resolvers) + MJExplorer (client UI)')
-  .argument('<slug>')
-  .option('--json', 'machine-readable output')
-  .action(async (slug: string, opts: { json?: boolean }) => {
-    const json = !!opts.json;
-    try {
-      const w = await engine().wireApp(slug, makeSink(json));
-      emitResult(json, { success: true, ...w }, () =>
-        console.log(
-          chalk.green(
-            `✓ Wiring: resolvers=${w.resolvers ? 'on' : 'off'}, client bootstrap=${w.clientBootstrap ? 'on' : 'off'} (restart MJAPI/MJExplorer)`
-          )
-        )
-      );
-    } catch (err) {
-      fail(json, err);
-    }
-  });
-
-app
   .command('sync')
   .description("Push a dev-linked app's metadata seed (e.g. currencies) into the instance DB")
   .argument('<slug>')

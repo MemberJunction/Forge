@@ -206,10 +206,6 @@ export function registerInstanceHandlers(): void {
     engine.setupApp(slug, appName, sink)
   );
 
-  safeHandle(IPC_CHANNELS.OPEN_APPS.WIRING, async (_e, slug: string) => engine.appWiring(slug));
-
-  safeHandle(IPC_CHANNELS.OPEN_APPS.WIRE, async (_e, slug: string) => engine.wireApp(slug, sink));
-
   safeHandle(IPC_CHANNELS.OPEN_APPS.MIGRATE, async (_e, slug: string, appName: string) =>
     engine.migrateApp(slug, appName, sink)
   );

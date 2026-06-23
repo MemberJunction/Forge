@@ -15,12 +15,6 @@ export interface LinkedApp {
   setup?: { migrated?: boolean; codegen?: boolean; built?: boolean; synced?: boolean };
 }
 
-/** Whether the instance is wired to serve dev-linked apps (MJAPI + MJExplorer). */
-export interface AppWiring {
-  resolvers: boolean;
-  clientBootstrap: boolean;
-}
-
 /** Options accepted when dev-linking an app. */
 export interface LinkAppOptions {
   ignoreVersionRange?: boolean;
@@ -46,8 +40,7 @@ export interface DepChoice {
 }
 
 /** Ops emitted on the instances event channel that this feature cares about. */
-const APP_EVENT_OPS =
-  /^app-(link|install|unlink|remove|switch|build|migrate|codegen|sync|wire|engine)/;
+const APP_EVENT_OPS = /^app-(link|install|unlink|remove|switch|build|migrate|codegen|sync|engine)/;
 
 /**
  * Reactive state for MJ Dev Manager "Open Apps" (Phase B). Wraps the
@@ -73,11 +66,8 @@ export class OpenAppsStateService {
   private readonly _progress = signal<InstanceEvent[]>([]);
   /** Previously-used app refs, for the add-app dropdown (newest first). */
   private readonly _recents = signal<string[]>([]);
-  /** Instance wiring status (MJAPI resolvers + MJExplorer client bootstrap), by slug. */
-  private readonly _wiring = signal<{ slug: string; wiring: AppWiring } | null>(null);
 
   readonly linkedApps = this._linkedApps.asReadonly();
-  readonly wiring = this._wiring.asReadonly();
   readonly busy = this._busy.asReadonly();
   readonly lastError = this._lastError.asReadonly();
   readonly progress = this._progress.asReadonly();
@@ -129,12 +119,6 @@ export class OpenAppsStateService {
       const apps = await this.ipc.openApps.list(slug);
       this._linkedApps.set({ slug, apps });
       this._recents.set(await this.ipc.openApps.recents());
-      // Wiring status only matters when dev-linked apps exist; skip the call otherwise.
-      if (apps.some(a => a.mode === 'dev')) {
-        this._wiring.set({ slug, wiring: await this.ipc.openApps.wiring(slug) });
-      } else {
-        this._wiring.set(null);
-      }
     } catch (err) {
       this.notification.error(`Failed to load open apps: ${this.msg(err)}`);
     }
@@ -142,7 +126,6 @@ export class OpenAppsStateService {
 
   /** Forget the loaded linked-app list and clear the progress strip. */
   clear(): void {
-    this._wiring.set(null);
     this._linkedApps.set(null);
     this._progress.set([]);
   }
@@ -361,16 +344,6 @@ export class OpenAppsStateService {
         .join(', ');
       this.notification.error(`Setup incomplete for "${appName}" (failed: ${failed || 'see log'})`);
     }
-  }
-
-  /** Apply dev-app wiring (MJAPI resolvers + MJExplorer client bootstrap) to the instance. */
-  async wire(slug: string): Promise<void> {
-    const result = await this.guard(() => this.ipc.openApps.wire(slug));
-    if (!result) return;
-    this._wiring.set({ slug, wiring: result });
-    if (result.resolvers && result.clientBootstrap)
-      this.notification.success('App wiring applied — restart MJAPI/MJExplorer to take effect');
-    else this.notification.info('Wiring applied partially — see activity log');
   }
 
   private async guard<T>(fn: () => Promise<T>): Promise<T | null> {
