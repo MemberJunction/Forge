@@ -26,6 +26,13 @@ export interface LaunchedApp {
   window: Page;
   /** Per-launch userData dir (isolated tmp). Cleaned up by withForge. */
   userDataDir: string;
+  /**
+   * Renderer `console.error` lines + uncaught `pageerror`s captured for the
+   * lifetime of the window. Specs can assert on this directly; `withForge`'s
+   * `failOnError` turns a non-empty list into a teardown failure. This is the
+   * mechanism that makes otherwise-silent UI errors visible to the test suite.
+   */
+  consoleErrors: string[];
 }
 
 export interface LaunchOptions {
@@ -35,6 +42,17 @@ export interface LaunchOptions {
    * the CLI dep probe fails and the missing-tools view renders).
    */
   envOverrides?: Record<string, string>;
+  /**
+   * When true, `withForge` throws on teardown if any renderer `console.error`
+   * or uncaught `pageerror` was captured during the test. Off by default so
+   * existing specs are unaffected; exploratory specs opt in to catch new bugs.
+   */
+  failOnError?: boolean;
+  /**
+   * Substrings of console errors to ignore when `failOnError` is set (known,
+   * out-of-scope noise — e.g. a dev-only favicon 404).
+   */
+  ignoreErrors?: string[];
 }
 
 export async function launchForge(options: LaunchOptions = {}): Promise<LaunchedApp> {
@@ -78,8 +96,20 @@ export async function launchForge(options: LaunchOptions = {}): Promise<Launched
   });
 
   const window = await app.firstWindow();
+
+  // Capture renderer errors as early as possible (before load settles) so
+  // load-time failures aren't missed. Silent console errors / uncaught
+  // exceptions are exactly the class of UI bug manual QA kept finding.
+  const consoleErrors: string[] = [];
+  window.on('console', msg => {
+    if (msg.type() === 'error') consoleErrors.push(`console.error: ${msg.text()}`);
+  });
+  window.on('pageerror', err => {
+    consoleErrors.push(`pageerror: ${err.message}`);
+  });
+
   await window.waitForLoadState('domcontentloaded');
-  return { app, window, userDataDir };
+  return { app, window, userDataDir, consoleErrors };
 }
 
 /**
@@ -101,8 +131,9 @@ export async function withForge<T>(
   const [options, fn]: [LaunchOptions, (launched: LaunchedApp) => Promise<T>] =
     typeof optionsOrFn === 'function' ? [{}, optionsOrFn] : [optionsOrFn, maybeFn!];
   const launched = await launchForge(options);
+  let result: T;
   try {
-    return await fn(launched);
+    result = await fn(launched);
   } finally {
     try {
       await launched.app.close();
@@ -115,4 +146,17 @@ export async function withForge<T>(
       console.error('[electron-app] failed to clean userData dir:', err);
     }
   }
+  // After a clean run, optionally fail on captured renderer errors. Done after
+  // teardown so the app is always closed first; only triggers when the body
+  // itself succeeded (a thrown body error already propagated above).
+  if (options.failOnError) {
+    const ignore = options.ignoreErrors ?? [];
+    const offending = launched.consoleErrors.filter(e => !ignore.some(s => e.includes(s)));
+    if (offending.length) {
+      throw new Error(
+        `[electron-app] ${offending.length} renderer error(s) captured:\n` + offending.join('\n')
+      );
+    }
+  }
+  return result;
 }

@@ -1786,18 +1786,25 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   constructor() {
     // Load (and clear the progress strip for) the Open Apps card whenever the
     // selected instance changes, so the card always reflects the current slug.
-    effect(() => {
-      const slug = this.state.selectedSlug();
-      if (slug) {
-        this.openApps.clearProgress();
-        void this.openApps.refresh(slug);
-        // Default the add-app mode to the instance's single mode (enforces pure
-        // topology); the cross-mode override lives in the advanced section.
-        this.linkForm.mode = this.state.selected()?.appMode ?? 'dev';
-      } else {
-        this.openApps.clear();
-      }
-    });
+    // Reacts to the selected instance and kicks off the Open Apps load, which
+    // sets state signals (progress/data). That's a legitimate signal write from
+    // an effect — opt in explicitly (otherwise Angular throws NG0600 and the
+    // card silently fails to refresh on selection).
+    effect(
+      () => {
+        const slug = this.state.selectedSlug();
+        if (slug) {
+          this.openApps.clearProgress();
+          void this.openApps.refresh(slug);
+          // Default the add-app mode to the instance's single mode (enforces pure
+          // topology); the cross-mode override lives in the advanced section.
+          this.linkForm.mode = this.state.selected()?.appMode ?? 'dev';
+        } else {
+          this.openApps.clear();
+        }
+      },
+      { allowSignalWrites: true }
+    );
 
     // Keep the activity log pinned to the newest entry — but only when the user is
     // already at/near the bottom, so it never yanks them away while reading history.
