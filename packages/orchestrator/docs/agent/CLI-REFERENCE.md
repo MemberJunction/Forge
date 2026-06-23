@@ -9,18 +9,18 @@ output: progress **events stream on stderr**, the **final result is JSON on stdo
 
 ## Instance lifecycle
 
-| Command                      | What it does                                                                                             |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `mjdev create <config.yaml>` | Provision a new instance (Docker SQL + worktree + config) from a YAML config. Provision only — no setup. |
-| `mjdev list`                 | List all instances.                                                                                      |
-| `mjdev info <slug>`          | Show full details for an instance.                                                                       |
-| `mjdev start <slug>`         | Start an instance's SQL container.                                                                       |
-| `mjdev stop <slug>`          | Stop an instance's SQL container.                                                                        |
-| `mjdev pull <slug>`          | Pull the instance branch from its remote upstream (fast-forward only).                                   |
-| `mjdev merge <slug>`         | Merge the instance's base branch in to pick up base-branch commits (re-run migrate + build after).       |
-| `mjdev delete <slug>`        | Delete an instance (container, volume, worktree, record). Destructive — confirm-gated.                   |
-| `mjdev reset`                | Delete ALL instances — for cutover/cleanup. Destructive.                                                 |
-| `mjdev open <slug>`          | Open the instance worktree in VS Code.                                                                   |
+| Command                      | What it does                                                                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mjdev create <config.yaml>` | Provision a new instance (Docker SQL + worktree + config) from a YAML config. Provision only — no setup.                                                                                                                       |
+| `mjdev list`                 | List all instances.                                                                                                                                                                                                            |
+| `mjdev info <slug>`          | Show full details for an instance.                                                                                                                                                                                             |
+| `mjdev start <slug>`         | Start an instance's SQL container.                                                                                                                                                                                             |
+| `mjdev stop <slug>`          | Stop an instance's SQL container.                                                                                                                                                                                              |
+| `mjdev pull <slug>`          | Pull the instance branch from its remote upstream (fast-forward only).                                                                                                                                                         |
+| `mjdev merge <slug>`         | Merge the instance's base branch in to pick up base-branch commits (re-run migrate + build after).                                                                                                                             |
+| `mjdev delete <slug>`        | Delete an instance (container, volume, worktree, record). Destructive — confirm-gated.                                                                                                                                         |
+| `mjdev reset`                | Delete ALL instances — for cutover/cleanup. Destructive.                                                                                                                                                                       |
+| `mjdev open <slug>`          | Open the instance in VS Code — the multi-root `.code-workspace` (one root per dev-linked app, each with its own Source Control) when apps are linked, else the worktree folder. Reconciles the workspace + nav symlinks first. |
 
 ```sh
 mjdev create fixtures/golden-instance.yaml --json

@@ -17,6 +17,12 @@ export interface SeedInstanceOptions {
   built?: boolean;
   status?: 'stopped' | 'running' | 'provisioning' | 'error';
   baseRef?: string;
+  /**
+   * Override the worktree path. Point at a real
+   * `<MJDEV_WORKSPACE_DIR>/instances/<slug>/mj` when a spec needs the engine to
+   * act on a real instance dir (e.g. editor-artifact reconciliation).
+   */
+  worktreePath?: string;
 }
 
 /** Write a single-instance `instances.json`. Returns the seeded record. */
@@ -30,7 +36,7 @@ export function seedInstance(dir: string, opts: SeedInstanceOptions = {}) {
     name,
     branch: `mjdev/${slug}`,
     baseRef: opts.baseRef ?? 'v5.40.2',
-    worktreePath: `/tmp/wt/${slug}`,
+    worktreePath: opts.worktreePath ?? `/tmp/wt/${slug}`,
     container: { name: `mjdev-${slug}`, volume: `mjdev-${slug}-data` },
     ports: { sql: 1443, api: 4010, explorer: 4210 },
     dbName: `MJ_${slug}`,
@@ -54,21 +60,30 @@ export interface SeedAppOptions {
   mode?: 'dev' | 'installed';
 }
 
-/** Write an `openapps.json` linking one app into the given instance slug. */
+/**
+ * Write an `openapps.json` linking one app into the given instance slug, in the
+ * exact `OpenAppsFile`/`AppDevState` shape `AppDevStateStore` reads (a flat
+ * `apps[]` keyed by slug+appName) so the engine's `listApps(slug)` sees it.
+ */
 export function seedOpenApps(dir: string, slug: string, opts: SeedAppOptions = {}) {
   const app = opts.app ?? 'bizapps-accounting';
+  const mode = opts.mode ?? 'dev';
   const entry = {
-    app,
-    mode: opts.mode ?? 'dev',
-    localDevPath: `/tmp/wt/${slug}/packages/dev-apps/${app}`,
-    linkedAppRef: app,
-    branch: `mjdev/${slug}`,
+    slug,
+    appName: app,
+    manifestName: app,
+    appRef: app,
+    mode,
+    localDevPath: `/tmp/repos/apps/${app}`,
+    materialization: mode === 'dev' ? 'nested-worktree' : 'published',
     ignoreVersionRangeUsed: false,
-    status: { migrated: true, codegen: true, built: true, synced: true },
+    linkedBranch: `mjdev/${slug}/${app}`,
+    setup: { migrated: true, codegen: true, built: true, synced: true },
+    createdAt: '2026-06-20T00:00:00.000Z',
   };
   writeFileSync(
     join(dir, 'openapps.json'),
-    JSON.stringify({ version: 1, apps: { [slug]: [entry] } })
+    JSON.stringify({ version: 1, apps: [entry], recents: [app] }, null, 2)
   );
   return entry;
 }

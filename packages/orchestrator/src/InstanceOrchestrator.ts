@@ -18,6 +18,7 @@ import { DockerManager } from './DockerManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { RepoManager } from './RepoManager.js';
 import { OpenAppManager, type AppDependency } from './OpenAppManager.js';
+import { reconcileInstanceEditorArtifacts, resolveEditorTarget } from './WorkspaceArtifacts.js';
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
@@ -474,6 +475,7 @@ export class InstanceOrchestrator {
       { ...opts, env },
       sink
     );
+    await this.reconcileEditorArtifacts(slug, record.worktreePath);
     return { appName: r.appName, snapshot: r.snapshot };
   }
 
@@ -515,7 +517,7 @@ export class InstanceOrchestrator {
     const record = await this.requireRecord(slug);
     const dbConfig = await this.appDbConfig(record);
     const env = this.instanceEnv(record, slug, sink);
-    return this.openApps.installApp(
+    const res = await this.openApps.installApp(
       slug,
       record.worktreePath,
       source,
@@ -523,6 +525,8 @@ export class InstanceOrchestrator {
       { ...opts, env },
       sink
     );
+    await this.reconcileEditorArtifacts(slug, record.worktreePath);
+    return res;
   }
 
   /**
@@ -562,6 +566,7 @@ export class InstanceOrchestrator {
         sink
       );
     }
+    await this.reconcileEditorArtifacts(slug, record.worktreePath);
   }
 
   /** Reverse a dev-link (optionally dropping the app schema). */
@@ -594,6 +599,7 @@ export class InstanceOrchestrator {
     const record = await this.requireRecord(slug);
     const env = this.instanceEnv(record, slug, sink);
     await this.openApps.switchMode(slug, record.worktreePath, appName, target, { env }, sink);
+    await this.reconcileEditorArtifacts(slug, record.worktreePath);
   }
 
   /** List the apps dev-linked into an instance (Forge overlay state). */
@@ -863,6 +869,34 @@ export class InstanceOrchestrator {
   /** Resolve the worktree path to open in an editor. */
   async worktreePath(slug: string): Promise<string> {
     return (await this.requireRecord(slug)).worktreePath;
+  }
+
+  /**
+   * Reconcile the instance's editor-navigation artifacts (per-app symlinks +
+   * the multi-root `.code-workspace`) to match the current dev-linked set.
+   * Best-effort — these are navigation conveniences and must never fail or
+   * block an open-app operation. Called after every link/install/unlink/switch
+   * and lazily on {@link prepareEditorTarget} so a drifted instance self-heals.
+   */
+  private async reconcileEditorArtifacts(slug: string, worktreePath: string): Promise<void> {
+    try {
+      const apps = await this.openApps.listApps(slug);
+      const devApps = apps.filter(a => a.mode === 'dev').map(a => a.appName);
+      reconcileInstanceEditorArtifacts(worktreePath, slug, devApps);
+    } catch {
+      /* navigation sugar — swallow so opening/linking never breaks */
+    }
+  }
+
+  /**
+   * Reconcile editor artifacts, then return what "Open in VS Code" should open:
+   * the multi-root `.code-workspace` (per-app Source Control) if it exists, else
+   * the plain worktree dir. Both CLI `open` and the GUI button call this.
+   */
+  async prepareEditorTarget(slug: string): Promise<string> {
+    const record = await this.requireRecord(slug);
+    await this.reconcileEditorArtifacts(slug, record.worktreePath);
+    return resolveEditorTarget(record.worktreePath, slug);
   }
 
   /** Stop all tracked child processes (call on host shutdown). */

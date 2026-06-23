@@ -11,15 +11,33 @@ Two roots: a **visible, shareable** workspace and a **hidden** secrets/state roo
 │  └─ apps/<app>/             # open-app source clones (object store for app worktrees)
 ├─ instances/
 │  └─ <slug>/
-│     ├─ mj/                  # this instance's MJ worktree (its branch)
-│     ├─ apps/<app>/          # dev-linked open-app worktrees (nested into mj/ as workspace members)
-│     └─ config/              # per-instance non-secret config / notes
+│     ├─ mj/                          # this instance's MJ worktree (its branch)
+│     │  └─ packages/dev-apps/<app>/  # dev-linked open-app worktree (the real npm workspace member — edit HERE)
+│     ├─ <app>                        # convenience SYMLINK → mj/packages/dev-apps/<app> (terminal/Finder nav only)
+│     ├─ <slug>.code-workspace        # multi-root VS Code workspace — what "Open in VS Code" opens
+│     └─ config/                      # per-instance non-secret config / notes
 ├─ bin/mjdev                  # CLI launcher (pins this workspace's isolation env)
 ├─ .mjdev-docs/               # THESE docs (regenerated each app launch)
 ├─ AGENTS.md                  # agent guide (managed block + your own prose preserved)
 ├─ CLAUDE.md                  # thin `@AGENTS.md` import (created only if absent)
 └─ MJDEV-ISSUES.md            # suspected-mjdev-bug escalation log (never clobbered)
 ```
+
+### Editing a dev-linked app, and the editor artifacts
+
+- **Edit the app at `instances/<slug>/mj/packages/dev-apps/<app>`** — that's the real
+  git worktree and npm workspace member (its own branch). This is the source the running
+  instance resolves and builds. (Why nested-not-symlinked: see ADR-001 in
+  `plans/mj-dev-manager-decisions.md` — single-copy `@memberjunction/*` dedup.)
+- The `instances/<slug>/<app>` entry is a **navigation symlink** into that member — handy
+  for `cd`/Finder, but it is _not_ a separate checkout and does **not** surface the app's
+  git in VS Code. Don't treat it as a distinct copy.
+- **`instances/<slug>/<slug>.code-workspace`** is the multi-root VS Code workspace the
+  "Open in VS Code" button (and `mjdev open <slug>`) opens — it lists `mj/` and each
+  dev-linked app as separate roots so each gets its own Source Control panel. You may add
+  your own `settings`/`extensions` to it; the tool only manages the `folders` list and
+  won't clobber your keys. Both artifacts are regenerated from the dev-linked set on every
+  link/unlink/switch and on open — don't hand-maintain them.
 
 ## `~/.mjdev/` — hidden secrets/state (DO NOT hand-edit — use the CLI)
 

@@ -10,6 +10,12 @@ export type { EnsureAppCloneOptions } from './AppRepoManager.js';
 export { AppDevStateStore } from './AppDevStateStore.js';
 export type { AppDevState, OpenAppMode, ReversibleFileEdit } from './AppDevStateStore.js';
 export { OpenAppManager, DEV_APPS_GLOB, DEV_APPS_EXCLUDE } from './OpenAppManager.js';
+export {
+  reconcileInstanceEditorArtifacts,
+  resolveEditorTarget,
+  instanceWorkspaceFilePath,
+} from './WorkspaceArtifacts.js';
+export type { EditorArtifactResult } from './WorkspaceArtifacts.js';
 export type {
   LinkResolutionResult,
   LinkResolutionOptions,

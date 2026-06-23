@@ -240,13 +240,14 @@ program
 
 program
   .command('open')
-  .description('Open the instance worktree in VS Code')
+  .description('Open the instance in VS Code (multi-root workspace if apps are dev-linked)')
   .argument('<slug>')
   .action(async (slug: string) => {
     try {
-      const dir = await engine().worktreePath(slug);
-      spawn('code', [dir], { detached: true, stdio: 'ignore' }).unref();
-      console.log(chalk.green(`✓ Opening ${dir} in VS Code`));
+      // Reconciles the symlinks + .code-workspace, then opens the workspace when present.
+      const target = await engine().prepareEditorTarget(slug);
+      spawn('code', [target], { detached: true, stdio: 'ignore' }).unref();
+      console.log(chalk.green(`✓ Opening ${target} in VS Code`));
     } catch (err) {
       fail(false, err);
     }

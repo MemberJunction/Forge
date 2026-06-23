@@ -69,16 +69,21 @@ export function registerInstanceHandlers(): void {
   });
 
   safeHandle(IPC_CHANNELS.INSTANCES.OPEN_VSCODE, async (_e, slug: string) => {
-    const dir = await engine.worktreePath(slug);
-    // Prefer the `code` CLI; fall back to the OS file handler if it's absent.
-    try {
-      const child = spawn('code', [dir], { detached: true, stdio: 'ignore' });
-      child.on('error', () => void shell.openPath(dir));
-      child.unref();
-    } catch {
-      await shell.openPath(dir);
+    // Reconciles editor artifacts (symlinks + .code-workspace) and returns the
+    // multi-root workspace when present (per-app Source Control), else the dir.
+    const target = await engine.prepareEditorTarget(slug);
+    // Skip the real launch under tests so e2e specs don't pop an editor open.
+    if (process.env.FORGE_TEST !== '1') {
+      // Prefer the `code` CLI; fall back to the OS file handler if it's absent.
+      try {
+        const child = spawn('code', [target], { detached: true, stdio: 'ignore' });
+        child.on('error', () => void shell.openPath(target));
+        child.unref();
+      } catch {
+        await shell.openPath(target);
+      }
     }
-    return { success: true, path: dir };
+    return { success: true, path: target };
   });
 
   safeHandle(IPC_CHANNELS.INSTANCES.SETUP_RUN, async (_e, slug: string, step: SetupStep | 'all') =>
