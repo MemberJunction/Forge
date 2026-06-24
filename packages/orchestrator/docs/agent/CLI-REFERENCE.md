@@ -69,27 +69,38 @@ mjdev ps my-slug --json
 
 ## Open-app development (`mjdev app …`)
 
-| Command                                | What it does                                                                       |
-| -------------------------------------- | ---------------------------------------------------------------------------------- |
-| `mjdev app link <slug> <ref>`          | Dev-link an Open App (GitHub URL or local path) into an instance — install parity. |
-| `mjdev app install <slug> <ref>`       | Plain-install an Open App from GitHub (the real install path + transitive deps).   |
-| `mjdev app remove <slug> <app>`        | Remove an installed app.                                                           |
-| `mjdev app unlink <slug> <app>`        | Reverse a dev-link (optionally `--drop-schema`).                                   |
-| `mjdev app switch <slug> <app> <mode>` | Switch an app between `dev` (local source) and `installed` (published).            |
-| `mjdev app list <slug>`                | List apps dev-linked into an instance + per-app status.                            |
-| `mjdev app drift <slug> <app>`         | Check a dev-linked app for migration checksum drift.                               |
-| `mjdev app build <slug> <app>`         | Build a dev-linked app's workspace sub-packages (required before boot).            |
-| `mjdev app build-all <slug>`           | Rebuild all dev-linked apps, in cross-app dependency order.                        |
-| `mjdev app migrate <slug> <app>`       | Run a dev-linked app's schema migrations.                                          |
-| `mjdev app codegen <slug> <app>`       | Run codegen for a dev-linked app.                                                  |
-| `mjdev app setup <slug> <app>`         | Bring a dev-linked app to ready: migrate → sync → codegen → build (one step).      |
-| `mjdev app sync <slug> <app>`          | Push/pull the app's metadata (reference data seed).                                |
-| `mjdev app watch-targets <slug> <app>` | Print the turbo watch filter for live-edit rebuilds.                               |
-| `mjdev app reset-schema <slug> <app>`  | Drop + re-migrate the app schema (destructive — fixes edited migrations).          |
-| `mjdev app repair-schema <slug> <app>` | Repair migration history (realign failed/baseline rows; does NOT re-run SQL).      |
+| Command                                | What it does                                                                                        |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `mjdev app link <slug> <ref>`          | Dev-link an Open App (GitHub URL or local path) into an instance — install parity. **Flags below.** |
+| `mjdev app install <slug> <ref>`       | Plain-install an Open App from GitHub (the real install path + transitive deps).                    |
+| `mjdev app remove <slug> <app>`        | Remove an installed app.                                                                            |
+| `mjdev app unlink <slug> <app>`        | Reverse a dev-link (optionally `--drop-schema`).                                                    |
+| `mjdev app switch <slug> <app> <mode>` | Switch an app between `dev` (local source) and `installed` (published).                             |
+| `mjdev app list <slug>`                | List apps dev-linked into an instance + per-app status.                                             |
+| `mjdev app drift <slug> <app>`         | Check a dev-linked app for migration checksum drift.                                                |
+| `mjdev app build <slug> <app>`         | Build a dev-linked app's workspace sub-packages (required before boot).                             |
+| `mjdev app build-all <slug>`           | Rebuild all dev-linked apps, in cross-app dependency order.                                         |
+| `mjdev app migrate <slug> <app>`       | Run a dev-linked app's schema migrations.                                                           |
+| `mjdev app codegen <slug> <app>`       | Run codegen for a dev-linked app.                                                                   |
+| `mjdev app setup <slug> <app>`         | Bring a dev-linked app to ready: migrate → sync → codegen → build (one step).                       |
+| `mjdev app sync <slug> <app>`          | Push/pull the app's metadata (reference data seed).                                                 |
+| `mjdev app watch-targets <slug> <app>` | Print the turbo watch filter for live-edit rebuilds.                                                |
+| `mjdev app reset-schema <slug> <app>`  | Drop + re-migrate the app schema (destructive — fixes edited migrations).                           |
+| `mjdev app repair-schema <slug> <app>` | Repair migration history (realign failed/baseline rows; does NOT re-run SQL).                       |
+
+**`mjdev app link` flags** (also on `mjdev app link --help`):
+
+- `--allow-double-underscore-schema` — **required for first-party MJ apps** (e.g. `bizapps-common`,
+  `bizapps-accounting`) whose manifest declares a reserved `__`/`__mj_*`-prefixed schema. Without it
+  the link fails at schema-create with `Schema names starting with '__' are reserved for MJ internals`.
+- `--ignore-version-range` — override the manifest's `mjVersionRange` check for off-tag dev (e.g. an
+  app pinned to `4.x` onto a `5.x` instance). Without it, an out-of-range app fails **fast** (before
+  any worktree is materialized) — and a failed link now rolls back, so a corrected retry is clean.
+- `--branch <branch>` / `--base-ref <ref>` — the app branch to develop on in this instance / its start point.
 
 ```sh
-mjdev app link my-slug ~/MJDev/repos/apps/bizapps-accounting --json
+# First-party bizapps-* declare __mj_* schemas → need --allow-double-underscore-schema:
+mjdev app link my-slug ~/MJDev/repos/apps/bizapps-accounting --allow-double-underscore-schema --json
 mjdev app setup my-slug bizapps-accounting   # migrate->sync->codegen->build
 mjdev app build my-slug bizapps-accounting
 mjdev run my-slug api && mjdev e2e my-slug --check apps

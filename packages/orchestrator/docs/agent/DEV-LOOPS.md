@@ -27,6 +27,12 @@ npm run dev:isolated     # relaunch the Electron app against ~/MJDev-dev / ~/.mj
 You're editing app/MJ source in `instances/<slug>/mj/...` (or the dev-linked app
 member). **Order matters** on schema/data changes:
 
+> **Linking the app first:** `mjdev app link <slug> <ref>` needs
+> `--allow-double-underscore-schema` for first-party MJ apps whose manifest declares a
+> reserved `__mj_*` schema (e.g. `bizapps-common`, `bizapps-accounting`) — without it the
+> link fails at schema-create with `reserved for MJ internals`. Use `--ignore-version-range`
+> to link an off-tag app onto a newer MJ. (Full flag list in CLI-REFERENCE.md.)
+
 ```sh
 # code-only change (server or client):
 mjdev app build <slug> <app>           # rebuild the app's workspace sub-packages
