@@ -166,8 +166,14 @@ async function runStep(step, ctx) {
     if (!ir.Success) {
       throw new Error('InstallApp failed (' + (ir.ErrorPhase || '?') + '): ' + (ir.ErrorMessage || 'unknown'));
     }
-    send('success', 'Install', 'Installed ' + ir.AppName + ' v' + ir.Version + ' (' + ir.DurationSeconds + 's)');
-    return { appName: ir.AppName, version: ir.Version, action: ir.Action, durationSeconds: ir.DurationSeconds, summary: ir.Summary || null };
+    // InstallApp can return Success while leaving the app DISABLED (e.g. its npm install
+    // failed) — the reason + finish steps live in ir.Summary. Surface that Summary and
+    // downgrade the level to 'warn' when disabled, so a watcher isn't misled by a clean
+    // "Installed" line into thinking the app is Active.
+    const leftDisabled = /disabled/i.test(ir.Summary || '');
+    const installMsg = 'Installed ' + ir.AppName + ' v' + ir.Version + ' (' + ir.DurationSeconds + 's)';
+    send(leftDisabled ? 'warn' : 'success', 'Install', installMsg + (ir.Summary ? ' — ' + ir.Summary : ''));
+    return { appName: ir.AppName, version: ir.Version, action: ir.Action, durationSeconds: ir.DurationSeconds, summary: ir.Summary || null, disabled: leftDisabled };
   }
 
   if (step === 'removeApp') {
