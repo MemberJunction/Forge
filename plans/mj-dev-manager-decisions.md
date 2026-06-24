@@ -92,3 +92,38 @@ to avoid double-listing.
 **Rules out.** Opening the bare folder as the default editor action; symlinking the
 _member_ out (that's Option X, ADR-001); hand-syncing the artifacts in each lifecycle
 method; clobbering user edits to the workspace file.
+
+---
+
+## ADR-003 — mjdev does NOT mirror MJ / open-app functionality; it documents soft dependencies and focuses on integration value
+
+**Decision.** mjdev will **not** wrap or re-implement capabilities that already exist
+in MJ or the open apps — e.g. running package tests (`turbo run test` / `mj test` /
+an app's `npm test`), codegen, migrate-the-CLI-already-exposes, etc. Where an agent
+needs such a capability during a mjdev workflow, we **point at the existing command in
+the agent docs** (a soft dependency) rather than adding a `mjdev <x>` wrapper. Concrete
+first application: the proposed `mjdev test` / `mjdev app test` runners were **dropped**;
+`TEST-PROTOCOL.md` instead tells agents to run the worktree's own `npm test`
+(`turbo run test`), which — because dev-linked apps are workspace members via the
+`packages/dev-apps/*/packages/*` glob — already spans MJ core **and** every dev-linked app.
+
+**Why.** A wrapper would (1) duplicate a solved capability; (2) confuse agents with a
+redundant, second-source surface; (3) add maintenance; and (4) create a **hard
+dependency that breaks the instant MJ moves/renames the command**. A doc pointer is a
+**soft dependency** with the same benefit and far less downside — if the upstream
+command moves, we edit one line of prose (and can explain _where it moved_) instead of
+shipping a broken tool. mjdev's actual, non-duplicative value is the **integrated
+instance** (guaranteed-correct MJAPI version + the full package set you can't get from a
+standalone open-app repo) and the **advanced UI/integration testing** that only makes
+sense once everything is brought together — that is what the tool should invest in.
+
+**Boundary / how to decide.** Build it in mjdev only if it (a) manages instances or the
+integrated multi-repo environment, or (b) provides testing/validation that genuinely
+requires bringing everything together and can't be done from a single repo. If MJ or an
+app already does it (or _should_ do it), use/point-to theirs — and if it's missing
+(e.g. open apps ship **stub** test scripts today), the fix belongs **upstream** (MJ or
+the open-app source), not as a mjdev workaround.
+
+**Rules out.** `mjdev test` / `mjdev app test` wrappers; any `mjdev` command that merely
+shells a stock MJ/app command an agent could run directly; "fixing" missing open-app
+tests inside mjdev instead of upstream.
