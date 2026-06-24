@@ -35,11 +35,14 @@ never a production instance a human is actively using.
    _Header-less probes returning `UNAUTHENTICATED` also prove the server is up + DB-backed._
 4. **Open-app dev-link runtime** — a dev-linked app's `@RegisterClass` classes register and
    its `-server` package's resolvers load (`Loaded Open App server package: …`). (W0.) The
-   client-bootstrap step is **version-adaptive** (it tracks the MJ engine API, which has changed):
-   `mjdev app link` must complete + exit 0 on a worktree whose engine exposes `AddClientDynamicPackages`
-   (new — writes `dynamicPackages.client`, built by `mj codegen manifest --ln`) AND on older
-   engines exposing `RegenerateClientBootstrap`. If the MJ engine moves this API again, re-verify
-   `engineEntrySource.ts`'s `clientBootstrap` step + `openAppRuntimeSupport.ts`'s client marker.
+   client-bootstrap step tracks MJ's CURRENT open-app API: `mjdev app link` calls the engine's
+   `AddClientDynamicPackages` (writes `dynamicPackages.client`; MJExplorer's `mj codegen manifest
+--ln` prebuild turns it into a per-app side-effect import) and must complete + exit 0. We target
+   current MJ only (no legacy fallback) — if that engine export is absent the step throws a clear
+   error naming both likely causes (instance worktree built from older MJ source → rebuild it; or
+   MJ moved the API again → update the tool). If MJ changes this API, re-verify
+   `engineEntrySource.ts`'s `clientBootstrap` step + `openAppRuntimeSupport.ts`'s client marker
+   (`class-registrations-manifest`).
 5. **Lifecycle**: `stop` stops only the instance's processes (shared server stays up);
    `delete` drops only that instance's DB (legacy records: removes their old container);
    `mjdev reset` tears the shared server down + sweeps legacy containers.

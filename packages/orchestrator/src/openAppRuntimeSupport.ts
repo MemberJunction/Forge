@@ -30,12 +30,12 @@ const EXPLORER_APP_MODULE_SUBPATH = path.join(
 /** Server-bootstrap mentions `dynamicPackages` only once it consumes it (older versions never do). */
 const SERVER_CONSUMER_MARKER = 'dynamicPackages';
 /**
- * `app.module.ts` references one of these once it loads dev-linked app client classes:
- *  - `open-app-bootstrap` — the original generated bootstrap import;
- *  - `class-registrations-manifest` — the newer `mj codegen manifest … --ln` manifest the
- *    openapp branch's client-runtime-load refactor switched to.
+ * `app.module.ts` imports the generated `class-registrations-manifest` once it loads
+ * dev-linked app client classes — `mj codegen manifest --ln` appends one per-app
+ * side-effect import per installed app. This is MJ's current open-app client
+ * runtime-load mechanism (it replaced the earlier `open-app-bootstrap` file).
  */
-const CLIENT_BOOTSTRAP_MARKERS = ['open-app-bootstrap', 'class-registrations-manifest'];
+const CLIENT_BOOTSTRAP_MARKER = 'class-registrations-manifest';
 
 export interface OpenAppRuntimeSupport {
   /** server-bootstrap consumes `dynamicPackages.server` → app GraphQL resolvers are served. */
@@ -44,10 +44,9 @@ export interface OpenAppRuntimeSupport {
   clientBootstrap: boolean;
 }
 
-async function fileIncludesAny(file: string, markers: string[]): Promise<boolean> {
+async function fileIncludes(file: string, marker: string): Promise<boolean> {
   try {
-    const content = await fs.readFile(file, 'utf-8');
-    return markers.some(m => content.includes(m));
+    return (await fs.readFile(file, 'utf-8')).includes(marker);
   } catch {
     return false;
   }
@@ -58,11 +57,8 @@ export async function detectOpenAppRuntimeSupport(
   mjWorktreePath: string
 ): Promise<OpenAppRuntimeSupport> {
   const [serverResolvers, clientBootstrap] = await Promise.all([
-    fileIncludesAny(path.join(mjWorktreePath, SERVER_BOOTSTRAP_SUBPATH), [SERVER_CONSUMER_MARKER]),
-    fileIncludesAny(
-      path.join(mjWorktreePath, EXPLORER_APP_MODULE_SUBPATH),
-      CLIENT_BOOTSTRAP_MARKERS
-    ),
+    fileIncludes(path.join(mjWorktreePath, SERVER_BOOTSTRAP_SUBPATH), SERVER_CONSUMER_MARKER),
+    fileIncludes(path.join(mjWorktreePath, EXPLORER_APP_MODULE_SUBPATH), CLIENT_BOOTSTRAP_MARKER),
   ]);
   return { serverResolvers, clientBootstrap };
 }

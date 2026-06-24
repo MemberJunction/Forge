@@ -122,10 +122,9 @@ describe('ENGINE_ENTRY_SOURCE — generated-script contract', () => {
       'AddServerDynamicPackages',
       'AngularConfigManager',
       'SetAppStatus',
-      // Client bootstrap: new engines expose AddClientDynamicPackages; older ones
-      // RegenerateClientBootstrap. The entry source references both (capability-detect).
+      // Client bootstrap: current MJ exposes AddClientDynamicPackages (writes
+      // dynamicPackages.client; built by `mj codegen manifest --ln`).
       'AddClientDynamicPackages',
-      'RegenerateClientBootstrap',
       'ListInstalledApps',
       // Slice 3 reversal
       'RemoveServerDynamicPackages',

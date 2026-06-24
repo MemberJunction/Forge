@@ -358,66 +358,36 @@ async function runStep(step, ctx) {
   }
 
   if (step === 'clientBootstrap') {
-    // Client runtime-load differs by MJ base — capability-detect so dev-link tracks
-    // the install orchestrator on either:
-    //  - NEW (openapp branch): engine.AddClientDynamicPackages(repoRoot, manifest)
-    //    writes dynamicPackages.client; MJExplorer's "mj codegen manifest --ln"
-    //    prebuild turns them into per-app side-effect imports. Mirrors serverConfig.
-    //    Additive, so only run for the app being LINKED (Status Active). On unlink the
-    //    removeServerConfig step (RemoveServerDynamicPackages) already swept the client
-    //    array, so this is a no-op.
-    //  - OLD: engine.RegenerateClientBootstrap(repoRoot, entries, ...) regenerated a
-    //    central bootstrap file from the full installed-app set (works for link+unlink).
-    //  - Neither: guard - never let a missing export fail the whole link.
-    if (typeof engine.AddClientDynamicPackages === 'function') {
-      const installed = await engine.ListInstalledApps(ctx.contextUser);
-      const me = installed.find(a => a.Name === ctx.manifest.name);
-      if (me && me.Status === 'Active') {
-        const r = engine.AddClientDynamicPackages(ctx.spec.repoRoot, ctx.manifest);
-        if (!r.Success) throw new Error('AddClientDynamicPackages failed: ' + r.ErrorMessage);
-        send('success', 'Config', 'Updated dynamicPackages.client (built by mj codegen manifest --ln)');
-        return { mode: 'dynamicPackages.client', added: true };
-      }
-      send('info', 'Config', 'Client packages swept with config (no add for removed/inactive app)');
-      return { mode: 'dynamicPackages.client', added: false };
-    }
-    if (typeof engine.RegenerateClientBootstrap !== 'function') {
-      send('warn', 'Config', 'Engine exposes no client-bootstrap API (AddClientDynamicPackages/RegenerateClientBootstrap); skipping');
-      return { skipped: true };
-    }
-    // Reproduce HandleClientBootstrapRegeneration: topo-sort installed apps
-    // (deps first), emit client+shared package entries, regenerate the bootstrap.
-    const apps = await engine.ListInstalledApps(ctx.contextUser);
-    const appDeps = new Map();
-    for (const a of apps) {
-      const m = JSON.parse(a.ManifestJSON);
-      appDeps.set(a.Name, m.dependencies ? Object.keys(m.dependencies) : []);
-    }
-    const visited = new Set();
-    const sorted = [];
-    const visit = name => {
-      if (visited.has(name)) return;
-      visited.add(name);
-      for (const d of appDeps.get(name) || []) if (appDeps.has(d)) visit(d);
-      sorted.push(name);
-    };
-    for (const name of appDeps.keys()) visit(name);
-    const byName = new Map(apps.map(a => [a.Name, a]));
-    const entries = [];
-    for (const name of sorted) {
-      const a = byName.get(name);
-      if (!a) continue;
-      const m = JSON.parse(a.ManifestJSON);
-      const pkgs = (m.packages && m.packages.client ? m.packages.client : []).concat(
-        m.packages && m.packages.shared ? m.packages.shared : []
+    // Current MJ registers a dev-linked app's client classes via config: the engine's
+    // AddClientDynamicPackages(repoRoot, manifest) writes dynamicPackages.client, and
+    // MJExplorer's "mj codegen manifest --ln" prebuild turns each into a per-app
+    // side-effect import (firing its @RegisterClass decorators). Mirrors serverConfig.
+    // It's additive, so only run it for the app being LINKED (Status Active); on unlink
+    // it's a no-op, because removeServerConfig (RemoveServerDynamicPackages) already
+    // sweeps the client array.
+    if (typeof engine.AddClientDynamicPackages !== 'function') {
+      // The worktree's engine doesn't expose the client-bootstrap API this step needs,
+      // so dynamicPackages.client could not be written and the app's UI won't load.
+      // Surface it loudly with both plausible causes rather than guessing one.
+      throw new Error(
+        'Client-bootstrap step failed: the MJ engine in this instance worktree does not ' +
+          'expose AddClientDynamicPackages, so dynamicPackages.client was not written. ' +
+          'This may be because the instance worktree was built from an OLDER MJ source ' +
+          '(rebuild the instance engine and retry), OR because MJ has changed the open-app ' +
+          'client-bootstrap API again (the dev-manager tool needs updating to match). ' +
+          'Check the current open-app config API on this MJ base.'
       );
-      for (const pkg of pkgs) {
-        entries.push({ AppName: a.Name, Version: a.Version, PackageName: pkg.name, Enabled: a.Status === 'Active' });
-      }
     }
-    engine.RegenerateClientBootstrap(ctx.spec.repoRoot, entries, ctx.spec.clientPackagePath, ctx.spec.clientBootstrapSubpath);
-    send('success', 'Config', 'Regenerated client bootstrap (' + entries.length + ' entr(ies))');
-    return { entries: entries.length };
+    const installed = await engine.ListInstalledApps(ctx.contextUser);
+    const me = installed.find(a => a.Name === ctx.manifest.name);
+    if (me && me.Status === 'Active') {
+      const r = engine.AddClientDynamicPackages(ctx.spec.repoRoot, ctx.manifest);
+      if (!r.Success) throw new Error('AddClientDynamicPackages failed: ' + r.ErrorMessage);
+      send('success', 'Config', 'Updated dynamicPackages.client (built by mj codegen manifest --ln)');
+      return { mode: 'dynamicPackages.client', added: true };
+    }
+    send('info', 'Config', 'Client packages swept with config (no add for removed/inactive app)');
+    return { mode: 'dynamicPackages.client', added: false };
   }
 
   if (step === 'removeServerConfig') {
