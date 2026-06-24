@@ -251,23 +251,72 @@ export class OpenAppManager {
       { appBranch: opts.appBranch, baseRef: opts.baseRef, env },
       sink
     );
-    if (opts.ignoreVersionRange) {
-      const st = await this.state.get(slug, link.appName);
-      if (st) await this.state.upsert({ ...st, ignoreVersionRangeUsed: true });
+    // The worktree is now materialized. Any failure from here on (schema-create,
+    // migrate, the mutation set) must unwind it — otherwise a half-linked instance
+    // is left behind (member worktree + openapps.json entry + workspace glob), which
+    // blocks a corrected retry with "Worktree path already exists" and forces a
+    // manual `mjdev app unlink`. (The version gate already ran pre-materialize.)
+    try {
+      if (opts.ignoreVersionRange) {
+        const st = await this.state.get(slug, link.appName);
+        if (st) await this.state.upsert({ ...st, ignoreVersionRangeUsed: true });
+      }
+      await this.ensureSchemaAndMigrate(
+        slug,
+        mjWorktreePath,
+        link.appName,
+        dbConfig,
+        env,
+        sink,
+        opts.allowDoubleUnderscore === true
+      );
+      await this.applyFullMutationSet(slug, mjWorktreePath, link.appName, dbConfig, env, sink);
+      const snapshot = await this.captureParitySnapshot(mjWorktreePath, link.appName);
+      emit(sink, slug, 'app-link', 'success', `Dev-linked ${link.appName}`);
+      return { appName: link.appName, singleCopy: link.singleCopy, snapshot };
+    } catch (err) {
+      await this.rollbackLinkResolution(slug, mjWorktreePath, link, env, sink);
+      throw err;
     }
-    await this.ensureSchemaAndMigrate(
-      slug,
-      mjWorktreePath,
-      link.appName,
-      dbConfig,
-      env,
+  }
+
+  /**
+   * Best-effort unwind of {@link linkResolution}'s side effects when a later link
+   * step fails — so a partially-applied dev-link doesn't strand a worktree + state
+   * entry that blocks a retry. Mirrors the resolution-reversal half of `unlinkApp`
+   * (remove the member worktree, drop the workspace glob if it was the last dev app,
+   * forget the overlay entry, reinstall). Each step is guarded so cleanup never
+   * masks the original failure.
+   */
+  private async rollbackLinkResolution(
+    slug: string,
+    mjWorktreePath: string,
+    link: LinkResolutionResult,
+    env: NodeJS.ProcessEnv,
+    sink: EventSink
+  ): Promise<void> {
+    emit(
       sink,
-      opts.allowDoubleUnderscore === true
+      slug,
+      'app-link',
+      'warn',
+      `Link failed — rolling back partial dev-link of ${link.appName}…`
     );
-    await this.applyFullMutationSet(slug, mjWorktreePath, link.appName, dbConfig, env, sink);
-    const snapshot = await this.captureParitySnapshot(mjWorktreePath, link.appName);
-    emit(sink, slug, 'app-link', 'success', `Dev-linked ${link.appName}`);
-    return { appName: link.appName, singleCopy: link.singleCopy, snapshot };
+    await new WorktreeManager(link.clonePath).remove(link.memberPath, slug, sink).catch(() => {});
+    const others = (await this.state.list(slug).catch(() => [])).filter(
+      a => a.appName !== link.appName && a.mode === 'dev'
+    );
+    if (others.length === 0)
+      await this.removeWorkspaceGlob(mjWorktreePath, DEV_APPS_GLOB).catch(() => {});
+    await this.state.remove(slug, link.appName).catch(() => {});
+    await this.npmInstall(mjWorktreePath, env, sink).catch(() => {});
+    emit(
+      sink,
+      slug,
+      'app-link',
+      'info',
+      `Rolled back ${link.appName} — instance restored, retry is clean`
+    );
   }
 
   /**
