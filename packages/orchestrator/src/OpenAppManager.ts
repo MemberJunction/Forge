@@ -225,20 +225,30 @@ export class OpenAppManager {
     sink: EventSink = noopSink
   ): Promise<{ appName: string; singleCopy: SingleCopyResult; snapshot: ParitySnapshot }> {
     const env = opts.env ?? process.env;
+    const appName = AppRepoManager.appDirName(appRef);
+
+    // Version gate FIRST — before materializing the worktree. Reads the app's
+    // required MJ range from the shared clone's manifest (the instance MJ version
+    // comes from the worktree engine), so an incompatible app fails fast and leaves
+    // the instance untouched, rather than aborting after a clone + npm install and
+    // leaving a half-linked instance behind.
+    const clonePath = await this.appRepos.ensureAppClone(appRef, {}, sink);
+    await this.checkVersionCompat(
+      slug,
+      mjWorktreePath,
+      appName,
+      dbConfig,
+      opts.ignoreVersionRange ?? false,
+      env,
+      sink,
+      path.join(clonePath, 'mj-app.json')
+    );
+
     const link = await this.linkResolution(
       slug,
       mjWorktreePath,
       appRef,
       { appBranch: opts.appBranch, baseRef: opts.baseRef, env },
-      sink
-    );
-    await this.checkVersionCompat(
-      slug,
-      mjWorktreePath,
-      link.appName,
-      dbConfig,
-      opts.ignoreVersionRange ?? false,
-      env,
       sink
     );
     if (opts.ignoreVersionRange) {
@@ -795,7 +805,10 @@ export class OpenAppManager {
     dbConfig: EngineDbConfig,
     ignoreVersionRange = false,
     env: NodeJS.ProcessEnv = process.env,
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    /** Manifest to check — defaults to the materialized member; pass the shared
+     *  clone's mj-app.json to run this BEFORE materializing (fail-fast). */
+    manifestPath?: string
   ): Promise<{ compatible: boolean; overridden?: boolean; range?: string; mjVersion?: string }> {
     const r = await this.runSteps(
       slug,
@@ -803,7 +816,7 @@ export class OpenAppManager {
       appName,
       ['checkVersion'],
       dbConfig,
-      { ignoreVersionRange },
+      { ignoreVersionRange, manifestPath },
       env,
       sink
     );
@@ -885,7 +898,7 @@ export class OpenAppManager {
     appName: string,
     steps: string[],
     dbConfig: EngineDbConfig,
-    extra: { ignoreVersionRange?: boolean } = {},
+    extra: { ignoreVersionRange?: boolean; manifestPath?: string } = {},
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink
   ): Promise<EngineRunResult> {
@@ -897,7 +910,9 @@ export class OpenAppManager {
       {
         steps,
         memberPath,
-        manifestPath: path.join(memberPath, 'mj-app.json'),
+        // Defaults to the materialized member's manifest, but callers can point at
+        // another copy (e.g. the shared clone) to run a step BEFORE materializing.
+        manifestPath: extra.manifestPath ?? path.join(memberPath, 'mj-app.json'),
         dbConfig,
         mjCoreSchema: '__mj',
         ignoreVersionRange: extra.ignoreVersionRange,
