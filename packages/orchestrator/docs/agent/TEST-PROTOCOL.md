@@ -43,7 +43,13 @@ dependency**: same benefit, and if the command changes we update this line, not 
   `workspaces` glob ends with `packages/dev-apps/*/packages/*`, so dev-linked apps'
   sub-packages are real workspace members — the worktree's test run **already spans
   them**. Scope it with `turbo run test --filter=<pkg>` (the full MJ suite is ~50
-  packages); `mj test` works too.
+  packages). This (`npm test` / `turbo run test`) is the **canonical package/unit-test
+  runner** — use it to validate code changes.
+- **Not the same thing — `mj test`:** the `mj` CLI's `test` topic is the **MemberJunction
+  Testing Framework** (DB-backed, metadata-defined tests: `mj test run`/`suite`/`list`/
+  `compare`/`history`/`validate`/regression). It is **not** a wrapper for `turbo run test`
+  and does **not** run package/unit tests. Don't reach for it to validate code — use
+  `turbo run test`. (Use `mj test` only when you specifically mean the Testing Framework.)
 - **A single app:** run its own `npm test` in `packages/dev-apps/<app>`.
 - **Why this is the win:** the value mjdev adds is the _integrated instance_ — the
   guaranteed-correct MJAPI version and full package set you cannot get from a
