@@ -358,6 +358,33 @@ async function runStep(step, ctx) {
   }
 
   if (step === 'clientBootstrap') {
+    // Client runtime-load differs by MJ base — capability-detect so dev-link tracks
+    // the install orchestrator on either:
+    //  - NEW (openapp branch): engine.AddClientDynamicPackages(repoRoot, manifest)
+    //    writes dynamicPackages.client; MJExplorer's "mj codegen manifest --ln"
+    //    prebuild turns them into per-app side-effect imports. Mirrors serverConfig.
+    //    Additive, so only run for the app being LINKED (Status Active). On unlink the
+    //    removeServerConfig step (RemoveServerDynamicPackages) already swept the client
+    //    array, so this is a no-op.
+    //  - OLD: engine.RegenerateClientBootstrap(repoRoot, entries, ...) regenerated a
+    //    central bootstrap file from the full installed-app set (works for link+unlink).
+    //  - Neither: guard - never let a missing export fail the whole link.
+    if (typeof engine.AddClientDynamicPackages === 'function') {
+      const installed = await engine.ListInstalledApps(ctx.contextUser);
+      const me = installed.find(a => a.Name === ctx.manifest.name);
+      if (me && me.Status === 'Active') {
+        const r = engine.AddClientDynamicPackages(ctx.spec.repoRoot, ctx.manifest);
+        if (!r.Success) throw new Error('AddClientDynamicPackages failed: ' + r.ErrorMessage);
+        send('success', 'Config', 'Updated dynamicPackages.client (built by mj codegen manifest --ln)');
+        return { mode: 'dynamicPackages.client', added: true };
+      }
+      send('info', 'Config', 'Client packages swept with config (no add for removed/inactive app)');
+      return { mode: 'dynamicPackages.client', added: false };
+    }
+    if (typeof engine.RegenerateClientBootstrap !== 'function') {
+      send('warn', 'Config', 'Engine exposes no client-bootstrap API (AddClientDynamicPackages/RegenerateClientBootstrap); skipping');
+      return { skipped: true };
+    }
     // Reproduce HandleClientBootstrapRegeneration: topo-sort installed apps
     // (deps first), emit client+shared package entries, regenerate the bootstrap.
     const apps = await engine.ListInstalledApps(ctx.contextUser);

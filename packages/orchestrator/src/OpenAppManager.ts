@@ -568,7 +568,8 @@ export class OpenAppManager {
    * for everything after schema/migrations — record the `MJ: Open Apps` row,
    * `AddAppPackages` + `RunPackageInstall`, `AddServerDynamicPackages`, the
    * reproduced `entityPackageName` mapping, `AddPrebundleExcludes`, flip status to
-   * Active, and `RegenerateClientBootstrap`. Every step but `entityPackageName`
+   * Active, and the client-bootstrap step (`AddClientDynamicPackages` on current MJ,
+   * `RegenerateClientBootstrap` on older bases). Every step but `entityPackageName`
    * runs through the worktree's OWN engine (parity); `entityPackageName` is the one
    * non-exported handler, reproduced Forge-side on `mj.config.cjs`. Returns the
    * engine result (per-step data) for the caller to assert against.
@@ -662,7 +663,8 @@ export class OpenAppManager {
    * Slice-3 reversal: undo a dev-link in the engine's RemoveApp order, then reverse
    * the resolution layer. Config/DB removal runs through the worktree engine
    * (RemoveServerDynamicPackages, RemoveAppPackages, RemovePrebundleExcludes,
-   * SetAppStatus Removed, RegenerateClientBootstrap, optional DropAppSchema) while
+   * SetAppStatus Removed, the client-bootstrap step — a no-op on current MJ since
+   * RemoveServerDynamicPackages already swept the client array — optional DropAppSchema) while
    * the member is still present (its manifest is needed); then Forge removes the
    * entityPackageName mapping, the member worktree, the workspaces glob (if last),
    * runs a final `npm install`, and drops the dev-state. `dropSchema` defaults off

@@ -122,6 +122,9 @@ describe('ENGINE_ENTRY_SOURCE — generated-script contract', () => {
       'AddServerDynamicPackages',
       'AngularConfigManager',
       'SetAppStatus',
+      // Client bootstrap: new engines expose AddClientDynamicPackages; older ones
+      // RegenerateClientBootstrap. The entry source references both (capability-detect).
+      'AddClientDynamicPackages',
       'RegenerateClientBootstrap',
       'ListInstalledApps',
       // Slice 3 reversal
