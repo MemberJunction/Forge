@@ -9,6 +9,7 @@ import { resolvePaths, syncAgentDocs, InstanceOrchestrator } from '@mj-forge/orc
 import { createMainWindow } from './window';
 import { createMenu } from './menu';
 import { registerAllHandlers } from './ipc';
+import { reconcileManagedConnections } from './services/mjdev-connections';
 import { createLogger } from './utils/logger';
 import { ConnectionPoolManager } from './services/sql/connection-pool';
 import { QueryExecutor } from './services/sql/query-executor';
@@ -92,6 +93,10 @@ if (!gotTheLock) {
 
     // Publish agent docs + CLI launcher into ~/MJDev (best-effort, before handlers).
     await publishAgentDocs();
+
+    // Auto-register a connection for the shared SQL Server backing instances, so
+    // it appears in the connection list with no manual setup (best-effort).
+    await reconcileManagedConnections();
 
     // Register IPC handlers
     registerAllHandlers();

@@ -9,3 +9,6 @@ export * from './validators';
 
 // Config
 export * from './config';
+
+// Helpers
+export * from './helpers/managed-connection';

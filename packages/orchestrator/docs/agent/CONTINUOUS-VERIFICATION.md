@@ -40,6 +40,11 @@ never a production instance a human is actively using.
    `mjdev reset` tears the shared server down + sweeps legacy containers.
 6. **Identity/magic-link** — persona mint + `mjdev e2e <slug> --check login` (when auth paths change).
 7. **Editor artifacts** — `mjdev open <slug>` reconciles symlinks + `<slug>.code-workspace`.
+8. **Auto-registered connection** — on Forge launch, the shared SQL Server is registered as a
+   managed `ConnectionProfile` (sa @ `localhost:<port>`) from `server.json`, so it appears in
+   the connection list with no manual setup. Covered by `tests/e2e/mjdev-connection-autoregister.spec.ts`
+   (real-startup persistence) + `managed-connection.test.ts` (pure builder). Idempotent: one
+   profile tagged `managed`, refreshed in place; user name/color edits preserved.
 
 ## Known pre-existing issues — do NOT re-flag these as regressions
 

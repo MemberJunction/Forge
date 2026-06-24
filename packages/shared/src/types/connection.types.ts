@@ -59,6 +59,15 @@ export interface ConnectionProfile {
   azureClientId?: string; // Entra ID application (client) ID — override the default well-known client
   azureHomeAccountId?: string; // MSAL homeAccountId — binds silent refresh to the specific account this profile signs in as
   mysqlCollation?: string; // e.g. 'utf8mb4_0900_ai_ci'
+  /**
+   * True when this profile is auto-managed by the MJ Dev Manager (it points at
+   * the shared SQL Server backing the workspace's instances and is reconciled
+   * from `server.json` on launch). Used to find + refresh the one managed
+   * profile without duplicating it, and lets the UI distinguish it from
+   * user-created connections. User edits to name/color are preserved across
+   * reconciles; host/port/credentials are refreshed.
+   */
+  managed?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
