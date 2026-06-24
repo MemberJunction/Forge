@@ -12,6 +12,32 @@ programmatically, the same way we test the CLI.
 not to re-flag). This file is _how_ to run each tier; that one is _what_ to cover. Consult it
 on every non-trivial change and add to it when you validate new behavior.
 
+## Test the real use case, and describe tests accurately (non-negotiable)
+
+The harness exists so the **user does not do the testing** — they should only have to test if
+you explicitly tell them to AND there's a real reason. So:
+
+- **Test the actual feature in the way it's used.** Change app-linking → run `mjdev app link`
+  end-to-end. Change boot → boot it. Prefer tests that mimic the **production environment + real
+  use case** so real issues surface. A passing unit test is not "it works."
+- **When you say "this works," it must mean you exercised the real use case.** Never report a
+  feature as working off a partial test.
+- **A half-test is fine to save time — but you MUST label it as a half-test** and state exactly
+  what you did and didn't cover. Claiming something works when it doesn't is the worst outcome;
+  an accurately-labeled partial test is honest and useful.
+- **Very-involved tests:** surface that to the user and ask for advice — UNLESS they've told you
+  to roll through / "just do the change and the testing." If told to roll through, print a short
+  console line ("beginning long testing") so a watching user can intervene, then proceed.
+
+## Reusable dev instances (keep them; don't always start from scratch)
+
+The slow part of a real test is standing up an instance. So **keep a few (~3-4) dedicated dev
+instances in the dev MJDev app** (`~/.mjdev-dev`, the isolated dev workspace — **never** the prod
+workspace a human relies on) specifically for development testing. If a test creates an instance
+that could serve the same kind of test again (e.g. an app-link smoke instance on a current MJ
+base), it's good to keep it rather than delete it, so the next request reuses it. Name them
+obviously (e.g. `applink-smoke`).
+
 So for any UI-shaped change you must, in addition to the CLI/engine test:
 
 1. **Assert the element is PRESENT** (the button/field/row you expect renders).
