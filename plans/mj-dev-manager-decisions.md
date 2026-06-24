@@ -127,3 +127,12 @@ the open-app source), not as a mjdev workaround.
 **Rules out.** `mjdev test` / `mjdev app test` wrappers; any `mjdev` command that merely
 shells a stock MJ/app command an agent could run directly; "fixing" missing open-app
 tests inside mjdev instead of upstream.
+
+**Verified (2026-06-23, live on `openapp-dev`).** `turbo run test` from the instance
+worktree scheduled **all 10** dev-linked `@mj-biz-apps/*` sub-packages (258 packages in
+the test graph) and a scoped `--filter='@mj-biz-apps/*'` run executed every one
+(20/20 tasks green), each firing its `echo "No tests configured yet"` stub. So the
+instance's existing test command genuinely spans dev-linked apps — when an app adds a
+real suite it runs automatically, with no mjdev wrapper. (Benign: turbo warns
+`no output files found for …#test` because the task's `outputs: ["coverage/**"]` yields
+nothing for a stub; resolves once apps emit coverage.)
