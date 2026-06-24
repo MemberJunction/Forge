@@ -7,6 +7,11 @@ but the button is missing / disabled / wired wrong" — found only by manual
 clicking. We eliminate it by testing the **UI's presence and its behavior**
 programmatically, the same way we test the CLI.
 
+**Companion doc:** `CONTINUOUS-VERIFICATION.md` is the _inventory of validated behaviors_
+(what must be re-proven on a change, with exact commands, plus known pre-existing failures
+not to re-flag). This file is _how_ to run each tier; that one is _what_ to cover. Consult it
+on every non-trivial change and add to it when you validate new behavior.
+
 So for any UI-shaped change you must, in addition to the CLI/engine test:
 
 1. **Assert the element is PRESENT** (the button/field/row you expect renders).
