@@ -11,8 +11,13 @@ MJ Forge is a native macOS desktop application providing database management wor
 > 1. **Keep the agent docs in sync with behavior.** Any change that alters how the tool
 >    behaves, where things live, or how an agent uses it must update
 >    `packages/orchestrator/docs/agent/*.md` (e.g. `WORKSPACE.md`, `CLI-REFERENCE.md`,
->    `ORCHESTRATION.md`) in the same change. These are synced into `~/MJDev/.mjdev-docs/`
->    for agents working inside the workspace — stale docs mislead them.
+>    `ORCHESTRATION.md`, `DEV-LOOPS.md`) in the same change. These are synced into
+>    `~/MJDev/.mjdev-docs/` for agents working inside the workspace — stale docs mislead them.
+>    This covers **non-obvious runtime behaviors and gotchas an agent must know**, not just
+>    where files live — e.g. a command that returns success but leaves state in a non-obvious
+>    condition (like `app install` completing with the app left **Disabled** when npm fails),
+>    a flag an agent can't discover from the docs, or a step whose failure is recoverable. If you
+>    discover such a behavior while triaging — even one you don't change — document it.
 > 2. **Record architectural/structural decisions in [`plans/mj-dev-manager-decisions.md`](plans/mj-dev-manager-decisions.md).**
 >    Whenever you make (or re-derive) a load-bearing or counterintuitive structural choice,
 >    add an ADR entry there with the reasoning and what it rules out — so the _why_ lives

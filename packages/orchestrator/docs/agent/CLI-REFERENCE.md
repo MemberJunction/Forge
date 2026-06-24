@@ -98,6 +98,16 @@ mjdev ps my-slug --json
   any worktree is materialized) — and a failed link now rolls back, so a corrected retry is clean.
 - `--branch <branch>` / `--base-ref <ref>` — the app branch to develop on in this instance / its start point.
 
+**`mjdev app install` can "succeed" with the app left DISABLED — by design.** If the install's
+`npm install` step fails (commonly a peer-dep `ERESOLVE` from a published-app-vs-base version skew),
+the engine **intentionally** still completes the durable work (schema, migrations, config, metadata)
+and records the app as **Disabled** instead of Active — so MJ never tries to load an app whose code
+packages aren't resolved (which would crash at boot). It returns success **with the reason in its
+`Summary`**: _"App installed but left DISABLED — npm install failed…"_. This is resumable-by-design,
+not a silent failure. **To finish:** fix the npm cause (npm login / `.npmrc` / peer-deps), run
+`npm install`, then `mj app enable <app>`. ⚠ A bare `Installed <app> v<ver>` line does **not** mean
+the app is Active — check the `Summary` (or `--json` output) / the app's status in `mjdev app list`.
+
 ```sh
 # First-party bizapps-* declare __mj_* schemas → need --allow-double-underscore-schema:
 mjdev app link my-slug ~/MJDev/repos/apps/bizapps-accounting --allow-double-underscore-schema --json
