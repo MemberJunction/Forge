@@ -15,6 +15,7 @@ import { PersonaStore } from './PersonaStore.js';
 import { IdentityManager } from './IdentityManager.js';
 import { PortAllocator } from './PortAllocator.js';
 import { DockerManager } from './DockerManager.js';
+import { SharedSqlServer } from './SharedSqlServer.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { RepoManager } from './RepoManager.js';
 import { OpenAppManager, type AppDependency } from './OpenAppManager.js';
@@ -22,7 +23,7 @@ import { reconcileInstanceEditorArtifacts, resolveEditorTarget } from './Workspa
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
-import { buildSetupScript } from './dbBootstrap.js';
+import { buildSetupScript, buildDropDatabaseScript } from './dbBootstrap.js';
 import { resolveNodeForWorktree, envWithNode } from './nodeEnv.js';
 import {
   emit,
@@ -30,7 +31,6 @@ import {
   noopSink,
   slugify,
   newId,
-  generatePassword,
   generateEncryptionKey,
   generateApiToken,
   generateRsaKeyPair,
@@ -51,6 +51,8 @@ export class InstanceOrchestrator {
   private readonly personas: PersonaStore;
   private readonly identity: IdentityManager;
   private readonly docker: DockerManager;
+  /** The one shared SQL Server backing every instance in this workspace. */
+  private readonly server: SharedSqlServer;
   private readonly worktrees: WorktreeManager;
   private readonly repo: RepoManager;
   /** Open-app dev-linking (Phase B). */
@@ -66,6 +68,7 @@ export class InstanceOrchestrator {
     this.store = new InstanceStore(this.paths);
     this.personas = new PersonaStore(this.paths);
     this.docker = docker ?? new DockerManager(undefined, this.paths.containerPrefix);
+    this.server = new SharedSqlServer(this.docker, this.store, this.paths);
     this.identity = new IdentityManager(this.store, this.personas, this.docker);
     this.worktrees = new WorktreeManager(this.paths.mjRepoPath);
     this.repo = new RepoManager(this.paths.mjClonePath, this.paths.mjSourcePath);
@@ -107,13 +110,19 @@ export class InstanceOrchestrator {
     if (this.usingManagedClone) await this.repo.ensureCentralClone(slug, sink);
     await this.worktrees.assertRepo();
 
-    // Reserve ports already published by any Docker container (e.g. the dev's
-    // own SQL Server on 1433) so we never collide with them.
+    // Ensure the workspace's single shared SQL Server (created on the first
+    // instance, reused thereafter). Every instance's database lives here.
+    const server = await this.server.ensure(sink);
+
+    // Reserve ports already published by any Docker container so we never
+    // collide. SQL is fixed to the shared server's port; only api/explorer are
+    // striped per instance.
     const reserved = await this.docker.listPublishedHostPorts().catch(() => []);
     const ports = await PortAllocator.allocate(
       existing.map(i => i.ports),
       config.ports,
-      reserved
+      reserved,
+      server.port
     );
     const branch = config.branch?.trim() || `mjdev/${slug}`;
     const baseRef = config.baseRef?.trim() || 'HEAD';
@@ -123,18 +132,17 @@ export class InstanceOrchestrator {
     const worktreePath = path.join(this.paths.instancesRootDir, slug, 'mj');
     const secretsRef = slug;
 
-    const saPassword =
-      config.database?.saPassword && config.database.saPassword !== 'auto'
-        ? config.database.saPassword
-        : generatePassword();
-    // Distinct least-privilege app logins — never `sa` (see dbBootstrap.ts).
-    // `sa` is retained only to bootstrap the container.
+    // DB credentials are SHARED across the workspace's single server (the login
+    // names are fixed, so one password per login is the only coherent model) —
+    // copied from server.json into this instance's secrets so ConfigWriter and
+    // IdentityManager read them unchanged. App-level keys (encryption, magic-link)
+    // stay per-instance. `sa` is bootstrap/admin only — never used for app access.
     const secrets: InstanceSecrets = {
-      saPassword,
+      saPassword: server.saPassword,
       dbUsername: 'MJ_Connect',
-      dbPassword: generatePassword(),
+      dbPassword: server.dbPassword,
       codegenUsername: 'MJ_CodeGen',
-      codegenPassword: generatePassword(),
+      codegenPassword: server.codegenPassword,
       encryptionKey: generateEncryptionKey(),
       // Phase 2 local dev auth: system Owner key + magic-link signing key.
       systemApiKey: generateApiToken(),
@@ -148,9 +156,10 @@ export class InstanceOrchestrator {
       branch,
       baseRef,
       worktreePath,
+      // References the workspace's shared SQL Server (one DB per instance).
       container: {
-        name: `${this.paths.containerPrefix}-${slug}`,
-        volume: `${this.paths.containerPrefix}-${slug}-data`,
+        name: server.containerName,
+        volume: server.volume,
       },
       ports,
       dbName,
@@ -184,17 +193,14 @@ export class InstanceOrchestrator {
 
     const rollback: Array<() => Promise<void>> = [];
     try {
-      // 1) Docker SQL container
-      const containerId = await this.docker.createSqlContainer(record, saPassword, sink);
-      record.container.id = containerId;
-      rollback.push(() => this.docker.remove(record.container.name, record.container.volume));
-      await this.docker.waitHealthy(record, saPassword, sink);
-
-      // 1b) Database, least-privilege logins, users, and role grants (idempotent)
+      // 1) This instance's database, least-privilege logins (shared, idempotent),
+      // users, and role grants — created on the already-running shared server.
+      // Rollback drops only THIS database; the shared server/volume is never
+      // touched (other instances live there).
       emit(sink, slug, 'create', 'progress', 'Creating database, logins, and roles…');
       await this.docker.execSql(
-        record.container.name,
-        saPassword,
+        server.containerName,
+        server.saPassword,
         buildSetupScript({
           dbName,
           codeGenUser: secrets.codegenUsername,
@@ -204,6 +210,15 @@ export class InstanceOrchestrator {
         }),
         slug,
         sink
+      );
+      rollback.push(() =>
+        this.docker.execSql(
+          server.containerName,
+          server.saPassword,
+          buildDropDatabaseScript(dbName),
+          slug,
+          noopSink
+        )
       );
 
       // 2) Git worktree
@@ -253,10 +268,11 @@ export class InstanceOrchestrator {
   async start(slug: string, sink: EventSink = noopSink): Promise<InstanceRecord> {
     const record = await this.requireRecord(slug);
     await this.docker.assertAvailable();
-    emit(sink, slug, 'start', 'progress', 'Starting SQL container…');
-    await this.docker.start(record.container.name);
-    const secrets = await this.store.getSecrets(record.secretsRef);
-    if (secrets) await this.docker.waitHealthy(record, secrets.saPassword, sink);
+    // "Starting" an instance ensures the shared SQL Server is up (it may have
+    // been stopped) and accepting logins; the API/Explorer are launched on
+    // demand via `run`. ensure() starts the container if stopped and waits ready.
+    emit(sink, slug, 'start', 'progress', 'Ensuring shared SQL Server is running…');
+    await this.server.ensure(sink);
     record.status = 'running';
     await this.store.upsert(record);
     emit(sink, slug, 'start', 'success', 'Instance started');
@@ -265,9 +281,11 @@ export class InstanceOrchestrator {
 
   async stop(slug: string, sink: EventSink = noopSink): Promise<InstanceRecord> {
     const record = await this.requireRecord(slug);
-    emit(sink, slug, 'stop', 'progress', 'Stopping services and container…');
+    emit(sink, slug, 'stop', 'progress', 'Stopping services…');
     await this.procs.stopForInstance(slug);
-    await this.docker.stop(record.container.name).catch(() => {});
+    // The SQL Server is shared across instances — never stop it here; other
+    // instances (and other agents) depend on it. Only this instance's services
+    // are stopped. Use `mjdev reset` to tear the shared server down explicitly.
     record.status = 'stopped';
     await this.store.upsert(record);
     emit(sink, slug, 'stop', 'success', 'Instance stopped');
@@ -278,7 +296,22 @@ export class InstanceOrchestrator {
     const record = await this.requireRecord(slug);
     emit(sink, slug, 'delete', 'progress', 'Deleting instance…');
     await this.procs.stopForInstance(slug);
-    await this.docker.remove(record.container.name, record.container.volume).catch(() => {});
+    // Drop only this instance's database from the shared server; leave the
+    // server (and every other instance's database) running.
+    const secrets = await this.store.getSecrets(record.secretsRef);
+    const saPassword = secrets?.saPassword ?? (await this.store.getServer())?.saPassword;
+    if (saPassword) {
+      emit(sink, slug, 'delete', 'progress', `Dropping database ${record.dbName}…`);
+      await this.docker
+        .execSql(
+          record.container.name,
+          saPassword,
+          buildDropDatabaseScript(record.dbName),
+          slug,
+          noopSink
+        )
+        .catch(() => {});
+    }
     await this.worktrees.remove(record.worktreePath, slug, sink).catch(() => {});
     await this.removeInstanceDir(record.worktreePath).catch(() => {});
     await this.store.remove(slug);
@@ -286,6 +319,36 @@ export class InstanceOrchestrator {
     await this.store.deleteSecrets(record.secretsRef);
     await this.store.deleteMintedKeys(record.secretsRef);
     emit(sink, slug, 'delete', 'success', 'Instance deleted');
+  }
+
+  /**
+   * Full teardown of the workspace's SQL footprint — removes the shared SQL
+   * Server container + volume and forgets its record, AND sweeps any leftover
+   * per-instance containers from the pre-consolidation model (`<prefix>-<slug>`)
+   * so a cutover leaves nothing orphaned. Called by `mjdev reset`. Destructive:
+   * every database on the shared server is destroyed with it, so callers must
+   * have deleted/abandoned all instances first.
+   */
+  async teardownServer(sink: EventSink = noopSink): Promise<void> {
+    // Legacy per-instance containers (one SQL Server each) from before instances
+    // shared a server — remove them and their `<name>-data` volumes.
+    const legacy = await this.docker.listManaged().catch(() => []);
+    for (const c of legacy) {
+      emit(sink, c.slug, 'docker', 'progress', `Removing legacy container ${c.name}…`);
+      await this.docker.remove(c.name, `${c.name}-data`).catch(() => {});
+    }
+    const server = await this.store.getServer();
+    if (server) {
+      emit(
+        sink,
+        server.containerName,
+        'docker',
+        'progress',
+        `Removing shared SQL Server ${server.containerName}…`
+      );
+      await this.docker.remove(server.containerName, server.volume).catch(() => {});
+      await this.store.deleteServer().catch(() => {});
+    }
   }
 
   // ── Developer identity (Phase 2) ──────────────────────────────────────────

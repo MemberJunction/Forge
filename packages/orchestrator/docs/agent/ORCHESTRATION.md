@@ -1,11 +1,13 @@
 # MJ Dev Manager — orchestration guide (start here)
 
 You are an AI agent working in an **MJ Dev Manager** workspace. This tool stands
-up **isolated local MemberJunction (MJ) dev instances** — each is a Docker SQL
-Server container + a git worktree of an MJ clone + generated config — and lets
-you develop MJ and **Open Apps** against them. Your job, by the end of this doc:
-go from "needs a human to guide every step" to **"I can stand up a tester, run
-the full validation cycle, and hand the user a plan + the exact tests I'll run."**
+up **isolated local MemberJunction (MJ) dev instances** — each is a **database on
+the workspace's one shared SQL Server container** + a git worktree of an MJ clone
+
+- generated config — and lets
+  you develop MJ and **Open Apps** against them. Your job, by the end of this doc:
+  go from "needs a human to guide every step" to **"I can stand up a tester, run
+  the full validation cycle, and hand the user a plan + the exact tests I'll run."**
 
 ## The one rule that makes you useful
 
@@ -35,6 +37,22 @@ workspace or a throwaway instance you create+delete.
   with `npm run dev:isolated` (in the Forge repo). Its own standalone MJ clone — not a
   worktree of prod. Ports auto-bump and reserve already-published host ports, so a dev
   container can never collide with a running prod one.
+
+## One shared SQL Server (one database per instance)
+
+A workspace runs **exactly one** SQL Server container — `mjdev-sql` (prod) /
+`mjdev-dev-sql` (dev) — recorded in `~/.mjdev/server.json`. Each instance is a
+**database** (`MJ_<slug>`) on it, not its own container. Implications you'll hit:
+
+- **Don't `docker stop` the SQL container to "stop an instance"** — every instance
+  (and other agents) share it. `mjdev stop <slug>` stops only that instance's
+  processes; the server stays up. `mjdev delete <slug>` drops only that DB.
+- DB credentials (`MJ_Connect`/`MJ_CodeGen`/`sa`) are **shared across the server**
+  and stored in `server.json`; each instance's DB has its own users + app keys.
+- `mjdev reset` is the only thing that tears the shared server down (full cutover).
+- Dev and prod have **separate** shared servers (separate config dirs + prefixes +
+  ports), so dev work never disturbs prod. See ADR-004 in
+  `plans/mj-dev-manager-decisions.md` for the full rationale.
 
 ## From zero to productive (quickstart)
 

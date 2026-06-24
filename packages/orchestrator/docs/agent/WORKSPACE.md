@@ -44,7 +44,8 @@ Two roots: a **visible, shareable** workspace and a **hidden** secrets/state roo
 ```
 ~/.mjdev/
 ├─ instances.json    # instance registry (source of truth)
-├─ secrets.json      # SA/DB passwords, encryption + RSA keys (0600)
+├─ secrets.json      # per-instance encryption + RSA keys; shared DB creds copied in (0600)
+├─ server.json       # the ONE shared SQL Server: container/volume/port + shared creds (0600)
 ├─ personas.json     # dev persona roster + active persona
 ├─ apikeys.json      # minted per-instance/per-persona mj_sk_* keys (0600)
 ├─ processes.json    # shared running-process registry (CLI + GUI peers)

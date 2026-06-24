@@ -197,7 +197,9 @@ program
 
 program
   .command('reset')
-  .description('Delete ALL instances (container, volume, worktree, record) — for cutover/cleanup')
+  .description(
+    'Delete ALL instances + tear down the shared SQL Server (container, volume, worktrees) — for cutover/cleanup'
+  )
   .option('--yes', 'actually delete; without this, only lists what would be removed')
   .option('--json', 'machine-readable output')
   .action(async (opts: { yes?: boolean; json?: boolean }) => {
@@ -228,10 +230,14 @@ program
           failed.push({ slug, error: err instanceof Error ? err.message : String(err) });
         }
       }
-      emitResult(json, { deleted, failed }, () => {
+      // Tear down the shared SQL Server (and any legacy per-instance containers)
+      // so a cutover leaves nothing orphaned.
+      await eng.teardownServer(makeSink(json)).catch(() => {});
+      emitResult(json, { deleted, failed, serverTornDown: true }, () => {
         if (deleted.length)
           console.log(chalk.green(`✓ Deleted ${deleted.length}: ${deleted.join(', ')}`));
         for (const f of failed) console.log(chalk.red(`✗ ${f.slug}: ${f.error}`));
+        console.log(chalk.green('✓ Shared SQL Server torn down'));
       });
     } catch (err) {
       fail(json, err);

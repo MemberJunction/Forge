@@ -37,8 +37,9 @@ export function seedInstance(dir: string, opts: SeedInstanceOptions = {}) {
     branch: `mjdev/${slug}`,
     baseRef: opts.baseRef ?? 'v5.40.2',
     worktreePath: opts.worktreePath ?? `/tmp/wt/${slug}`,
-    container: { name: `mjdev-${slug}`, volume: `mjdev-${slug}-data` },
-    ports: { sql: 1443, api: 4010, explorer: 4210 },
+    // All instances share one SQL Server container (one DB per instance).
+    container: { name: 'mjdev-sql', volume: 'mjdev-sql-data' },
+    ports: { sql: 1433, api: 4010, explorer: 4210 },
     dbName: `MJ_${slug}`,
     secretsRef: slug,
     status: opts.status ?? 'stopped',

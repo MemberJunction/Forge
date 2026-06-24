@@ -12,7 +12,7 @@ function makeRecord(slug: string): InstanceRecord {
     name: slug,
     branch: `mjdev/${slug}`,
     worktreePath: `/tmp/${slug}`,
-    container: { name: `mjdev-${slug}`, volume: `mjdev-${slug}-data` },
+    container: { name: 'mjdev-sql', volume: 'mjdev-sql-data' },
     ports: { sql: 1433, api: 4000, explorer: 4200 },
     dbName: `MJ_${slug}`,
     secretsRef: slug,
@@ -75,6 +75,27 @@ describe('InstanceStore secrets', () => {
     expect(await store.getSecrets('alpha')).toEqual(secrets);
     await store.deleteSecrets('alpha');
     expect(await store.getSecrets('alpha')).toBeUndefined();
+  });
+});
+
+describe('InstanceStore shared server', () => {
+  it('returns undefined before a server is recorded', async () => {
+    expect(await store.getServer()).toBeUndefined();
+  });
+
+  it('round-trips and deletes the shared server record', async () => {
+    const server = {
+      containerName: 'mjdev-sql',
+      volume: 'mjdev-sql-data',
+      port: 1433,
+      saPassword: 'sa-pw',
+      dbPassword: 'connect-pw',
+      codegenPassword: 'codegen-pw',
+    };
+    await store.setServer(server);
+    expect(await store.getServer()).toEqual(server);
+    await store.deleteServer();
+    expect(await store.getServer()).toBeUndefined();
   });
 });
 

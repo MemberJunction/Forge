@@ -28,14 +28,46 @@ export interface InstanceSetupState {
   built: boolean;
 }
 
-/** Docker container coordinates for an instance's SQL Server. */
+/**
+ * SQL Server coordinates for an instance. All instances in a workspace share a
+ * single SQL Server container (one DB per instance), so `name`/`volume`/`id`
+ * here reference that **shared** server (`mjdev-sql` / `mjdev-dev-sql`), not a
+ * per-instance container. Retained on the record for display and back-compat.
+ */
 export interface InstanceContainer {
-  /** Container name, e.g. `mjdev-<slug>`. */
+  /** Shared SQL Server container name, e.g. `mjdev-sql`. */
   name: string;
-  /** Docker container id, populated once created. */
+  /** Docker container id of the shared server, populated once known. */
   id?: string;
-  /** Named data volume, e.g. `mjdev-<slug>-data`. */
+  /** Shared SQL Server data volume, e.g. `mjdev-sql-data`. */
   volume: string;
+}
+
+/**
+ * The one shared SQL Server container that backs every instance in a workspace.
+ * Persisted at `~/.mjdev/server.json` (0600 — holds passwords). Because the
+ * config dir is prefix-isolated, dev (`~/.mjdev-dev`) and prod (`~/.mjdev`) each
+ * own a distinct shared server, so dev work never disturbs production instances.
+ *
+ * Credentials are **shared across all instances** on the server: the login
+ * *names* are fixed (`MJ_Connect`/`MJ_CodeGen`), so a single password per login
+ * is the only coherent model (the first instance's `CREATE LOGIN` wins; the
+ * rest are `IF NOT EXISTS` no-ops). Each instance still gets its own database,
+ * users mapped to these shared logins, and its own app-level keys.
+ */
+export interface ServerRecord {
+  /** Container name (`mjdev-sql` / `mjdev-dev-sql`). */
+  containerName: string;
+  /** Named data volume (`mjdev-sql-data`). */
+  volume: string;
+  /** Published host port for SQL (allocated once; dev/prod differ). */
+  port: number;
+  /** `sa` password — bootstrap/admin only; never used for app access. */
+  saPassword: string;
+  /** Shared `MJ_Connect` (least-privilege app) login password. */
+  dbPassword: string;
+  /** Shared `MJ_CodeGen` (DDL/codegen) login password. */
+  codegenPassword: string;
 }
 
 /**

@@ -268,7 +268,8 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
               <button mat-button type="button" (click)="toggleCreate()">Cancel</button>
             </div>
             <p class="hint">
-              Provisions a SQL container, git worktree, and config. Heavy setup runs afterward.
+              Provisions a database on the shared SQL Server, a git worktree, and config. Heavy
+              setup runs afterward.
               {{
                 form.appMode === 'dev'
                   ? ' Apps will be dev-linked (editable source) — the primary mode.'
@@ -374,7 +375,7 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 <dt>Based on</dt>
                 <dd>{{ inst.baseRef || '—' }}</dd>
                 <dt>SQL Server</dt>
-                <dd>localhost:{{ inst.ports.sql }}</dd>
+                <dd>localhost:{{ inst.ports.sql }} <span class="hint">(shared)</span></dd>
                 <dt>MJAPI</dt>
                 <dd>localhost:{{ inst.ports.api }}</dd>
                 <dt>MJExplorer</dt>
@@ -382,7 +383,7 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 <dt>Database</dt>
                 <dd>{{ inst.dbName }}</dd>
                 <dt>Container</dt>
-                <dd>{{ inst.container.name }}</dd>
+                <dd>{{ inst.container.name }} <span class="hint">(shared SQL Server)</span></dd>
               </dl>
 
               <!-- Branch sync: pull the branch upstream / merge in the base branch.

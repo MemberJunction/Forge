@@ -6,6 +6,7 @@ import type {
   InstanceRecord,
   InstanceSecrets,
   MintedApiKey,
+  ServerRecord,
 } from '@mj-forge/shared';
 import type { ResolvedPaths } from './paths.js';
 
@@ -135,6 +136,29 @@ export class InstanceStore {
       delete all[ref];
       await this.atomicWrite(this.paths.secretsFile, JSON.stringify(all, null, 2), 0o600);
     }
+  }
+
+  // ── Shared SQL Server coordinates ─────────────────────────────────────
+
+  /** The shared SQL Server record for this workspace, or undefined if none yet. */
+  async getServer(): Promise<ServerRecord | undefined> {
+    try {
+      return JSON.parse(await fs.readFile(this.paths.serverFile, 'utf8')) as ServerRecord;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw err;
+    }
+  }
+
+  /** Persist the shared SQL Server record (0600 — holds passwords). */
+  async setServer(server: ServerRecord): Promise<void> {
+    await this.ensureDirs();
+    await this.atomicWrite(this.paths.serverFile, JSON.stringify(server, null, 2), 0o600);
+  }
+
+  /** Drop the shared-server record (e.g. on full workspace teardown). */
+  async deleteServer(): Promise<void> {
+    await fs.rm(this.paths.serverFile, { force: true });
   }
 
   // ── Minted API keys (per instance + persona) ──────────────────────────

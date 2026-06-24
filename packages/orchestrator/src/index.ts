@@ -3,6 +3,7 @@ export type { CreateResult } from './InstanceOrchestrator.js';
 export { InstanceStore } from './InstanceStore.js';
 export { PortAllocator } from './PortAllocator.js';
 export { DockerManager, MANAGED_LABEL, SLUG_LABEL } from './DockerManager.js';
+export { SharedSqlServer } from './SharedSqlServer.js';
 export { WorktreeManager } from './WorktreeManager.js';
 export { RepoManager } from './RepoManager.js';
 export { AppRepoManager } from './AppRepoManager.js';
@@ -37,7 +38,7 @@ export { ENGINE_EVENT_SENTINEL, ENGINE_ENTRY_SOURCE } from './engineEntrySource.
 export { ProcessStore } from './ProcessStore.js';
 export type { ProcRecord } from './ProcessStore.js';
 export { ConfigWriter } from './ConfigWriter.js';
-export { buildSetupScript } from './dbBootstrap.js';
+export { buildSetupScript, buildDropDatabaseScript } from './dbBootstrap.js';
 export type { DbSetupParams } from './dbBootstrap.js';
 export { PersonaStore } from './PersonaStore.js';
 export { IdentityManager } from './IdentityManager.js';

@@ -1,5 +1,4 @@
 import Dockerode from 'dockerode';
-import type { InstanceRecord } from '@mj-forge/shared';
 import { emit, type EventSink, noopSink } from './util.js';
 
 const SQL_IMAGE = 'mcr.microsoft.com/mssql/server:2022-latest';
@@ -33,81 +32,89 @@ export class DockerManager {
     }
   }
 
-  private async ensureImage(slug: string, sink: EventSink): Promise<void> {
+  private async ensureImage(label: string, sink: EventSink): Promise<void> {
     const images = await this.docker.listImages({ filters: { reference: [SQL_IMAGE] } });
     if (images.length > 0) return;
-    emit(sink, slug, 'docker', 'progress', `Pulling ${SQL_IMAGE} (first run only)…`);
+    emit(sink, label, 'docker', 'progress', `Pulling ${SQL_IMAGE} (first run only)…`);
     await new Promise<void>((resolve, reject) => {
       this.docker.pull(SQL_IMAGE, (err: Error | null, stream: NodeJS.ReadableStream) => {
         if (err) return reject(err);
         this.docker.modem.followProgress(stream, (e: Error | null) => (e ? reject(e) : resolve()));
       });
     });
-    emit(sink, slug, 'docker', 'success', 'Image ready');
+    emit(sink, label, 'docker', 'success', 'Image ready');
   }
 
   /**
-   * Create and start the SQL Server container for an instance. Idempotent:
-   * if a container with the same name already exists it is reused/started.
+   * Ensure the workspace's single shared SQL Server container exists and is
+   * running, returning its container id. One server backs every instance (one
+   * database per instance), so — unlike a per-instance container — this NEVER
+   * removes an existing container or its volume: the data for every instance
+   * lives there. Idempotent: creates on first call, starts if stopped, no-ops if
+   * already running. `MSSQL_SA_PASSWORD` only takes effect on a fresh volume, so
+   * the password passed here must match the one captured when the volume was
+   * first created (the caller persists it in `server.json`).
    */
-  async createSqlContainer(
-    record: InstanceRecord,
-    saPassword: string,
+  async ensureServerContainer(
+    opts: { name: string; volume: string; hostPort: number; saPassword: string },
     sink: EventSink = noopSink
   ): Promise<string> {
-    await this.ensureImage(record.slug, sink);
-    // A same-named container/volume here is an orphan from a prior failed attempt.
-    // It must be cleared: MSSQL_SA_PASSWORD only applies to a fresh data volume,
-    // so reusing a stale volume would keep an old, unknown sa password.
-    const existing = await this.findByName(record.container.name);
+    const { name, volume, hostPort, saPassword } = opts;
+    const existing = await this.findByName(name);
     if (existing) {
-      emit(sink, record.slug, 'docker', 'warn', 'Removing orphaned container from a prior attempt');
-      await this.remove(record.container.name, record.container.volume);
+      if (existing.State !== 'running') {
+        emit(sink, name, 'docker', 'progress', `Starting shared SQL Server ${name}…`);
+        await this.docker.getContainer(existing.Id).start();
+      }
+      return existing.Id;
     }
 
-    emit(sink, record.slug, 'docker', 'progress', `Creating container ${record.container.name}…`);
+    await this.ensureImage(name, sink);
+    emit(
+      sink,
+      name,
+      'docker',
+      'progress',
+      `Creating shared SQL Server ${name} (SQL on :${hostPort})…`
+    );
     const container = await this.docker.createContainer({
-      name: record.container.name,
+      name,
       Image: SQL_IMAGE,
       Env: ['ACCEPT_EULA=Y', `MSSQL_SA_PASSWORD=${saPassword}`, 'MSSQL_PID=Developer'],
-      Labels: { [MANAGED_LABEL]: 'true', [SLUG_LABEL]: record.slug },
+      // No slug label — this is the workspace-shared server, not an instance
+      // container, so `listManaged` (which keys on slug) deliberately skips it.
+      Labels: { [MANAGED_LABEL]: 'true', [SLUG_LABEL]: '' },
       ExposedPorts: { [SQL_INTERNAL_PORT]: {} },
       HostConfig: {
-        PortBindings: { [SQL_INTERNAL_PORT]: [{ HostPort: String(record.ports.sql) }] },
-        Mounts: [
-          {
-            Type: 'volume',
-            Source: record.container.volume,
-            Target: SQL_VOLUME_MOUNT,
-          },
-        ],
+        PortBindings: { [SQL_INTERNAL_PORT]: [{ HostPort: String(hostPort) }] },
+        Mounts: [{ Type: 'volume', Source: volume, Target: SQL_VOLUME_MOUNT }],
         RestartPolicy: { Name: 'unless-stopped' },
       },
     });
     await container.start();
-    emit(sink, record.slug, 'docker', 'success', `Container started (SQL on :${record.ports.sql})`);
+    emit(sink, name, 'docker', 'success', `Shared SQL Server started (SQL on :${hostPort})`);
     return container.id;
   }
 
   /**
    * Wait until SQL Server can actually authenticate a login — runs `SELECT 1`
-   * via sqlcmd *inside* the container in a retry loop. A host-side TCP probe is
-   * insufficient: Docker's port proxy accepts connections before SQL Server is
-   * ready for logins, producing false-positive readiness.
+   * via sqlcmd *inside* the named container in a retry loop. A host-side TCP
+   * probe is insufficient: Docker's port proxy accepts connections before SQL
+   * Server is ready for logins, producing false-positive readiness.
    */
   async waitHealthy(
-    record: InstanceRecord,
+    name: string,
     saPassword: string,
     sink: EventSink = noopSink,
     timeoutMs = 180_000
   ): Promise<void> {
     const deadline = Date.now() + timeoutMs;
-    emit(sink, record.slug, 'docker', 'progress', 'Waiting for SQL Server to accept logins…');
+    emit(sink, name, 'docker', 'progress', 'Waiting for SQL Server to accept logins…');
     let lastOutput = '';
     while (Date.now() < deadline) {
-      const { code, output } = await this.runSqlcmd(record.container.name, saPassword, 'SELECT 1');
+      const { code, output } = await this.runSqlcmd(name, saPassword, 'SELECT 1');
       if (code === 0) {
-        emit(sink, record.slug, 'docker', 'success', 'SQL Server is ready for logins');
+        emit(sink, name, 'docker', 'success', 'SQL Server is ready for logins');
         return;
       }
       lastOutput = output;
@@ -116,7 +123,7 @@ export class DockerManager {
     const tail = lastOutput.trim().split('\n').slice(-4).join('\n');
     throw new Error(
       `SQL Server did not become ready within ${Math.round(timeoutMs / 1000)}s. ` +
-        `Check logs: docker logs ${record.container.name}${tail ? `\n${tail}` : ''}`
+        `Check logs: docker logs ${name}${tail ? `\n${tail}` : ''}`
     );
   }
 

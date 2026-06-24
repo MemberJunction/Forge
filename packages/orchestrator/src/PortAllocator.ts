@@ -63,27 +63,44 @@ export class PortAllocator {
   }
 
   /**
-   * Allocate a full {@link InstancePorts} set. `existing` are ports already
-   * claimed by other instances; `reserved` are ports already published by
-   * Docker containers (or otherwise off-limits); `requested` lets a YAML config
-   * pin specific ports (each is validated for availability).
+   * Allocate the per-instance {@link InstancePorts}. Only `api` and `explorer`
+   * are striped per instance now — every instance shares ONE SQL Server, so
+   * `sql` is fixed to that shared server's published port (`sqlPort`), passed in
+   * by the caller. `existing` are api/explorer ports already claimed by other
+   * instances; `reserved` are ports published by Docker containers (or otherwise
+   * off-limits); `requested` lets a YAML config pin api/explorer.
    */
   static async allocate(
     existing: InstancePorts[],
-    requested?: Partial<InstancePorts>,
-    reserved: number[] = []
+    requested: Partial<InstancePorts> | undefined,
+    reserved: number[],
+    sqlPort: number
   ): Promise<InstancePorts> {
     const taken = new Set<number>(reserved);
     for (const p of existing) {
-      taken.add(p.sql);
       taken.add(p.api);
       taken.add(p.explorer);
     }
-    const sql = await this.nextFree('sql', taken, requested?.sql);
-    taken.add(sql);
     const api = await this.nextFree('api', taken, requested?.api);
     taken.add(api);
     const explorer = await this.nextFree('explorer', taken, requested?.explorer);
-    return { sql, api, explorer };
+    return { sql: sqlPort, api, explorer };
+  }
+
+  /**
+   * Find a free host port for the workspace's single shared SQL Server, probing
+   * upward from 1433 (stride 1 — there is only one server per workspace). The
+   * dev workspace runs concurrently with prod, so prod's published 1433 arrives
+   * in `reserved` and dev simply lands on 1434+ — the dev/prod split with zero
+   * collision. Returns the port to publish; the caller persists it.
+   */
+  static async allocateServerPort(reserved: number[] = []): Promise<number> {
+    const taken = new Set<number>(reserved);
+    for (let i = 0; i < MAX_PROBES; i++) {
+      const candidate = BASES.sql + i;
+      if (taken.has(candidate)) continue;
+      if (await this.isFree(candidate)) return candidate;
+    }
+    throw new Error(`Could not find a free SQL server port after ${MAX_PROBES} attempts`);
   }
 }

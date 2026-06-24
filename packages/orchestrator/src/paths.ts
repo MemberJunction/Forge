@@ -53,6 +53,13 @@ export interface ResolvedPaths {
   instancesFile: string;
   instancesDir: string;
   secretsFile: string;
+  /**
+   * Shared SQL Server coordinates + credentials for this workspace
+   * (`~/.mjdev/server.json`, 0600). One SQL Server container backs every
+   * instance in the workspace; because the config dir is already prefix-isolated
+   * (`~/.mjdev` vs `~/.mjdev-dev`), dev and prod each get their own shared server.
+   */
+  serverFile: string;
   /** Developer-persona roster (`~/.mjdev/personas.json`). */
   personasFile: string;
   /** Minted per-instance/per-persona API keys (`~/.mjdev/apikeys.json`, 0600). */
@@ -107,6 +114,7 @@ export function resolvePaths(options: OrchestratorOptions = {}): ResolvedPaths {
     instancesFile: path.join(configDir, 'instances.json'),
     instancesDir: path.join(configDir, 'instances'),
     secretsFile: path.join(configDir, 'secrets.json'),
+    serverFile: path.join(configDir, 'server.json'),
     personasFile: path.join(configDir, 'personas.json'),
     apiKeysFile: path.join(configDir, 'apikeys.json'),
     processesFile: path.join(configDir, 'processes.json'),

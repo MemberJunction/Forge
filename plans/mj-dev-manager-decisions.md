@@ -136,3 +136,61 @@ instance's existing test command genuinely spans dev-linked apps — when an app
 real suite it runs automatically, with no mjdev wrapper. (Benign: turbo warns
 `no output files found for …#test` because the task's `outputs: ["coverage/**"]` yields
 nothing for a stub; resolves once apps emit coverage.)
+
+---
+
+## ADR-004 — One shared SQL Server container per workspace (one database per instance), not a container per instance
+
+**Decision.** A workspace runs **exactly one** SQL Server container (`mjdev-sql` /
+`mjdev-dev-sql`), and each instance is a **database** (`MJ_<slug>`) on it — replacing the
+old "one Docker container (its own SQL Server) per instance" model. The server's
+coordinates + shared credentials live in `~/.mjdev/server.json` (0600), owned by
+`SharedSqlServer.ensure()` (create-on-first-instance, reuse after, start-if-stopped). Each
+instance still gets its own database, its own per-DB users mapped to the shared logins, and
+its own app-level keys (encryption, magic-link, system API key).
+
+**Why.** SQL Server natively hosts many databases in one instance, so a server-per-instance
+was pure overhead: a host SQL port to allocate/track per instance, a full SQL Server process
+
+- RAM reservation per instance, and — observed during the Madhav validation — cross-container
+  CPU/IO **contention that caused a migration timeout** when two servers competed on one host.
+  Consolidating removes the per-instance SQL port allocation entirely, collapses N server
+  processes to one (shared buffer pool — _less_ contention, not more), and makes create/delete
+  cheaper (`CREATE DATABASE` / `DROP DATABASE` vs. container build/teardown).
+
+**Credential model (load-bearing).** Credentials are **shared across the server**, not
+per-instance. The login _names_ are fixed (`MJ_Connect`, `MJ_CodeGen`), so on a shared server
+the first `CREATE LOGIN` wins and the rest are `IF NOT EXISTS` no-ops — a single password per
+login is the only coherent model. `server.json` holds the one `sa` + `MJ_Connect` +
+`MJ_CodeGen` password set; each instance's `secrets.json` entry receives **copies** of those
+shared values, so `ConfigWriter`/`IdentityManager`/`dbBootstrap` read them unchanged. The
+shared `MJ_Connect` login is a user in every instance DB, so it can read across instances —
+acceptable for a single developer's local data; per-instance DBs, encryption keys, and API
+keys still isolate what matters.
+
+**Lifecycle.** `create` ensures the server, then runs the (unchanged, idempotent)
+`buildSetupScript` to make this instance's DB + users; rollback runs `buildDropDatabaseScript`
+on **only this DB** — never the shared container. `delete` drops the DB (server stays up).
+`stop` stops the instance's processes only (the server is shared — stopping it would break
+other instances/agents). `start` ensures the server is running. `mjdev reset` is the explicit
+full teardown (`teardownServer` removes the container + volume + any pre-consolidation
+per-instance containers).
+
+**Dev/prod isolation preserved (the constraint).** Because `server.json` lives in the
+already-prefix-isolated config dir (`~/.mjdev` vs `~/.mjdev-dev`) and the container is named
+per prefix on an auto-allocated port (the bind-probe makes dev land on `:1434` when prod holds
+`:1433`), **dev and prod run separate shared servers**. Dev work never disturbs the production
+server other agents depend on — verified live: a `mjdev-cctest` throwaway server stood up on
+`:1434` without touching prod's `:1433`.
+
+**Rules out.** A SQL container per instance; per-instance SQL ports; per-instance SQL
+credentials (incoherent under fixed shared login names); stopping the SQL server on a
+per-instance `stop`; tearing the server down on a per-instance `delete`.
+
+**Verified (2026-06-23, live Docker + SQL Server, isolated `mjdev-cctest` prefix).**
+`ensure()` created one container, was idempotent on re-call; two instance DBs (`MJ_cc_a`,
+`MJ_cc_b`) created on the single container; the **shared `MJ_Connect` login reached BOTH** DBs
+(`DB_NAME()` correct per DB — proves shared login + per-DB user + grant); dropping `MJ_cc_b`
+left `MJ_cc_a` and the container intact; teardown removed the container. Plus 162 orchestrator
+unit tests (incl. new `SharedSqlServer` + server-store + `PortAllocator` server-port tests) and
+the seeded GUI panel spec, all green.

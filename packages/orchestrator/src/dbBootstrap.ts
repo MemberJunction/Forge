@@ -106,3 +106,23 @@ GO
 PRINT '=== MJ Dev Manager database setup complete: ${dbName} ===';
 `;
 }
+
+/**
+ * Builds the SQL to drop a single instance's database from the shared server —
+ * used on instance delete and on create-rollback. Forces SINGLE_USER first to
+ * kill any lingering connections (the API/Explorer may have open pools), then
+ * drops. The shared least-privilege LOGINS are intentionally left in place:
+ * they are server-level and shared by every other instance's database. The
+ * per-database USERS vanish with the database. Idempotent (guarded by EXISTS).
+ */
+export function buildDropDatabaseScript(dbName: string): string {
+  return `-- MJ Dev Manager database teardown (idempotent)
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = '${dbName}')
+BEGIN
+    ALTER DATABASE [${dbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE [${dbName}];
+    PRINT 'Dropped database: ${dbName}';
+END
+GO
+`;
+}
