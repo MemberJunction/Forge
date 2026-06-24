@@ -296,15 +296,23 @@ export class InstanceOrchestrator {
     const record = await this.requireRecord(slug);
     emit(sink, slug, 'delete', 'progress', 'Deleting instance…');
     await this.procs.stopForInstance(slug);
-    // Drop only this instance's database from the shared server; leave the
-    // server (and every other instance's database) running.
     const secrets = await this.store.getSecrets(record.secretsRef);
-    const saPassword = secrets?.saPassword ?? (await this.store.getServer())?.saPassword;
-    if (saPassword) {
+    const server = await this.store.getServer();
+    // A pre-consolidation ("legacy") record points at its OWN per-instance
+    // container, not the shared server. Detect that and clean it the old way —
+    // remove the container + volume — so a cutover leaves no orphan. A
+    // new-model record drops only its database; the shared server stays up for
+    // every other instance.
+    const isLegacy = !server || record.container.name !== server.containerName;
+    if (isLegacy) {
+      emit(sink, slug, 'delete', 'progress', `Removing legacy container ${record.container.name}…`);
+      await this.docker.remove(record.container.name, record.container.volume).catch(() => {});
+    } else {
+      const saPassword = secrets?.saPassword ?? server.saPassword;
       emit(sink, slug, 'delete', 'progress', `Dropping database ${record.dbName}…`);
       await this.docker
         .execSql(
-          record.container.name,
+          server.containerName,
           saPassword,
           buildDropDatabaseScript(record.dbName),
           slug,
