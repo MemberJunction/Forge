@@ -74,13 +74,6 @@ first, scope with `--include`. It is **not** the mechanism for getting teammates
 fresh instance — migrations are. See ADR-007 (supersedes ADR-006) and the codegen-clobber triage
 in `MJDEV-ISSUES.md`.
 
-**Metadata authoring (`mj sync push`) is a deliberate MANUAL operation, never automated.** It is a
-full reconcile (it can DELETE database rows not represented in the files — e.g. a connector
-retirement) and it requires human judgment on scope. Run it yourself in the worktree, dry-run
-first, scope with `--include`. It is **not** the mechanism for getting teammates' metadata onto a
-fresh instance — migrations are. See ADR-007 (supersedes ADR-006) and the codegen-clobber triage
-in `MJDEV-ISSUES.md`.
-
 ## Personas & identity
 
 | Command                     | What it does                                                                        |
