@@ -18,7 +18,10 @@ import {
   reconcileInstanceEditorArtifacts,
   resolveEditorTarget,
   instanceWorkspaceFilePath,
+  ensureInstanceWorkLogs,
 } from '../WorkspaceArtifacts';
+
+const WORK_LOGS = ['BACKLOG.md', 'BUGS.md', 'TASKS.md'];
 
 const slug = 'demo';
 let root: string;
@@ -39,11 +42,12 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe('reconcileInstanceEditorArtifacts', () => {
-  it('no dev apps + no prior workspace → no workspace file, no symlinks', () => {
+  it('no dev apps + no prior workspace → no workspace file, no symlinks (but work logs seeded)', () => {
     const r = reconcileInstanceEditorArtifacts(worktreePath, slug, []);
     expect(r.workspaceWritten).toBe(false);
     expect(fs.existsSync(r.workspaceFile)).toBe(false);
-    expect(fs.readdirSync(instanceDir())).toEqual(['mj']);
+    // instanceDir now also carries the per-instance work logs (TASKS/BACKLOG/BUGS).
+    expect(fs.readdirSync(instanceDir()).sort()).toEqual([...WORK_LOGS, 'mj'].sort());
   });
 
   it('dev apps → symlinks resolving to the members + a multi-root workspace at real paths', () => {
@@ -119,5 +123,26 @@ describe('resolveEditorTarget', () => {
     expect(resolveEditorTarget(worktreePath, slug)).toBe(
       instanceWorkspaceFilePath(worktreePath, slug)
     );
+  });
+});
+
+describe('ensureInstanceWorkLogs', () => {
+  it('creates TASKS/BACKLOG/BUGS at the instance root with the right shape', () => {
+    const created = ensureInstanceWorkLogs(worktreePath, slug);
+    expect(created.sort()).toEqual([...WORK_LOGS].sort());
+    expect(fs.readFileSync(path.join(instanceDir(), 'TASKS.md'), 'utf-8')).toContain(
+      'Target: <files'
+    );
+    expect(fs.readFileSync(path.join(instanceDir(), 'BUGS.md'), 'utf-8')).toContain(
+      'OPEN | FIXED | WONTFIX'
+    );
+    expect(fs.readFileSync(path.join(instanceDir(), 'BACKLOG.md'), 'utf-8')).toContain('BACKLOG');
+  });
+
+  it('never clobbers existing work logs', () => {
+    fs.writeFileSync(path.join(instanceDir(), 'TASKS.md'), '# keep me\n', 'utf-8');
+    const created = ensureInstanceWorkLogs(worktreePath, slug);
+    expect(created.sort()).toEqual(['BACKLOG.md', 'BUGS.md']); // TASKS.md untouched
+    expect(fs.readFileSync(path.join(instanceDir(), 'TASKS.md'), 'utf-8')).toContain('keep me');
   });
 });

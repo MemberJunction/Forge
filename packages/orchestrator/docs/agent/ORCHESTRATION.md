@@ -42,7 +42,9 @@ Example header (used at top and bottom of the section):
 ## The map (where things live)
 
 - `~/MJDev/` — visible, shareable workspace: `repos/mj` (the MJ clone instances
-  worktree from), `repos/apps/<app>` (open-app clones), `instances/<slug>/{mj,apps,config}`,
+  worktree from), `repos/apps/<app>` (open-app clones),
+  `instances/<slug>/{mj,apps,config, TASKS.md, BACKLOG.md, BUGS.md}` (each instance carries its own
+  agent work logs — **keep them current**, see DEV-LOOPS.md),
   `bin/mjdev` (CLI launcher), `.mjdev-docs/` (these docs), `MJDEV-ISSUES.md`,
   `MJDEV-REQUESTS.md`, and **`logs/`** — write any working command output **there**, not the
   workspace root. (The tool's own per-process logs are in hidden `~/.mjdev/proc-logs/`; read with

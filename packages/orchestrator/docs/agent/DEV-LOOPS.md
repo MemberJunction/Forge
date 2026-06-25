@@ -3,6 +3,22 @@
 Concrete edit→verify loops for the two kinds of work in this workspace. Both end
 in the **dual CLI+GUI validation** from @.mjdev-docs/TEST-PROTOCOL.md.
 
+## Keep the instance work logs current (every instance has them)
+
+Each instance carries three agent-maintained files at its root
+(`~/MJDev/instances/<slug>/`): **`TASKS.md`** (what you're actively doing here), **`BACKLOG.md`**
+(wanted-but-not-started work), **`BUGS.md`** (bugs in the code you're developing here). The tool
+auto-creates them and never clobbers them — **you keep them current as you work:**
+
+- **TASKS.md** — add a task when you start it, update status (TODO → IN-PROGRESS → DONE) as it
+  moves. **BACKLOG.md** — drop work you've identified but aren't doing yet; promote it to TASKS.md
+  when you pick it up. **BUGS.md** — log bugs you find in the MJ/app code here (a suspected
+  _mjdev-tool_ bug goes to `~/MJDev/MJDEV-ISSUES.md` instead).
+- **Same convention as chat** (see ORCHESTRATION.md → "Reporting back"): a `<batch><letter>` id +
+  short name + branch + this instance; reference a task by both id and name. For TASKS/BACKLOG
+  entries also give **Target** (files/sections you'll change), **Goal**, and **Plan**. The entry
+  templates are seeded at the top of each file.
+
 ## A. Developing MJ Dev Manager itself (the tool)
 
 You're editing `packages/*` in the Forge repo (use the **dev worktree**, not the

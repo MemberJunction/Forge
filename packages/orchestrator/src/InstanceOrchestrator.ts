@@ -19,7 +19,11 @@ import { SharedSqlServer } from './SharedSqlServer.js';
 import { WorktreeManager } from './WorktreeManager.js';
 import { RepoManager } from './RepoManager.js';
 import { OpenAppManager, type AppDependency } from './OpenAppManager.js';
-import { reconcileInstanceEditorArtifacts, resolveEditorTarget } from './WorkspaceArtifacts.js';
+import {
+  reconcileInstanceEditorArtifacts,
+  resolveEditorTarget,
+  ensureInstanceWorkLogs,
+} from './WorkspaceArtifacts.js';
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
@@ -229,6 +233,9 @@ export class InstanceOrchestrator {
       const written = await this.config.write(worktreePath, record, secrets);
       record.setup.configWritten = true;
       emit(sink, slug, 'create', 'info', `Wrote ${written.length} config file(s)`);
+
+      // Per-instance agent work logs (TASKS/BACKLOG/BUGS) — best-effort, never clobbered.
+      ensureInstanceWorkLogs(worktreePath, slug);
 
       // Report the Node version setup/build/serve will use (from the worktree's .nvmrc).
       const node = resolveNodeForWorktree(worktreePath, record.node);

@@ -65,6 +65,9 @@ export function reconcileInstanceEditorArtifacts(
     return { workspaceFile, workspaceWritten: false, symlinks: [] };
   }
 
+  // Ensure the per-instance agent work logs (TASKS/BACKLOG/BUGS) exist — never clobber.
+  ensureInstanceWorkLogs(worktreePath, slug);
+
   const wanted = new Set(devApps);
   const ownedPrefix = devAppsRel(mjName);
 
@@ -139,4 +142,116 @@ export function reconcileInstanceEditorArtifacts(
 export function resolveEditorTarget(worktreePath: string, slug: string): string {
   const workspaceFile = instanceWorkspaceFilePath(worktreePath, slug);
   return fs.existsSync(workspaceFile) ? workspaceFile : worktreePath;
+}
+
+/**
+ * Ensure the per-instance agent work logs exist at the instance root (sibling of `mj/`):
+ *   - `TASKS.md`   — what agents are actively doing in this instance
+ *   - `BACKLOG.md` — wanted-but-not-started work for this instance
+ *   - `BUGS.md`    — bugs found in the code being developed here
+ * Create-if-absent, **NEVER clobbered** (they accumulate agent-authored content, like
+ * `MJDEV-ISSUES.md`). Returns the basenames created this call.
+ */
+export function ensureInstanceWorkLogs(worktreePath: string, slug: string): string[] {
+  const instanceDir = path.dirname(worktreePath);
+  if (!fs.existsSync(instanceDir)) return [];
+  const files: Array<[string, string]> = [
+    ['TASKS.md', tasksSeed(slug)],
+    ['BACKLOG.md', backlogSeed(slug)],
+    ['BUGS.md', bugsSeed(slug)],
+  ];
+  const created: string[] = [];
+  for (const [name, seed] of files) {
+    const p = path.join(instanceDir, name);
+    if (!fs.existsSync(p)) {
+      try {
+        fs.writeFileSync(p, seed, 'utf8');
+        created.push(name);
+      } catch {
+        /* best-effort — work logs must never block a lifecycle op */
+      }
+    }
+  }
+  return created;
+}
+
+/** Shared entry-convention note for the per-instance logs (matches chat/ORCHESTRATION). */
+const WORKLOG_CONVENTION = [
+  'Use the same task convention as chat (see `.mjdev-docs/ORCHESTRATION.md` → "Reporting back"):',
+  'a `<batch><letter>` id + a short name, plus the branch + this instance. Reference a task by',
+  'BOTH its id and short name, e.g. "Task 2c (MJExplorer debugging)".',
+].join('\n');
+
+function tasksSeed(slug: string): string {
+  return [
+    `# Tasks — ${slug}`,
+    '',
+    'Live log of what agents are **actively doing in this instance**. Add a task when you start it,',
+    'update its status as it moves, mark DONE when finished. Keep it current — this is how the user',
+    '(and other agents) see what is in flight here.',
+    '',
+    WORKLOG_CONVENTION,
+    '',
+    '## Entry template',
+    '```',
+    '### Task <batch><letter> · <short name>',
+    '- Status: TODO | IN-PROGRESS | DONE',
+    '- Branch · instance: <branch> · ' + slug,
+    '- Target: <files / sections you plan to change>',
+    '- Goal: <what success looks like>',
+    '- Plan: <what you are going to do>',
+    '```',
+    '',
+    '---',
+    '',
+  ].join('\n');
+}
+
+function backlogSeed(slug: string): string {
+  return [
+    `# Backlog — ${slug}`,
+    '',
+    'Wanted work for this instance that is **not started yet**. Promote an item to `TASKS.md` when',
+    'you pick it up. Same format as tasks.',
+    '',
+    WORKLOG_CONVENTION,
+    '',
+    '## Entry template',
+    '```',
+    '### Task <batch><letter> · <short name>',
+    '- Status: BACKLOG',
+    '- Branch · instance: <branch> · ' + slug,
+    '- Target: <files / sections likely to change>',
+    '- Goal: <what success looks like>',
+    '- Plan: <rough approach>',
+    '```',
+    '',
+    '---',
+    '',
+  ].join('\n');
+}
+
+function bugsSeed(slug: string): string {
+  return [
+    `# Bugs — ${slug}`,
+    '',
+    'Bugs/issues found while developing **in this instance** (in the MJ / open-app code you are',
+    'working on here). A suspected **mjdev-tool** bug goes to `~/MJDev/MJDEV-ISSUES.md` instead —',
+    'this file is for the code under development in this instance.',
+    '',
+    WORKLOG_CONVENTION,
+    '',
+    '## Entry template',
+    '```',
+    '### Bug <batch><letter> · <short name>',
+    '- Status: OPEN | FIXED | WONTFIX',
+    '- Found: <date> by <agent> · branch <branch> · instance ' + slug,
+    '- Repro: <exact steps>',
+    '- Expected vs actual:',
+    '- Fix / notes:',
+    '```',
+    '',
+    '---',
+    '',
+  ].join('\n');
 }

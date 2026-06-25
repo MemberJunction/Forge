@@ -15,6 +15,7 @@ export {
   reconcileInstanceEditorArtifacts,
   resolveEditorTarget,
   instanceWorkspaceFilePath,
+  ensureInstanceWorkLogs,
 } from './WorkspaceArtifacts.js';
 export type { EditorArtifactResult } from './WorkspaceArtifacts.js';
 export type {
