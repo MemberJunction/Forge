@@ -710,10 +710,9 @@ export class InstanceOrchestrator {
     // NOTE: codegen is deliberately NOT run here — mirrors instance `setup all` (ADR-007).
     // A dev-linked app ships its committed generated code (Entities/Server/Actions
     // `src/generated`), so `build` compiles against that. Re-running codegen at setup is
-    // redundant, can CLOBBER the committed generated files if the DB lacks app metadata, and
-    // can outright fail (CodeGen's AI CHECK-constraint parser needs AI credentials a fresh
-    // instance won't have). Run codegen ON-DEMAND (`codegenApp` / `mjdev app codegen`) only
-    // after you change the app's schema/metadata, then commit the regenerated code.
+    // redundant and can CLOBBER the committed generated files if the DB lacks app metadata.
+    // Run codegen ON-DEMAND (`codegenApp` / `mjdev app codegen`) only after you change the
+    // app's schema/metadata, then commit the regenerated code.
     const b = await this.buildApp(slug, appName, sink);
     steps.build = b.ok;
     return { ok: b.ok, steps };

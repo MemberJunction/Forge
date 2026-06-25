@@ -27,9 +27,23 @@ exclude `integrations`/`integration-object-deletes`). The team's accepted expect
 that people commit their generated code and that `mj sync push` works — this is a temporary
 deviation while `next` is in this state.
 
+**The exclude-on-error workflow (current behavior):** a partial-failure is **expected and safe**
+here — `mj sync push` runs in a transaction, so MJ **rolls back** the part that errored (it
+doesn't leave the DB half-written). When it aborts:
+
+1. Read which section failed (it'll be the integration objects/deletes).
+2. Re-run **excluding that section** — `mj sync push --dir=metadata --exclude=integrations`
+   (add `integration-object-deletes` too if needed), or `--include=<just the dir you need>`.
+3. Confirm it lands, then continue (e.g. to codegen).
+
+**When this comes up — running codegen.** Core codegen reads the DB, so before you run it you
+must get the DB's metadata current with `mj sync push` (else codegen regenerates from a stale DB
+and clobbers committed files). That push is exactly the one that hits this exception — so the
+"ask first, then exclude-on-error" flow above is the standard pre-codegen step on `next` today.
+
 **What this is NOT:** a reason to run sync during provisioning. `mjdev setup all` is
-`deps → build → migrate` and never syncs (ADR-007). This exception only applies when a
-developer deliberately authors metadata and pushes it.
+`deps → build → migrate` and never syncs (ADR-007). This exception only applies when a developer
+deliberately authors metadata / runs codegen and must push first.
 
 **Removal condition:** delete TE-1 once `next` (and the bizapps/integration metadata) is
 fixed upstream — i.e. the integration metadata IDs match the migrations and the

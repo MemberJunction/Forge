@@ -335,10 +335,21 @@ captured in migrations) are flagged upstream, out of mjdev scope.
 **Applies to OPEN APPS too (2026-06-25).** Open apps are treated the same as the core instance:
 `setupApp` (`mjdev app setup`) is now **migrate → sync → build** and no longer auto-runs codegen.
 A dev-linked app ships its **committed** generated code (`<app>/packages/*/src/generated`), so
-`build` compiles against it; re-running app codegen at setup is redundant, can clobber those
-committed files, and — confirmed in a validation run — can outright **fail on a fresh instance
-because CodeGen's AI CHECK-constraint parser needs AI credentials** the instance doesn't have. So
-the rule is **"don't run codegen unless you have to"** — you _have to_ only when **you** changed
-the schema/metadata (of the instance or the app) and need the generated code to match; then run it
-on demand (`mjdev app codegen` / `setup <slug> codegen`) and commit the result + its migration.
-Otherwise trust the committed generated code.
+`build` compiles against it; re-running app codegen at setup is redundant and can clobber those
+committed files. The rule is **"don't run codegen unless you have to"** — you _have to_ only when
+**you** changed the schema/metadata (of the instance or the app) and need the generated code to
+match. Otherwise trust the committed generated code.
+
+(Note the app `sync` step ≠ the dangerous core `mj sync push --dir=metadata`: it's `mj sync push`
+scoped to the **app's own** `metadata/` (run in the app member dir), seeding the app's bundled
+reference data — exactly what a real `mj app install` does. App-scoped and additive, so it doesn't
+carry the connector-retirement/PK-divergence breakage of the core full-tree reconcile.)
+
+**Codegen prerequisite — sync the DB FIRST, exclude-on-error (current behavior, 2026-06-25).**
+When you must run codegen, the DB metadata has to be current or codegen regenerates from a stale
+DB and clobbers committed files. So: **run `mj sync push` first** (core codegen → core
+`--dir=metadata`; app codegen → the app's own sync). **If part of the push errors, that's OK —**
+the push is transactional, MJ rolls that part back; **exclude the failing section** (e.g.
+`--exclude=integrations`) and re-run, then codegen. On the current `next` base the connector
+deletes are the known failing section (see TEMPORAL-EXCEPTIONS.md TE-1). This is documented in the
+agent docs (CLI-REFERENCE + TEMPORAL-EXCEPTIONS) as well.

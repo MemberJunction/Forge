@@ -58,14 +58,20 @@ entity code present (committed, not gitignored) and a clean `git status`.
 run codegen only when **YOU** changed the schema/metadata (of the instance or the app) and need
 the committed generated code to match — then run it and commit the regenerated code **and** its
 seeding migration. Otherwise **trust the committed generated code** (instances commit it under
-`*/src/generated`; so do dev-linked apps). Two reasons it's on-demand, not automatic:
-⚠ **(1) Clobber.** Codegen reads the DB and overwrites the committed generated files. If the DB is
-missing metadata those files depend on (e.g. a teammate committed `metadata/` changes without the
-`*_Metadata_Sync` migration), codegen **clobbers** them and breaks the build. **Before running it,
-run `mj sync push --dir=metadata --dry-run` in the worktree** — pending creates/updates mean the
-DB diverges from committed metadata; reconcile or stop first.
-⚠ **(2) It can just fail.** CodeGen's AI CHECK-constraint parser needs **AI credentials** a fresh
-instance won't have, so an unattended codegen at setup can error out (observed in validation).
+`*/src/generated`; so do dev-linked apps).
+
+⚠ **Why on-demand — the clobber risk.** Codegen reads the DB and overwrites the committed
+generated files. If the DB is missing metadata those files depend on, codegen **clobbers** them
+and breaks the build. **So when you DO have to codegen, bring the DB in sync FIRST:**
+
+1. Run **`mj sync push`** in the worktree so the DB's metadata is current (core codegen → core
+   `mj sync push --dir=metadata`; an app's codegen → that app's own `mj sync push`, e.g. via
+   `mjdev app sync`).
+2. **If part of the push errors, that's expected on the current `next` base — and it's safe:** the
+   push is transactional, so MJ rolls that part back cleanly. **Exclude the failing section** (e.g.
+   `mj sync push --dir=metadata --exclude=integrations`) and re-run. (TE-1: the connector-retirement
+   deletes are the known failing section — see TEMPORAL-EXCEPTIONS.md.)
+3. Once the push lands, run codegen, then commit the regenerated code **and** its seeding migration.
 
 **Metadata authoring (`mj sync push`) is a deliberate MANUAL operation, never automated.** It is a
 full reconcile (it can DELETE database rows not represented in the files — e.g. a connector

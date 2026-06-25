@@ -43,6 +43,10 @@ Example header (used at top and bottom of the section):
 - `~/.mjdev/` — hidden secrets/state (`instances.json`, `secrets.json`, personas, keys,
   processes, openapps). **Off-limits to hand-edit — mutate only via the CLI.**
 - Full layout: @.mjdev-docs/WORKSPACE.md.
+- 📖 **MemberJunction's own `CLAUDE.md`** (`repos/mj/CLAUDE.md`, or `mj/CLAUDE.md` inside any
+  instance worktree) is the **highest source of truth for MJ itself** — read it, and use it as the
+  fallback whenever these mjdev docs don't cover something. These docs cover the _mjdev tool_; MJ's
+  CLAUDE.md covers _MemberJunction_ (the framework you're developing against).
 
 **Off-limits (full list + why: @.mjdev-docs/SAFETY.md):** never `git push`; never
 edit the personal MJ checkout; never hand-edit `~/.mjdev`; never disrupt a
@@ -79,7 +83,7 @@ A workspace runs **exactly one** SQL Server container — `mjdev-sql` (prod) /
 # 1. Stand up an instance (provision only)
 ./bin/mjdev create <config.yaml> --json
 
-# 2. Bring it up (deps -> migrate -> codegen -> build)
+# 2. Bring it up (deps -> build -> migrate; NO codegen — committed code is trusted)
 ./bin/mjdev setup <slug> all --json
 
 # 3. Run it + sanity-check the live app
@@ -88,7 +92,7 @@ A workspace runs **exactly one** SQL Server container — `mjdev-sql` (prod) /
 
 # 4. Dev-link an open app (optional) and bring it to ready
 ./bin/mjdev app link <slug> ~/MJDev/repos/apps/<app> --json
-./bin/mjdev app setup <slug> <app>     # migrate->sync->codegen->build
+./bin/mjdev app setup <slug> <app>     # migrate->sync->build (NO codegen — on-demand only)
 
 # 5. When done with a throwaway tester
 ./bin/mjdev delete <slug>
