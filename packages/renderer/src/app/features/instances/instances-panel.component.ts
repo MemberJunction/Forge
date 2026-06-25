@@ -48,6 +48,10 @@ interface LinkForm {
   ignoreVersionRange: boolean;
   /** Allow a reserved `__`-prefixed schema on install (first-party MJ apps; install mode only). */
   allowDoubleUnderscore: boolean;
+  /** Dev-link only: the app branch to develop on in this instance (created off `baseRef` if new). */
+  branch: string;
+  /** Dev-link only: start point for a NEW app branch (default the clone's HEAD). */
+  baseRef: string;
 }
 
 interface PersonaForm {
@@ -731,6 +735,26 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                         name="ignoreVersionRange"
                       />
                       <span>Ignore version range</span>
+                    </label>
+                    <label
+                      matTooltip="The app branch to develop on in THIS instance. Existing branch → checked out; new name → created off the base ref below. Leave blank for the clone's default branch."
+                      >App branch <small>(optional)</small
+                      ><input
+                        [(ngModel)]="linkForm.branch"
+                        name="appBranch"
+                        placeholder="feature/x"
+                        autocomplete="off"
+                      />
+                    </label>
+                    <label
+                      matTooltip="Start point for a NEW app branch (e.g. main, a tag, or a SHA). Ignored when the branch already exists. Defaults to the clone's HEAD."
+                      >Base ref <small>(for a new branch)</small
+                      ><input
+                        [(ngModel)]="linkForm.baseRef"
+                        name="appBaseRef"
+                        placeholder="HEAD"
+                        autocomplete="off"
+                      />
                     </label>
                   }
                   <label
@@ -1782,6 +1806,8 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     mode: 'dev',
     ignoreVersionRange: false,
     allowDoubleUnderscore: false,
+    branch: '',
+    baseRef: '',
   };
   /** The app pending unlink confirmation, or null when the modal is closed. */
   readonly unlinkTarget = signal<{ slug: string; appName: string } | null>(null);
@@ -1796,6 +1822,8 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
     appRef: string;
     ignoreVersionRange: boolean;
     allowDoubleUnderscore: boolean;
+    appBranch?: string;
+    baseRef?: string;
     appName: string;
     deps: DepRow[];
   } | null>(null);
@@ -2039,6 +2067,8 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
           appRef,
           ignoreVersionRange: this.linkForm.ignoreVersionRange,
           allowDoubleUnderscore: this.linkForm.allowDoubleUnderscore,
+          appBranch: this.linkForm.branch.trim() || undefined,
+          baseRef: this.linkForm.baseRef.trim() || undefined,
           appName: resolved?.appName ?? appRef,
           // Same-mode closure: a dev-linked app's deps default to DEV-LINK too. Choosing
           // "install" for a dep creates an unsupported mixed instance (npm crash) — warned.
@@ -2054,6 +2084,8 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       await this.openApps.link(slug, appRef, {
         ignoreVersionRange: this.linkForm.ignoreVersionRange,
         allowDoubleUnderscore: this.linkForm.allowDoubleUnderscore,
+        appBranch: this.linkForm.branch.trim() || undefined,
+        baseRef: this.linkForm.baseRef.trim() || undefined,
       });
     }
     this.resetLinkFormIfClean(slug, mode);
@@ -2062,7 +2094,14 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** Reset the add-app form only when the last op for this slug succeeded. */
   private resetLinkFormIfClean(slug: string, mode: 'dev' | 'installed'): void {
     if (this.openApps.activeSlug() === slug && !this.openApps.lastError()) {
-      this.linkForm = { appRef: '', mode, ignoreVersionRange: false, allowDoubleUnderscore: false };
+      this.linkForm = {
+        appRef: '',
+        mode,
+        ignoreVersionRange: false,
+        allowDoubleUnderscore: false,
+        branch: '',
+        baseRef: '',
+      };
     }
   }
 
@@ -2085,7 +2124,12 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       p.slug,
       p.appRef,
       p.deps.map(d => ({ source: d.source.trim(), mode: d.mode })),
-      { ignoreVersionRange: p.ignoreVersionRange, allowDoubleUnderscore: p.allowDoubleUnderscore }
+      {
+        ignoreVersionRange: p.ignoreVersionRange,
+        allowDoubleUnderscore: p.allowDoubleUnderscore,
+        appBranch: p.appBranch,
+        baseRef: p.baseRef,
+      }
     );
     this.resetLinkFormIfClean(p.slug, 'dev');
   }
