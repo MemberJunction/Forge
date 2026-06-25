@@ -189,7 +189,9 @@ function managedAgentsBlock(): string {
     'each distinct task with a descriptive header at BOTH the **top and bottom** of its section,',
     'naming the branch(es) + instance(s). **Number = batch (counts up each response), letter =',
     'task** (`1a`, `1b`, … then `2a`, …), e.g. `▸ Task 2c · MJExplorer debugging — branch:',
-    'feature/x · instance: openapp-dev`. See ORCHESTRATION.md.',
+    'feature/x · instance: openapp-dev`. **Whenever you mention a task (anywhere, not just',
+    'headers) use BOTH the number+letter AND the short name** — e.g. "Task 2c (MJExplorer',
+    'debugging)" — the user won\'t recall the codes but the name will. See ORCHESTRATION.md.',
   ].join('\n');
 }
 

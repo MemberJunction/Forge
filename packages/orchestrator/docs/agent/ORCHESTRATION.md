@@ -32,6 +32,9 @@ section.** The header gives: the task **number**, a short **descriptive name**, 
 (close)` — the final close ends your response.
 - Name the **branch(es) + instance(s)** (slug → branch; note dev `~/.mjdev-dev` vs prod
   `~/.mjdev`, and the Forge repo branch if you committed). `none` is fine when nothing was touched.
+- **Whenever you mention a task — anywhere, not just in headers — use BOTH the number+letter AND
+  the short name**, e.g. "Task 2c (MJExplorer debugging)". The user can't remember the number
+  codes, but the short name will land; the code lets them trace the batch.
 
 Example header (used at top and bottom of the section):
 `▸ Task 2c · MJExplorer debugging — branch: feature/x · instance: openapp-dev`
