@@ -161,6 +161,11 @@ function managedAgentsBlock(): string {
     '',
     "Run the CLI via `./bin/mjdev` — it pins this workspace's isolation env so the CLI",
     'and GUI share the same state.',
+    '',
+    '**Report back per task (every response):** the user runs several agents at once — bracket',
+    'each distinct task with a numbered, descriptive header (e.g. `▸ Task 2 · MJExplorer',
+    'debugging — branch: feature/x · instance: openapp-dev`) at BOTH the **top and bottom** of',
+    "that task's section, naming the branch(es) + instance(s) you worked in. See ORCHESTRATION.md.",
   ].join('\n');
 }
 

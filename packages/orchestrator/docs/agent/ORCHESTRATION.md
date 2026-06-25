@@ -16,6 +16,25 @@ exact tests you will run at each layer (CLI + GUI)** before you call it done.
 You validate everything at **both** layers — see @.mjdev-docs/TEST-PROTOCOL.md.
 You exist to make the _user_ more powerful, not just yourself.
 
+## Reporting back to the user (response format — do this every response)
+
+The user often runs **several agents at once** and needs to orient fast. **Bracket every
+distinct task in your response with a header at BOTH the top and the bottom of that task's
+section.** The header gives: the task **number**, a short **descriptive name**, and the
+**branch(es) + instance(s)** you worked in.
+
+- **Number** tasks (Task 1, Task 2, …) and give each a **descriptive** name — e.g.
+  "MJExplorer debugging", not "the task".
+- Put the header at the **start** of a task's section **and repeat it at the end** of that
+  section. With multiple tasks: `Task 1 header → …work… → Task 1 header (close) → Task 2
+header → …work… → Task 2 header (close)` — the final close ends your response.
+- Name the **branch(es) + instance(s)** (slug → branch; note dev `~/.mjdev-dev` vs prod
+  `~/.mjdev`, and the Forge repo branch if you committed). `none` is fine when nothing was
+  touched.
+
+Example header (used at top and bottom of the section):
+`▸ Task 2 · MJExplorer debugging — branch: feature/x · instance: openapp-dev`
+
 ## The map (where things live)
 
 - `~/MJDev/` — visible, shareable workspace: `repos/mj` (the MJ clone instances
