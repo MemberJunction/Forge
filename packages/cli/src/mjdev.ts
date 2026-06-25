@@ -70,9 +70,7 @@ program
         );
         console.log(`  Worktree: ${record.worktreePath}`);
         console.log(
-          chalk.cyan(
-            `\n  Next: mjdev setup ${record.slug} all   (deps → migrate → codegen → build)`
-          )
+          chalk.cyan(`\n  Next: mjdev setup ${record.slug} all   (deps → build → migrate)`)
         );
       });
     } catch (err) {
@@ -261,9 +259,12 @@ program
 
 program
   .command('setup')
-  .description('Run a setup step: deps | migrate | codegen | build | all')
+  .description(
+    'Run a setup step. `all` = deps→build→migrate (provisioning). ' +
+      '`codegen` is ON-DEMAND only (run when you change schema/metadata; can clobber committed generated code — see docs).'
+  )
   .argument('<slug>')
-  .argument('<step>', 'deps | migrate | codegen | build | all')
+  .argument('<step>', 'deps | migrate | build | codegen | all')
   .option('--json', 'machine-readable output')
   .action(async (slug: string, step: string, opts: { json?: boolean }) => {
     const json = !!opts.json;

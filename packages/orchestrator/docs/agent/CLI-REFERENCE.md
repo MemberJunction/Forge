@@ -30,20 +30,44 @@ mjdev info my-slug
 
 ## Setup & processes
 
-| Command                     | What it does                                                                     |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| `mjdev setup <slug> <step>` | Run a setup step: `deps` \| `migrate` \| `codegen` \| `build` \| `all`.          |
-| `mjdev runs <slug>`         | List the launchable targets (services + scripts) for an instance.                |
-| `mjdev run <slug> <target>` | Launch a service detached (persists): `api` \| `explorer` \| `<package-script>`. |
-| `mjdev ps [slug]`           | List running processes (shared with the GUI); omit slug for all.                 |
-| `mjdev kill <id>`           | Stop a running process by its id (from `mjdev ps`).                              |
-| `mjdev logs <id>`           | Print the captured log tail for a process id.                                    |
+| Command                     | What it does                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------- |
+| `mjdev setup <slug> <step>` | Run a setup step: `deps` \| `migrate` \| `build` \| `all`, or **on-demand** `codegen`. |
+| `mjdev runs <slug>`         | List the launchable targets (services + scripts) for an instance.                      |
+| `mjdev run <slug> <target>` | Launch a service detached (persists): `api` \| `explorer` \| `<package-script>`.       |
+| `mjdev ps [slug]`           | List running processes (shared with the GUI); omit slug for all.                       |
+| `mjdev kill <id>`           | Stop a running process by its id (from `mjdev ps`).                                    |
+| `mjdev logs <id>`           | Print the captured log tail for a process id.                                          |
 
 ```sh
-mjdev setup my-slug all          # deps -> migrate -> codegen -> build
+mjdev setup my-slug all          # provisioning: deps -> build -> migrate  (NO codegen, NO sync)
+mjdev setup my-slug codegen      # ON-DEMAND only — see the warning below
 mjdev run my-slug api            # start MJAPI (detached)
 mjdev ps my-slug --json
 ```
+
+**`setup all` = `deps → build → migrate`. It deliberately does NOT run codegen or `mj sync push`.**
+A fresh instance's **committed generated code already matches its committed migrations**, so
+provisioning needs neither. `migrate` is what brings the DB up to date (including the
+`*_Metadata_Sync` migrations that seed reference data); the committed generated code + `build`
+do the rest. This was verified: a `deps → build → migrate` instance has the generated resolvers/
+entity code present (committed, not gitignored) and a clean `git status`.
+
+**`codegen` is ON-DEMAND — run it only when YOU change this instance's schema/metadata** and need
+to regenerate derived code (then commit the regenerated code **and** its seeding migration).
+⚠ **Codegen reads the DB and overwrites the committed generated files.** If the DB is missing
+metadata that those committed files depend on (e.g. a teammate committed `metadata/` changes
+without the `*_Metadata_Sync` migration), codegen will **clobber** them and break the build.
+**Before running codegen, run `mj sync push --dir=metadata --dry-run` in the worktree** — if it
+reports pending creates/updates, the DB diverges from the committed metadata; bring it in sync
+(or stop) before regenerating.
+
+**Metadata authoring (`mj sync push`) is a deliberate MANUAL operation, never automated.** It is a
+full reconcile (it can DELETE database rows not represented in the files — e.g. a connector
+retirement) and it requires human judgment on scope. Run it yourself in the worktree, dry-run
+first, scope with `--include`. It is **not** the mechanism for getting teammates' metadata onto a
+fresh instance — migrations are. See ADR-007 (supersedes ADR-006) and the codegen-clobber triage
+in `MJDEV-ISSUES.md`.
 
 ## Personas & identity
 

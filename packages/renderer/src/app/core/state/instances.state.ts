@@ -43,7 +43,8 @@ export class InstancesStateService {
   readonly pendingSetup = computed<SetupStep[]>(() => {
     const s = this.selected();
     if (!s) return [];
-    const order: SetupStep[] = ['deps', 'build', 'migrate', 'codegen'];
+    // Provisioning order only — codegen is on-demand, not part of `setup all`.
+    const order: SetupStep[] = ['deps', 'build', 'migrate'];
     const flag: Record<SetupStep, boolean> = {
       deps: s.setup.depsInstalled,
       build: s.setup.built,

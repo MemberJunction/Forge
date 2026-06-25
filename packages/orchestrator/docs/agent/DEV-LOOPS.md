@@ -64,12 +64,41 @@ mjdev app list <slug>                    # per-app status: migrated/codegen/buil
   `mjdev app reset-schema` (destructive) is the fix; `repair-schema` only realigns
   history rows and does NOT re-run SQL.
 
+## C. Instance-level (core MJ) codegen & metadata — on-demand, NOT part of setup
+
+`mjdev setup <slug> all` = **`deps → build → migrate`**. It does NOT run core codegen or
+`mj sync push`, and you usually never need them: a fresh instance's committed generated code
+already matches its committed migrations, and `migrate` seeds reference data via the
+`*_Metadata_Sync` migrations. **Trust the committed code.**
+
+Only when **you** change this instance's core schema/metadata:
+
+```sh
+# 1. (if you edited metadata/ files) push your edits into YOUR db — MANUAL, judgment required:
+#    dry-run FIRST; scope with --include; it is a full reconcile that can DELETE rows.
+cd instances/<slug>/mj && mj sync push --dir=metadata --dry-run   # inspect
+                          mj sync push --include=<your-dir>        # apply, scoped
+
+# 2. regenerate derived code (ON-DEMAND step):
+mjdev setup <slug> codegen     # ⚠ overwrites committed generated files
+
+# 3. commit BOTH the regenerated code AND its *_Metadata_Sync migration together.
+```
+
+- ⚠ **Codegen clobber rule:** codegen regenerates from the DB. If the DB is missing metadata that
+  committed generated files depend on (someone committed `metadata/` without its migration), codegen
+  **overwrites/clobbers** them and breaks the build. **Run `mj sync push --dir=metadata --dry-run`
+  first** — pending creates/updates mean the DB diverges from committed metadata; reconcile or stop.
+- `mj sync push` is the **single-author** tool for your own edits, **not** how teammates' metadata
+  reaches you — that's migrations. See ADR-007 + CLI-REFERENCE.md.
+
 ## GUI control inventory (what the exploratory test walks)
 
 The Instances + Open-Apps panels expose (drive each; fail on any console/pageerror):
 
 - **Create dialog** (name, baseRef/branch, optional port overrides).
-- **Setup steps** (deps / migrate / codegen / build / run-all) with status indicators.
+- **Setup steps** (deps / build / migrate / run-all) with status indicators, **plus** an
+  "Advanced — schema/metadata tools" card with a confirm-gated **Run CodeGen** button (on-demand).
 - **Process launcher** (Start MJAPI / Explorer / run-script) + running-process list (stop/logs).
 - **Branch panel** (Branch + Based-on rows + Pull + Merge-from-base buttons).
 - **Persona** roster + active-identity picker + per-instance persona + "Open Explorer as…".

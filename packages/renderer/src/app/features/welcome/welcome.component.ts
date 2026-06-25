@@ -263,6 +263,18 @@ import type { DockerStatus, DockerContainer } from '@mj-forge/shared';
               hand the workspace folder to an agent.
             </p>
           </div>
+          <div class="workspace-note">
+            <mat-icon>info</mat-icon>
+            <p>
+              <strong>Setup</strong> runs <code>deps → build → migrate</code>. It does
+              <strong>not</strong> run CodeGen or metadata sync — a fresh instance's committed code
+              already matches its migrations, so it just works. You only need
+              <strong>Run CodeGen</strong> (under “Advanced”) when <em>you</em> change this
+              instance's schema or metadata — and ⚠ running it when the database is behind can
+              overwrite committed generated files and break the build, so check
+              <code>mj sync push --dir=metadata --dry-run</code> first.
+            </p>
+          </div>
         </section>
       </div>
 

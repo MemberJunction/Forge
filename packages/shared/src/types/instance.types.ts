@@ -9,7 +9,11 @@
 /** Lifecycle status of a managed MJ dev instance. */
 export type InstanceStatus = 'provisioning' | 'stopped' | 'running' | 'error';
 
-/** Discrete, on-demand setup steps run after provisioning. */
+/**
+ * Setup steps. `deps`/`build`/`migrate` are the provisioning chain (`setup all`).
+ * `codegen` is an ON-DEMAND step (NOT part of `setup all`) — run only when you've
+ * changed this instance's schema/metadata and need to regenerate derived code.
+ */
 export type SetupStep = 'deps' | 'migrate' | 'codegen' | 'build';
 
 /** The three port roles every instance allocates. */

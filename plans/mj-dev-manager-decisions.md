@@ -194,3 +194,140 @@ per-instance `stop`; tearing the server down on a per-instance `delete`.
 left `MJ_cc_a` and the container intact; teardown removed the container. Plus 162 orchestrator
 unit tests (incl. new `SharedSqlServer` + server-store + `PortAllocator` server-port tests) and
 the seeded GUI panel spec, all green.
+
+---
+
+## ADR-005 — `setup all` does NOT seed core metadata before codegen; a metadata/migration misalignment is allowed to surface, not masked
+
+> **⚠ SUPERSEDED by ADR-006 (2026-06-24).** This decision was reversed the same day. The
+> reasoning below assumed seeding metadata in `setup all` would _mask_ a misalignment. That was
+> wrong: `mj sync push --dir=metadata` is a legitimate install step (it's how `metadata/` reaches
+> a DB in a real MJ install), not a workaround — so running it restores fidelity rather than
+> hiding a bug. See ADR-006. Kept for history.
+
+**Decision.** `mjdev setup all` (deps → migrate → codegen → build) runs core codegen against
+the freshly-migrated DB **as-is**. It does **not** run a core `mj sync push` of the repo's
+`metadata/` before codegen, and codegen is **not** guarded against overwriting committed
+generated files. If a base carries a migration that creates a `RemoteOperation`/entity without
+seeding its metadata rows in the same migration, a clean `create → setup all` will let codegen
+regenerate the committed generated file from the empty table (clobbering it) and let the
+downstream build break. That break is treated as the **intended signal**, not a defect to work
+around.
+
+**Why (the load-bearing reason).** By MJ convention, the commit that introduces a
+`RemoteOperation` (or any entity whose committed generated code depends on seed rows) **seeds
+that metadata in the same migration** that creates the structure. When that convention is
+honored, a freshly-migrated DB has the rows codegen needs and there is no clobber. A
+misalignment (structure migrated, metadata not seeded) is therefore an **upstream PR bug**.
+Auto-seeding `metadata/` inside `setup all`, or restoring clobbered generated files, would
+**mask exactly the misalignment we want a fresh setup to surface** — it would let an incomplete
+migration ship looking healthy. Keeping `setup all` honest makes the misalignment fail loudly on
+the first clean provision, which is where we want it caught. mjdev's job is to drive codegen
+faithfully, not to compensate for an incomplete migration.
+
+**Scope / non-goals.** The reliable _catch_ mechanism — a CI check that runs codegen against a
+freshly-migrated+seeded DB and asserts no drift in committed generated files — belongs in
+**MJ-core**, not mjdev. Note the interaction with turbo caching: a turbo **cache replay** of a
+previously-green build can make `setup all` report rc=0 over a clobbered source, so the break
+isn't always loud today — another reason the durable catch lives in MJ-core CI, not in a mjdev
+workaround. Local recovery from a clobber:
+`git checkout -- packages/MJCoreEntities/src/generated/{remote_operations.ts,entity_subclasses.ts}`
+then rebuild.
+
+**Rules out.** A pre-codegen core metadata-sync step in `setup all`; a "restore committed
+generated files if the driving metadata is absent" guard in mjdev's codegen invocation; any
+mjdev-side compensation for an incomplete upstream migration. (See MJDEV-ISSUES.md, the
+NOT-MJDEV codegen-clobber triage, 2026-06-24.)
+
+---
+
+## ADR-006 — `setup all` runs a core metadata sync (`mj sync push --dir=metadata`) between migrate and codegen (supersedes ADR-005)
+
+> **⚠ SUPERSEDED by ADR-007 (2026-06-24).** Live testing showed `mj sync push --dir=metadata` is
+> not a "seed missing rows" step — it is a full **reconcile** that executes authored deletes
+> (e.g. a connector retirement: 9,262 rows on a real base) and matches insert/update by the
+> primaryKey in each file. On current MJ bases it **cannot complete** at all: the `metadata/`
+> integration files and the baseline migration were authored with **different primary keys for the
+> same records** (proven: iMIS `GLAccount` is `949501CF…` in the migration vs `6b528e9b…` in the
+> file), so push tries to INSERT and hits `UQ_IntegrationObject_Name`. It is therefore the wrong
+> instrument for provisioning. ADR-007 removes it. Kept for history.
+
+**Decision.** The full setup pipeline is `deps → build → migrate → **sync** → codegen`. The new
+`sync` step shells `node packages/MJCLI/bin/run.js sync push --dir=metadata --ci` in the
+instance worktree, pushing the repo's core `metadata/` tree into the instance DB. It runs after
+migrate (the schema must exist) and before codegen (codegen reads the seeded rows to regenerate
+the committed entity code). Exposed as a first-class step: `mjdev setup <slug> sync`, the
+`metadataSynced` flag in `InstanceSetupState`, and a checklist row in the GUI.
+
+**Why this reverses ADR-005.** ADR-005 refused to seed metadata in setup, on the theory that
+doing so would _mask_ a migration/metadata misalignment we wanted to surface. That theory was
+wrong about what `mj sync push` is. In a real MJ install, core reference/seed data does **not**
+live in migrations — it lives in the repo's `metadata/` tree and is loaded by `mj sync push`.
+So a setup pipeline that migrates and codegens but never syncs metadata isn't "honest," it's
+**incomplete** — it skips a real install step, then lets codegen regenerate committed files from
+an empty DB (dropping types like `RecordProcessScopeOverride` and breaking the build). Running
+the sync makes our setup faithful to production, not a workaround.
+
+**Does this hide bugs?** No. The sync only loads what's actually present in `metadata/`. A
+genuine misalignment — data that exists in **neither** a migration **nor** `metadata/` — still
+surfaces as a failure (codegen still has nothing to read). What the sync fixes is the case where
+the data was correctly committed to `metadata/` but our pipeline simply wasn't loading it (the
+`MJ: Remote Operations` / `RecordProcess.RunNow` case that prompted this). The durable
+"misalignment catch" still belongs in MJ-core CI (codegen-diff against a freshly-migrated +
+**synced** DB) — and ADR-006 makes "synced" part of that baseline.
+
+**Mechanics / safety.** `--ci` makes the push non-interactive (the plugin otherwise prompts via
+inquirer) and non-zero-exits on real errors, matching how migrate/codegen surface failure
+(`SetupRunner` gates each step on exit code; `runFullSetup` stops at the first failure). The step
+needs the worktree's generated `mj.config.cjs` (present after ConfigWriter) for its DB
+connection; it's offline (local files → DB) and idempotent.
+
+**Rules out.** A setup pipeline that codegens without first loading `metadata/`; treating the
+codegen-clobber symptom as expected/intended (ADR-005's stance). Does **not** rule out an
+MJ-core CI drift check — that remains the right home for catching true misalignments.
+
+---
+
+## ADR-007 — `setup all` = `deps → build → migrate`; codegen and `mj sync push` are on-demand only (supersedes ADR-005 and ADR-006)
+
+**Decision.** Provisioning (`setup all` / `runFullSetup`) runs exactly **`deps → build → migrate`**.
+It runs **neither codegen nor `mj sync push`**. Both are surfaced as explicit, opt-in operations:
+
+- **codegen** stays a `SetupStep` (`mjdev setup <slug> codegen`; a confirm-gated "Run CodeGen"
+  button in the GUI's "Advanced — schema/metadata tools" card) — but is removed from
+  `FULL_SETUP_ORDER`.
+- **`mj sync push`** is **not** wrapped as a one-click action at all. It is documented as a
+  deliberate manual operation run in the worktree (dry-run first, scope with `--include`).
+
+**Why (three findings from live testing, all on a real next-based instance).**
+
+1. **Committed generated code + migrations already make a fresh instance correct.** Verified: a
+   `deps → build → migrate` instance has `MJAPI/src/generated/generated.ts` and the entity
+   generated code present (committed, **not** gitignored) and a **clean `git status`**. Codegen at
+   provisioning is redundant — it only re-derives what's already committed.
+2. **Re-running codegen at provisioning is actively harmful.** Codegen reads the DB and overwrites
+   the committed generated files. If the DB is missing metadata those files depend on (a teammate
+   committed `metadata/` changes without the `*_Metadata_Sync` migration — a convention violation),
+   codegen **clobbers** them and breaks the build. Auto-running it makes mjdev "Dev B regenerating
+   against a possibly-incomplete DB" on every provision. MJ's own convention (and the user's shop
+   convention) is: **commit generated code; do not run codegen at startup.**
+3. **`mj sync push` is a reconcile/authoring tool, not a seed.** It executes authored deletes
+   (connector-retirement: 9,262 rows observed) and matches insert/update by file primaryKey. On
+   current bases it can't even complete (migration-vs-metadata PK divergence → unique-key
+   violation). It is the wrong instrument for provisioning and is dangerous to wrap as one-click.
+
+**How metadata actually reaches a fresh instance:** via **migrations** (`migrate` applies the
+`*_Metadata_Sync` migrations that seed reference data + the CodeGen-appended SQL). `mj sync push`
+is the single-author tool for pushing _your own_ metadata edits into _your_ DB before you codegen
+
+- commit the seeding migration — never the distribution channel to teammates.
+
+**Pre-codegen safety practice (documented, not auto-enforced):** before running on-demand codegen,
+run `mj sync push --dir=metadata --dry-run`; if it reports pending **creates/updates**, the DB
+diverges from the committed metadata and codegen may clobber — reconcile or stop first.
+
+**Rules out.** codegen or `mj sync push` in the default provisioning path; a one-click wrapper that
+runs `mj sync push --dir=metadata --ci` (destructive full reconcile). Does **not** rule out an
+on-demand codegen action (kept, confirm-gated + warned) or a future safe dry-run "metadata drift"
+check. The deeper MJ-core metadata/migration consistency problems (PK divergence; retirements not
+captured in migrations) are flagged upstream, out of mjdev scope.

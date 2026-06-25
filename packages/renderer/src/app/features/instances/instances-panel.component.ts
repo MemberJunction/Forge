@@ -530,6 +530,31 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
               </ul>
             </div>
 
+            <!-- Advanced: schema / metadata tools (on-demand, NOT part of setup) -->
+            <div class="card">
+              <h3>Advanced — schema / metadata tools</h3>
+              <p class="hint">
+                Not needed to provision. Run these only when <em>you</em> change this instance's
+                schema or metadata.
+              </p>
+              <button mat-stroked-button (click)="runCodegen(inst.slug)" [disabled]="state.busy()">
+                <mat-icon>autorenew</mat-icon> Run CodeGen
+              </button>
+              <p class="hint" style="margin-top: 8px">
+                ⚠ Regenerates code from the DB. Run
+                <code>mj sync push --dir=metadata --dry-run</code> first — if it shows pending
+                changes, codegen may <strong>overwrite committed generated files</strong> (clobber)
+                and break the build. Bring the DB in sync first.
+              </p>
+              <p class="hint" style="margin-top: 8px">
+                <strong>Metadata sync</strong> (authoring your own metadata edits): run
+                <code>mj sync push</code> directly in the worktree — dry-run first, scope with
+                <code>--include</code>. It is a full reconcile (can delete), so it is a deliberate
+                manual step, never automated. Commit the resulting
+                <code>*_Metadata_Sync</code> migration alongside your generated code.
+              </p>
+            </div>
+
             <!-- Launcher -->
             <div class="card">
               <h3>Launcher</h3>
@@ -1777,11 +1802,11 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   /** Whether the pending unlink should also drop the app's schema/data. */
   unlinkDropSchema = false;
 
+  /** Provisioning steps — what `Run full setup` runs. */
   readonly steps: { key: SetupStep; label: string }[] = [
     { key: 'deps', label: 'Install dependencies' },
     { key: 'build', label: 'Build workspace' },
     { key: 'migrate', label: 'Run migrations (mj migrate)' },
-    { key: 'codegen', label: 'Run CodeGen (mj codegen)' },
   ];
 
   constructor() {
@@ -1888,6 +1913,19 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   runFull(slug: string): void {
     this.showSetupPrompt.set(false);
     void this.state.runSetup(slug, 'all');
+  }
+
+  /** On-demand CodeGen — confirm-gated because it can clobber committed generated files. */
+  runCodegen(slug: string): void {
+    const ok = confirm(
+      'Run CodeGen on "' +
+        slug +
+        '"?\n\nThis regenerates code from the current database. If the DB is missing ' +
+        'metadata that committed generated files depend on, codegen will OVERWRITE those ' +
+        'files (clobber) and can break the build.\n\nRecommended: run `mj sync push --dry-run` ' +
+        'in the worktree first; only proceed if it reports no pending changes.\n\nProceed?'
+    );
+    if (ok) void this.state.runSetup(slug, 'codegen');
   }
 
   confirmDelete(slug: string): void {

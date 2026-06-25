@@ -3,7 +3,7 @@ import { run } from './exec.js';
 import { emit, type EventSink, noopSink } from './util.js';
 
 /** The npm script each setup step shells out to, run in the worktree. */
-const STEP_COMMANDS: Record<SetupStep, { args: string[]; label: string }> = {
+const STEP_COMMANDS: Record<SetupStep, { command?: string; args: string[]; label: string }> = {
   deps: { args: ['ci'], label: 'Install dependencies' },
   migrate: { args: ['run', 'mj:migrate'], label: 'Run database migrations' },
   codegen: { args: ['run', 'mj:codegen'], label: 'Run CodeGen' },
@@ -33,8 +33,16 @@ function isLockSyncFailure(output: string): boolean {
  * (MJ's own installer runs migrate before build only against a pre-built
  * distribution — not applicable here.) Generated entity code is committed, so
  * the initial build succeeds without codegen.
+ *
+ * **`codegen` is deliberately NOT here.** A fresh instance's committed generated
+ * code already matches its committed migrations, so provisioning never needs to
+ * regenerate. Re-running codegen against a DB that's missing un-migrated metadata
+ * would CLOBBER committed generated files (see ADR-007). Codegen is an explicit
+ * on-demand step (`runStep('codegen', …)`), run only when a developer changes
+ * this instance's schema/metadata. Metadata authoring (`mj sync push`) is likewise
+ * a deliberate manual operation in the worktree, never part of setup.
  */
-export const FULL_SETUP_ORDER: SetupStep[] = ['deps', 'build', 'migrate', 'codegen'];
+export const FULL_SETUP_ORDER: SetupStep[] = ['deps', 'build', 'migrate'];
 
 export interface SetupStepResult {
   step: SetupStep;
@@ -60,7 +68,7 @@ export class SetupRunner {
     const op = `setup:${step}`;
     emit(sink, slug, op, 'progress', `${spec.label}…`);
 
-    let result = await run('npm', spec.args, {
+    let result = await run(spec.command ?? 'npm', spec.args, {
       cwd: worktreePath,
       env,
       onOutput: s => emit(sink, slug, op, 'info', s.trimEnd()),
@@ -108,13 +116,7 @@ export class SetupRunner {
   ): Promise<SetupStepResult[]> {
     const results: SetupStepResult[] = [];
     const done = new Set(skip);
-    emit(
-      sink,
-      slug,
-      'setup:all',
-      'progress',
-      'Running full setup (deps → build → migrate → codegen)…'
-    );
+    emit(sink, slug, 'setup:all', 'progress', 'Running full setup (deps → build → migrate)…');
     for (const step of FULL_SETUP_ORDER) {
       if (done.has(step)) {
         emit(sink, slug, `setup:${step}`, 'info', `Skipping ${step} (already complete)`);
