@@ -91,6 +91,10 @@ mjdev setup <slug> codegen     # ⚠ overwrites committed generated files
   first** — pending creates/updates mean the DB diverges from committed metadata; reconcile or stop.
 - `mj sync push` is the **single-author** tool for your own edits, **not** how teammates' metadata
   reaches you — that's migrations. See ADR-007 + CLI-REFERENCE.md.
+- ⏳ **TEMPORAL EXCEPTION (TE-1):** on the current `next` base a full `mj sync push` **breaks** on
+  the connector-retirement deletes. If your task will run `mj sync push`, **ask the user first**
+  (at the start of your response) whether to exclude the integration entries. See
+  @.mjdev-docs/TEMPORAL-EXCEPTIONS.md.
 
 ## GUI control inventory (what the exploratory test walks)
 
