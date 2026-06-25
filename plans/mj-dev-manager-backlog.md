@@ -60,6 +60,16 @@ _Last updated: 2026-06-24 (backlog triage with the user; setup-step rework `87d7
 - **What:** the larger Instances/Open-Apps panel refactor. Gates #43.
 - **Status:** discussion-only; no design doc yet.
 
+### Instructing sub-agents / orchestrator-worker structure (discussion — decided to defer 2026-06-25)
+
+- **What:** whether (and how) to formally instruct sub-agents about their role/scope. We **removed**
+  the "orchestrator or worker?" startup question for now — it didn't change behavior (same features),
+  and labeling an agent a "worker" risks it under-investing (see the 1d discussion).
+- **To revisit:** if we want a sub-agent structure, frame it as **scope + how-to-report-up** (which
+  instance, what task, surface blockers via MJDEV-ISSUES/REQUESTS), **never as rank**. First nail
+  down how sub-agents receive context (tool-spawned = prompt only; directory-launched = read AGENTS.md).
+- **Status:** parked; no change shipped beyond removing the startup question.
+
 ---
 
 ## Release & onboarding (the overarching goal — get colleagues using it)
@@ -99,6 +109,9 @@ These surfaced during the metadata/codegen investigation (see ADR-007 + `~/MJDev
 
 ## Housekeeping & standing constraints
 
+- **Keep the welcome greeting current with how the dev tools are exposed.** When the CLI/GUI entry
+  points or the headline feature list change, update `docs/agent/WELCOME.md` (the user's first
+  impression — it describes running the GUI via `npm run dev` and the CLI via `./bin/mjdev`).
 - **Merging = dev branch (`MT-mjdev-active-development`) → the LOCAL prod branch
   (`MT-forge-mjdev-tools`), NOT Forge upstream.** As of 2026-06-24, `87d730b` + `d947075` are
   already merged to local prod; only the backlog-doc commit `6ee9d15` was pending. The user does
