@@ -64,6 +64,10 @@ describe('syncAgentDocs', () => {
     expect(await read(path.join(paths.workspaceRoot, 'CLAUDE.md'))).toContain('@AGENTS.md');
     expect(res.issuesCreated).toBe(true);
     expect(await read(path.join(paths.workspaceRoot, 'MJDEV-ISSUES.md'))).toContain('NOT-MJDEV');
+    expect(res.requestsCreated).toBe(true);
+    expect(await read(path.join(paths.workspaceRoot, 'MJDEV-REQUESTS.md'))).toContain(
+      'doc | improvement'
+    );
 
     // Launcher: 0755, pins the isolation env, points at the CLI entry
     const launcher = await read(res.launcher);

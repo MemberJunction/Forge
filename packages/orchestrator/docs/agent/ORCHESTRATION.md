@@ -23,17 +23,18 @@ distinct task in your response with a header at BOTH the top and the bottom of t
 section.** The header gives: the task **number**, a short **descriptive name**, and the
 **branch(es) + instance(s)** you worked in.
 
-- **Number** tasks (Task 1, Task 2, …) and give each a **descriptive** name — e.g.
-  "MJExplorer debugging", not "the task".
-- Put the header at the **start** of a task's section **and repeat it at the end** of that
-  section. With multiple tasks: `Task 1 header → …work… → Task 1 header (close) → Task 2
-header → …work… → Task 2 header (close)` — the final close ends your response.
+- **Number = batch, letter = task.** Each response is a **batch** whose number **counts up every
+  response**; letter each task within it (`1a`, `1b`, …; the next response is `2a`, `2b`). This lets
+  the user reference an older task by `<batch><letter>` and trace which batch it came from. Give
+  each a **descriptive** name — e.g. "MJExplorer debugging", not "the task".
+- Put the header at the **start** of a task's section **and repeat it at the end** of that section.
+  With multiple tasks: `Task 1a header → …work… → Task 1a (close) → Task 1b header → …work… → Task 1b
+(close)` — the final close ends your response.
 - Name the **branch(es) + instance(s)** (slug → branch; note dev `~/.mjdev-dev` vs prod
-  `~/.mjdev`, and the Forge repo branch if you committed). `none` is fine when nothing was
-  touched.
+  `~/.mjdev`, and the Forge repo branch if you committed). `none` is fine when nothing was touched.
 
 Example header (used at top and bottom of the section):
-`▸ Task 2 · MJExplorer debugging — branch: feature/x · instance: openapp-dev`
+`▸ Task 2c · MJExplorer debugging — branch: feature/x · instance: openapp-dev`
 
 ## The map (where things live)
 
@@ -134,3 +135,12 @@ Entry template (status flow `OPEN → TRIAGING → RESOLVED | NOT-MJDEV`):
 - Expected vs actual:
 - Suspected layer:
 ```
+
+## Requesting a doc or tool improvement → `MJDEV-REQUESTS.md`
+
+You **can't edit the shipped docs/tool directly** — `.mjdev-docs/` and the managed `AGENTS.md`
+region are regenerated each launch, so edits are overwritten. When you want a **doc** change
+(clarify/fix/add to an agent doc) or a **tool improvement** (a CLI command/flag, GUI control,
+feature, engine behavior), append an entry to `~/MJDev/MJDEV-REQUESTS.md` (type: `doc` |
+`improvement`, with a target). The maintainer reviews and folds accepted requests back into the
+Forge repo. (Bugs → `MJDEV-ISSUES.md`; _wanted changes_ → here.)

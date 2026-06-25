@@ -13,7 +13,8 @@ import type { ResolvedPaths } from './paths.js';
  *  - `.mjdev-docs/WORKSPACE-SNAPSHOT.md` — live roster, regenerated each launch.
  *  - `AGENTS.md`            — only the MJDEV-MANAGED region is rewritten; user prose is preserved.
  *  - `CLAUDE.md`            — a thin `@AGENTS.md` import, written ONLY if absent.
- *  - `MJDEV-ISSUES.md`      — escalation log, created if absent, NEVER clobbered.
+ *  - `MJDEV-ISSUES.md`      — suspected-tool-bug log, created if absent, NEVER clobbered.
+ *  - `MJDEV-REQUESTS.md`    — doc/improvement request log, created if absent, NEVER clobbered.
  *  - `bin/mjdev`            — launcher that pins this workspace's isolation env, mode 0755.
  *
  * Nothing here writes under the hidden secrets root (`~/.mjdev`).
@@ -40,6 +41,7 @@ export interface SyncAgentDocsResult {
   agentsFile: string;
   claudeCreated: boolean;
   issuesCreated: boolean;
+  requestsCreated: boolean;
   settingsCreated: boolean;
 }
 
@@ -168,14 +170,18 @@ function managedAgentsBlock(): string {
     '  problem (instance provisioning, worktrees, the `mjdev` CLI, **install / dev-link**, config',
     '  generation, process management), file it here so the mjdev maintainer can triage — and',
     '  check it for known issues before you work around something. Protocol in ORCHESTRATION.md.',
+    "- **Want a doc/tool improvement?** You can't edit the shipped docs/tool directly (they",
+    '  regenerate each launch) — file a request in `./MJDEV-REQUESTS.md` (type: doc | improvement)',
+    "  and the maintainer folds accepted ones back into the tool. That's how your ideas reach us.",
     '',
     "Run the CLI via `./bin/mjdev` — it pins this workspace's isolation env so the CLI",
     'and GUI share the same state.',
     '',
     '**Report back per task (every response):** the user runs several agents at once — bracket',
-    'each distinct task with a numbered, descriptive header (e.g. `▸ Task 2 · MJExplorer',
-    'debugging — branch: feature/x · instance: openapp-dev`) at BOTH the **top and bottom** of',
-    "that task's section, naming the branch(es) + instance(s) you worked in. See ORCHESTRATION.md.",
+    'each distinct task with a descriptive header at BOTH the **top and bottom** of its section,',
+    'naming the branch(es) + instance(s). **Number = batch (counts up each response), letter =',
+    'task** (`1a`, `1b`, … then `2a`, …), e.g. `▸ Task 2c · MJExplorer debugging — branch:',
+    'feature/x · instance: openapp-dev`. See ORCHESTRATION.md.',
   ].join('\n');
 }
 
@@ -205,6 +211,45 @@ function issuesSeed(): string {
     '- Repro: <exact commands / steps>',
     '- Expected vs actual:',
     '- Suspected layer:',
+    '```',
+    '',
+    '---',
+    '',
+  ].join('\n');
+}
+
+/** Seed contents for MJDEV-REQUESTS.md (written only if the file is absent). */
+function requestsSeed(): string {
+  return [
+    '# MJDEV-REQUESTS — agent doc & improvement requests',
+    '',
+    'Agents working in this workspace **cannot edit the shipped mjdev docs or tool directly** —',
+    'the docs (`.mjdev-docs/`, the managed `AGENTS.md` region) are regenerated each launch, so any',
+    'edits are overwritten. So when you have an improvement to the **docs** or the **tool**, file it',
+    'here. The mjdev maintainer agent reviews requests, folds accepted ones into the shipped',
+    'docs/tool (in the Forge repo), and marks them closed. This is how your improvements get back',
+    'to us.',
+    '',
+    '## What goes here (vs MJDEV-ISSUES.md)',
+    '- **doc** — a fix/addition to an agent doc: a clarification, a missing step, wrong info, a new',
+    '  gotcha worth capturing.',
+    '- **improvement** — a wanted change to the mjdev tool: a CLI command/flag, a GUI control, a',
+    '  feature, an engine behavior.',
+    '- A suspected **tool bug** goes to `MJDEV-ISSUES.md` instead — this file is for *wanted',
+    '  changes*, not breakage.',
+    '',
+    '## Status flow',
+    '`OPEN` → `CLOSED` (accepted + applied, or declined — the maintainer notes which in their reply).',
+    '',
+    '## Entry template',
+    '```',
+    '### <short title>',
+    '- Status: OPEN',
+    '- Type: doc | improvement',
+    '- Target: <doc → the .md file, e.g. CLI-REFERENCE.md · improvement → the CLI command / tool / feature>',
+    '- Requested: <date> by <agent/instance>',
+    '- Request: <what you want changed and why — enough for the maintainer to act without you>',
+    '- Maintainer reply: <left blank — filled on review>',
     '```',
     '',
     '---',
@@ -313,6 +358,14 @@ export async function syncAgentDocs(
     issuesCreated = true;
   }
 
+  // 5b) MJDEV-REQUESTS.md — doc/improvement requests; create if absent, NEVER clobber.
+  const requestsFile = path.join(paths.workspaceRoot, 'MJDEV-REQUESTS.md');
+  let requestsCreated = false;
+  if (!(await pathExists(requestsFile))) {
+    await fs.writeFile(requestsFile, requestsSeed(), 'utf8');
+    requestsCreated = true;
+  }
+
   // 6) bin/mjdev launcher (0755).
   const binDir = path.join(paths.workspaceRoot, 'bin');
   await fs.mkdir(binDir, { recursive: true });
@@ -338,6 +391,7 @@ export async function syncAgentDocs(
     agentsFile,
     claudeCreated,
     issuesCreated,
+    requestsCreated,
     settingsCreated,
   };
 }
