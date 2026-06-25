@@ -32,6 +32,11 @@ member). **Order matters** on schema/data changes:
 > reserved `__mj_*` schema (e.g. `bizapps-common`, `bizapps-accounting`) — without it the
 > link fails at schema-create with `reserved for MJ internals`. Use `--ignore-version-range`
 > to link an off-tag app onto a newer MJ. (Full flag list in CLI-REFERENCE.md.)
+>
+> ⚠ **Don't mix topologies in one instance:** keep an instance's apps **all dev-linked or all
+> installed** — never some of each. Mixing very likely nests a second `@memberjunction/*` copy
+> (installed app's published deps vs the dev-link workspace dedupe) → split class factory →
+> silent registration failure. See SAFETY.md ("Don't mix dev-linked and installed apps").
 
 ```sh
 # code-only change (server or client):

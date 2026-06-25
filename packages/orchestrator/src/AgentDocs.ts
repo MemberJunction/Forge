@@ -154,12 +154,13 @@ function managedAgentsBlock(): string {
     '- Command reference: @.mjdev-docs/CLI-REFERENCE.md',
     '- Workspace layout: @.mjdev-docs/WORKSPACE.md',
     '- Live instance roster: @.mjdev-docs/WORKSPACE-SNAPSHOT.md',
+    '- **Handoff log — USE THIS:** `./MJDEV-ISSUES.md`. If you hit a suspected **mjdev-tool**',
+    '  problem (instance provisioning, worktrees, the `mjdev` CLI, **install / dev-link**, config',
+    '  generation, process management), file it here so the mjdev maintainer can triage — and',
+    '  check it for known issues before you work around something. Protocol in ORCHESTRATION.md.',
     '',
     "Run the CLI via `./bin/mjdev` — it pins this workspace's isolation env so the CLI",
     'and GUI share the same state.',
-    '',
-    'Suspect a **mjdev-tool** bug (vs an MJ-core or app bug)? Log it in `./MJDEV-ISSUES.md`',
-    '(see the protocol in ORCHESTRATION.md).',
   ].join('\n');
 }
 

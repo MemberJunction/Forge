@@ -28,10 +28,23 @@ port — but that doesn't license touching prod instances.
 - **One façade.** Drive everything through `InstanceOrchestrator` (CLI/GUI). Never
   poke an instance's container/worktree/DB directly behind the engine's back.
 - **Single-mode per app.** An open app is either dev-linked _or_ installed, never both
-  at once. Switch with `mjdev app switch`; don't mix.
+  at once. Switch with `mjdev app switch`; don't mix the two modes for one app.
+- **Don't mix dev-linked and installed apps in the SAME instance.** Keep an instance's open
+  apps on **one topology** — all dev-linked, or all installed. Mixing is _very_ likely to
+  break the instance. **Why:** a dev-linked app is materialized as an npm **workspace member**,
+  so npm dedupes every `@memberjunction/*` down to the single host copy (that's how dev-link
+  preserves the single-copy invariant). An **installed** app is an ordinary **published
+  dependency** that carries its own pinned `@memberjunction/*` versions. Put both in the same
+  `node_modules` and npm will very likely **nest a second copy** of `@memberjunction/global`/
+  `core` under the installed app → two copies in the process → the `BaseSingleton`/ClassFactory
+  registry (keyed on `globalThis`) **splits** → an app's class/resolver registrations land in a
+  different factory than the one MJAPI reads → **silent** failure (entities/resolvers simply
+  don't appear, with no error). So: if you need to add an app to an instance that already has
+  apps, match the existing topology — don't install into a dev-linked instance or vice-versa.
 - **Single-copy invariant.** Exactly one resolved `@memberjunction/*` (esp. `global`/
   `core`) per instance — a second copy splits the class factory and silently breaks
-  registration. The tool guards this; don't defeat it with manual installs.
+  registration. The tool guards this; don't defeat it with manual installs or by mixing
+  topologies (above).
 - **Personas use `@mjdev.local`** addresses — they're local dev identities, never real accounts.
 
 ## Destructive ops (confirm-gated / human-authorized)
