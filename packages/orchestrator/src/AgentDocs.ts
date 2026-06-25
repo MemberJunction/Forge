@@ -15,6 +15,7 @@ import type { ResolvedPaths } from './paths.js';
  *  - `CLAUDE.md`            — a thin `@AGENTS.md` import, written ONLY if absent.
  *  - `MJDEV-ISSUES.md`      — suspected-tool-bug log, created if absent, NEVER clobbered.
  *  - `MJDEV-REQUESTS.md`    — doc/improvement request log, created if absent, NEVER clobbered.
+ *  - `logs/`                — home for agent-written working logs (so they don't litter root).
  *  - `bin/mjdev`            — launcher that pins this workspace's isolation env, mode 0755.
  *
  * Nothing here writes under the hidden secrets root (`~/.mjdev`).
@@ -148,11 +149,16 @@ function managedAgentsBlock(): string {
     'MemberJunction-related — go read it: `repos/mj/CLAUDE.md` (or `mj/CLAUDE.md` inside any',
     'instance worktree). When these mjdev docs do not cover something, fall back to it.',
     '',
-    '**On startup, ask the user: "Am I the orchestrator, or a worker?"** The *orchestrator*',
-    'coordinates a swarm (provisions/assigns/recycles instances for other agents); a *worker*',
-    'develops on a single assigned instance. Your role changes how you operate (see the swarm',
-    'model in ORCHESTRATION.md). Always ask if it is not already clear, and read ORCHESTRATION.md',
-    'either way.',
+    '**On startup, ask the user TWO things:**',
+    '1. **"Am I the orchestrator, or a worker?"** The *orchestrator* coordinates a swarm',
+    '   (provisions/assigns/recycles instances for other agents); a *worker* develops on a single',
+    '   assigned instance. Your role changes how you operate (see the swarm model in',
+    '   ORCHESTRATION.md). Ask if it is not already clear, and read ORCHESTRATION.md either way.',
+    '2. **"How many heavy slots should I run?"** A *heavy slot* = one long-running, high-compute',
+    '   task in flight (e.g. a full MJ `turbo build`, an instance `create` + `setup all`, an',
+    '   `app build-all`, or a Playwright/e2e run). The user picks how many can run at once on',
+    '   their machine; keep concurrent heavy tasks within that budget. (Run heavy work in the',
+    '   **background** and parallelize up to the budget — see ORCHESTRATION.md "Heavy slots".)',
     '',
     '> ⏳ **TEMPORAL EXCEPTION — read before you start.** If your task will involve running',
     '> `mj sync push` (core metadata sync), **STOP and ask the user at the very start of your',
@@ -166,6 +172,8 @@ function managedAgentsBlock(): string {
     '- Command reference: @.mjdev-docs/CLI-REFERENCE.md',
     '- Workspace layout: @.mjdev-docs/WORKSPACE.md',
     '- Live instance roster: @.mjdev-docs/WORKSPACE-SNAPSHOT.md',
+    '- **Logs:** write any working command output to `./logs/` (not the workspace root). The',
+    "  tool's own per-process logs are in the hidden `proc-logs/` — read them with `mjdev logs <id>`.",
     '- **Handoff log — USE THIS:** `./MJDEV-ISSUES.md`. If you hit a suspected **mjdev-tool**',
     '  problem (instance provisioning, worktrees, the `mjdev` CLI, **install / dev-link**, config',
     '  generation, process management), file it here so the mjdev maintainer can triage — and',
@@ -312,6 +320,11 @@ export async function syncAgentDocs(
   const docsSourceDir = opts.docsSourceDir ?? defaultDocsSourceDir();
   const docsDir = path.join(paths.workspaceRoot, '.mjdev-docs');
   await fs.mkdir(docsDir, { recursive: true });
+
+  // 0) `logs/` — the home for agent-written working logs (ad-hoc command output) so they
+  //    don't litter the workspace root. The tool's own per-process logs stay in the hidden
+  //    `proc-logs/` (read via `mjdev logs <id>`); this is for agents' own redirected output.
+  await fs.mkdir(path.join(paths.workspaceRoot, 'logs'), { recursive: true });
 
   // 1) Copy authored docs (fully regenerated — clobber OK).
   const copied: string[] = [];

@@ -353,3 +353,25 @@ the push is transactional, MJ rolls that part back; **exclude the failing sectio
 `--exclude=integrations`) and re-run, then codegen. On the current `next` base the connector
 deletes are the known failing section (see TEMPORAL-EXCEPTIONS.md TE-1). This is documented in the
 agent docs (CLI-REFERENCE + TEMPORAL-EXCEPTIONS) as well.
+
+---
+
+## ADR-008 — Agent working logs go in `~/MJDev/logs/`; the tool's process logs stay in `~/.mjdev/proc-logs/`
+
+**Decision.** The visible workspace has a dedicated **`~/MJDev/logs/`** directory (auto-created by
+`AgentDocs.syncAgentDocs` on every launch). **Agents write their ad-hoc working logs / redirected
+command output there** — never into the workspace root. The **tool's own** per-process logs are
+unchanged: they live in the hidden `~/.mjdev/proc-logs/` (keyed to process IDs) and are read via
+`mjdev logs <id>`.
+
+**Why.** Agents had been dropping `> foo.log` output directly in `~/MJDev/` (found 7 stray logs:
+`appinstall-*.{out,err}.log`, `setup.{status,err,out}.log`), cluttering the shareable workspace
+root. A known `logs/` folder keeps the root clean and gives everyone (humans + agents) one place to
+look. The tool's process logs stay hidden because they're runtime state tied to the process
+registry, not human-authored artifacts — and they already have a first-class read path
+(`mjdev logs`). Keeping the two separate avoids conflating "the tool's captured stdout of a service
+it launched" with "an agent's scratch log."
+
+**Rules out.** Logs in the workspace root; moving the tool's `proc-logs` into the visible workspace
+(they're hidden runtime state); a second log-read mechanism (use `mjdev logs <id>` for process
+logs). Documented for agents in the managed `AGENTS.md` block + ORCHESTRATION.md "map".

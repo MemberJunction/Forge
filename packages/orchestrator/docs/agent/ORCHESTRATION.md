@@ -40,7 +40,10 @@ Example header (used at top and bottom of the section):
 
 - `~/MJDev/` — visible, shareable workspace: `repos/mj` (the MJ clone instances
   worktree from), `repos/apps/<app>` (open-app clones), `instances/<slug>/{mj,apps,config}`,
-  `bin/mjdev` (CLI launcher), `.mjdev-docs/` (these docs), `MJDEV-ISSUES.md`.
+  `bin/mjdev` (CLI launcher), `.mjdev-docs/` (these docs), `MJDEV-ISSUES.md`,
+  `MJDEV-REQUESTS.md`, and **`logs/`** — write any working command output **there**, not the
+  workspace root. (The tool's own per-process logs are in hidden `~/.mjdev/proc-logs/`; read with
+  `mjdev logs <id>`.)
 - `~/.mjdev/` — hidden secrets/state (`instances.json`, `secrets.json`, personas, keys,
   processes, openapps). **Off-limits to hand-edit — mutate only via the CLI.**
 - Full layout: @.mjdev-docs/WORKSPACE.md.
@@ -108,6 +111,22 @@ share one object store → cheap branching + local merge-back). Orchestrator
 playbook: **create → setup all → assign slug to a worker → recycle/delete.**
 Provisioning is the expensive step — pre-provision or keep a golden instance and
 recycle rather than create-per-task.
+
+## Heavy slots (concurrency budget — ask the user on startup)
+
+Lots of mjdev work is **long-running + high-compute**: a full MJ `turbo build` (~50 packages,
+minutes), an instance `create` + `setup all` (npm install GBs + build), an `app build-all`, a
+Playwright/`e2e` run. Each such task = **one "heavy slot."** On startup, **ask the user how many
+heavy slots to run** — i.e. how many of those they're comfortable running at once on their machine
+— and keep concurrent heavy tasks within that budget.
+
+- **Run heavy tasks in the background and parallelize up to the budget** (don't serialize when you
+  have free slots; don't blow past it either). Light work (reads, single-file edits, `mjdev list`)
+  doesn't count against slots.
+- The budget is a guess the user refines over time — re-ask or adjust if builds start thrashing or
+  if there's clearly headroom. When in doubt, fewer slots.
+- This is the orchestrator's main job for throughput: keep the heavy-slot pipeline full but not
+  oversubscribed across the swarm.
 
 ## Reading `--json`
 
