@@ -53,14 +53,26 @@ provisioning needs neither. `migrate` is what brings the DB up to date (includin
 do the rest. This was verified: a `deps → build → migrate` instance has the generated resolvers/
 entity code present (committed, not gitignored) and a clean `git status`.
 
-**`codegen` is ON-DEMAND — run it only when YOU change this instance's schema/metadata** and need
-to regenerate derived code (then commit the regenerated code **and** its seeding migration).
-⚠ **Codegen reads the DB and overwrites the committed generated files.** If the DB is missing
-metadata that those committed files depend on (e.g. a teammate committed `metadata/` changes
-without the `*_Metadata_Sync` migration), codegen will **clobber** them and break the build.
-**Before running codegen, run `mj sync push --dir=metadata --dry-run` in the worktree** — if it
-reports pending creates/updates, the DB diverges from the committed metadata; bring it in sync
-(or stop) before regenerating.
+**Don't run codegen unless you have to — it's ON-DEMAND.** The rule for **both** the instance
+(`setup … codegen`) and open apps (`app codegen`; `app setup` no longer runs it): you _have to_
+run codegen only when **YOU** changed the schema/metadata (of the instance or the app) and need
+the committed generated code to match — then run it and commit the regenerated code **and** its
+seeding migration. Otherwise **trust the committed generated code** (instances commit it under
+`*/src/generated`; so do dev-linked apps). Two reasons it's on-demand, not automatic:
+⚠ **(1) Clobber.** Codegen reads the DB and overwrites the committed generated files. If the DB is
+missing metadata those files depend on (e.g. a teammate committed `metadata/` changes without the
+`*_Metadata_Sync` migration), codegen **clobbers** them and breaks the build. **Before running it,
+run `mj sync push --dir=metadata --dry-run` in the worktree** — pending creates/updates mean the
+DB diverges from committed metadata; reconcile or stop first.
+⚠ **(2) It can just fail.** CodeGen's AI CHECK-constraint parser needs **AI credentials** a fresh
+instance won't have, so an unattended codegen at setup can error out (observed in validation).
+
+**Metadata authoring (`mj sync push`) is a deliberate MANUAL operation, never automated.** It is a
+full reconcile (it can DELETE database rows not represented in the files — e.g. a connector
+retirement) and it requires human judgment on scope. Run it yourself in the worktree, dry-run
+first, scope with `--include`. It is **not** the mechanism for getting teammates' metadata onto a
+fresh instance — migrations are. See ADR-007 (supersedes ADR-006) and the codegen-clobber triage
+in `MJDEV-ISSUES.md`.
 
 **Metadata authoring (`mj sync push`) is a deliberate MANUAL operation, never automated.** It is a
 full reconcile (it can DELETE database rows not represented in the files — e.g. a connector
@@ -105,8 +117,8 @@ in `MJDEV-ISSUES.md`.
 | `mjdev app build <slug> <app>`         | Build a dev-linked app's workspace sub-packages (required before boot).                             |
 | `mjdev app build-all <slug>`           | Rebuild all dev-linked apps, in cross-app dependency order.                                         |
 | `mjdev app migrate <slug> <app>`       | Run a dev-linked app's schema migrations.                                                           |
-| `mjdev app codegen <slug> <app>`       | Run codegen for a dev-linked app.                                                                   |
-| `mjdev app setup <slug> <app>`         | Bring a dev-linked app to ready: migrate → sync → codegen → build (one step).                       |
+| `mjdev app codegen <slug> <app>`       | Run codegen for a dev-linked app — **ON-DEMAND only** (see the codegen note below).                 |
+| `mjdev app setup <slug> <app>`         | Bring a dev-linked app to ready: **migrate → sync → build** (one step). Does NOT run codegen.       |
 | `mjdev app sync <slug> <app>`          | Push/pull the app's metadata (reference data seed).                                                 |
 | `mjdev app watch-targets <slug> <app>` | Print the turbo watch filter for live-edit rebuilds.                                                |
 | `mjdev app reset-schema <slug> <app>`  | Drop + re-migrate the app schema (destructive — fixes edited migrations).                           |
@@ -135,7 +147,7 @@ the app is Active — check the `Summary` (or `--json` output) / the app's statu
 ```sh
 # First-party bizapps-* declare __mj_* schemas → need --allow-double-underscore-schema:
 mjdev app link my-slug ~/MJDev/repos/apps/bizapps-accounting --allow-double-underscore-schema --json
-mjdev app setup my-slug bizapps-accounting   # migrate->sync->codegen->build
+mjdev app setup my-slug bizapps-accounting   # migrate->sync->build (NO codegen)
 mjdev app build my-slug bizapps-accounting
 mjdev run my-slug api && mjdev e2e my-slug --check apps
 ```

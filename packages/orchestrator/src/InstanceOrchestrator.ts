@@ -704,13 +704,16 @@ export class InstanceOrchestrator {
     const m = await this.migrateApp(slug, appName, sink);
     steps.migrate = m.ok;
     if (!m.ok) return { ok: false, steps };
-    // Sync app-authored metadata first (best-effort: codegen-owned rows may collide
-    // on a re-run; that's fine, codegen handles them).
+    // Sync the app's own reference data (best-effort; app-scoped, additive).
     const s = await this.syncApp(slug, appName, {}, sink).catch(() => ({ ok: false }));
     steps.sync = s.ok;
-    const c = await this.codegenApp(slug, appName, sink);
-    steps.codegen = c.ok;
-    if (!c.ok) return { ok: false, steps };
+    // NOTE: codegen is deliberately NOT run here — mirrors instance `setup all` (ADR-007).
+    // A dev-linked app ships its committed generated code (Entities/Server/Actions
+    // `src/generated`), so `build` compiles against that. Re-running codegen at setup is
+    // redundant, can CLOBBER the committed generated files if the DB lacks app metadata, and
+    // can outright fail (CodeGen's AI CHECK-constraint parser needs AI credentials a fresh
+    // instance won't have). Run codegen ON-DEMAND (`codegenApp` / `mjdev app codegen`) only
+    // after you change the app's schema/metadata, then commit the regenerated code.
     const b = await this.buildApp(slug, appName, sink);
     steps.build = b.ok;
     return { ok: b.ok, steps };

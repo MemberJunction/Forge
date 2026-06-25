@@ -949,7 +949,10 @@ app
 
 app
   .command('setup')
-  .description('Bring a dev-linked app to ready: migrate → sync → codegen → build (one step)')
+  .description(
+    'Bring a dev-linked app to ready: migrate → sync → build (one step). ' +
+      'Does NOT run codegen (on-demand only — `mjdev app codegen`; see docs).'
+  )
   .argument('<slug>')
   .argument('<app>')
   .option('--json', 'machine-readable output')
@@ -960,7 +963,7 @@ app
       emitResult(json, { success: r.ok, ...r }, () =>
         console.log(
           r.ok
-            ? chalk.green(`✓ ${appName} set up (migrate→sync→codegen→build)`)
+            ? chalk.green(`✓ ${appName} set up (migrate→sync→build)`)
             : chalk.red(
                 `✗ Setup incomplete: ${Object.entries(r.steps)
                   .map(([k, v]) => `${k}=${v ? 'ok' : 'fail'}`)

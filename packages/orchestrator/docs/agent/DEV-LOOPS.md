@@ -52,7 +52,7 @@ mjdev app build <slug> <app>
 mjdev app sync <slug> <app>             # push metadata (e.g. currencies)
 
 # one-shot "bring to ready":
-mjdev app setup <slug> <app>            # migrate -> sync -> codegen -> build
+mjdev app setup <slug> <app>            # migrate -> sync -> build (NO codegen — on-demand only)
 
 # verify:
 mjdev e2e <slug> --check apps           # app renders + GraphQL live
