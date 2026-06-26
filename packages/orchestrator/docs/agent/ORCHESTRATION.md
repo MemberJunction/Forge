@@ -84,7 +84,7 @@ A workspace runs **exactly one** SQL Server container — `mjdev-sql` (prod) /
 - `mjdev reset` is the only thing that tears the shared server down (full cutover).
 - Dev and prod have **separate** shared servers (separate config dirs + prefixes +
   ports), so dev work never disturbs prod. See ADR-004 in
-  `plans/mj-dev-manager-decisions.md` for the full rationale.
+  `docs/mj-dev-manager-decisions.md` for the full rationale.
 
 ## From zero to productive (quickstart)
 
@@ -92,7 +92,8 @@ A workspace runs **exactly one** SQL Server container — `mjdev-sql` (prod) /
 # 1. Stand up an instance (provision only)
 ./bin/mjdev create <config.yaml> --json
 
-# 2. Bring it up (deps -> build -> migrate; NO codegen — committed code is trusted)
+# 2. Bring it up — runs the convention loop (deps->build->migrate->sync->codegen->build, AI off).
+#    Codegen is a verified no-op on a clean branch; a sync failure escalates loudly (ADR-009).
 ./bin/mjdev setup <slug> all --json
 
 # 3. Run it + sanity-check the live app
@@ -101,7 +102,7 @@ A workspace runs **exactly one** SQL Server container — `mjdev-sql` (prod) /
 
 # 4. Dev-link an open app (optional) and bring it to ready
 ./bin/mjdev app link <slug> ~/MJDev/repos/apps/<app> --json
-./bin/mjdev app setup <slug> <app>     # migrate->sync->build (NO codegen — on-demand only)
+./bin/mjdev app setup <slug> <app>     # convention loop: migrate->sync->[repair]->codegen->build (AI off)
 
 # 5. When done with a throwaway tester
 ./bin/mjdev delete <slug>

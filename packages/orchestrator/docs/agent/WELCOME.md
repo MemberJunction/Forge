@@ -42,4 +42,4 @@ high-compute task at a time — e.g. a full MJ build, an instance `create` + `se
 
 > Maintainers: keep this greeting current with **how the dev tools are exposed** — if the CLI/GUI
 > entry points or the headline features change, update this file (it's the user's first impression).
-> Tracked in `plans/mj-dev-manager-backlog.md`.
+> Tracked in `docs/action-items/mj-dev-manager-backlog.md`.

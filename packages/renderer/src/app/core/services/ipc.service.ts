@@ -501,7 +501,11 @@ interface ForgeAPI {
     mergeFromBase: (slug: string) => Promise<{ updated: boolean; message: string }>;
     delete: (slug: string) => Promise<{ success: boolean }>;
     openInVSCode: (slug: string) => Promise<{ success: boolean; path: string }>;
-    runSetup: (slug: string, step: SetupStep | 'all') => Promise<InstanceRecord>;
+    runSetup: (
+      slug: string,
+      step: SetupStep | 'all',
+      opts?: { ai?: boolean }
+    ) => Promise<InstanceRecord>;
     startProcess: (
       slug: string,
       target: 'api' | 'explorer' | { script: string }
@@ -603,7 +607,11 @@ interface ForgeAPI {
       }>;
     }>;
     migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
-    codegen: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
+    codegen: (
+      slug: string,
+      appName: string,
+      opts?: { ai?: boolean }
+    ) => Promise<{ ok: boolean; error?: string }>;
     sync: (
       slug: string,
       appName: string,

@@ -1,9 +1,11 @@
 # MJ Dev Manager — Backlog
 
 Durable, shared backlog for the `mjdev` / MJ Forge "Instances" subsystem. **Any agent
-picking up this work reads this first** (alongside `plans/mj-dev-manager.md` for the big
-design and `plans/mj-dev-manager-decisions.md` for ADRs). It's committed so it survives
-across sessions and checkouts.
+picking up this work reads this first** (alongside `docs/mj-dev-manager.md` for the big
+design, `docs/mj-dev-manager-decisions.md` for ADRs, `docs/mj-dev-setup-loop.md` for the
+in-depth setup/build loop + diagram + signal reference, and `docs/mj-dev-flagged-items.md`
+for deliberately-deferred verifications + known unrelated test failures). It's committed so
+it survives across sessions and checkouts.
 
 **Keep it current** (per the standing doc-upkeep rule in `CLAUDE.md`): when you finish an
 item move it to "Recently shipped" with the commit; when you discover work, add it under
@@ -11,12 +13,13 @@ the right heading with enough context to act on cold (what / where / why). The i
 Task tool is the live tracker; this file is the persistent source of truth — IDs below
 map to those tasks where they exist.
 
-_Last updated: 2026-06-24 (backlog triage with the user; setup-step rework `87d730b` merged to prod)._
+_Last updated: 2026-06-25 (sync-convention setup-loop rewire; ADR-009; TE-1 removed)._
 
 > ⏳ **Temporal exceptions live in the agent docs** (`packages/orchestrator/docs/agent/TEMPORAL-EXCEPTIONS.md`,
-> synced to `~/MJDev/.mjdev-docs/`). Currently **TE-1**: a full `mj sync push` breaks on the
-> `next` connector-retirement deletes — agents must ask the user before running sync. Remove it
-> when `next` is fixed (see "Upstream hand-offs").
+> synced to `~/MJDev/.mjdev-docs/`). **None active.** The former **TE-1** (full `mj sync push` breaks
+> on the `next` connector-retirement deletes) was **removed 2026-06-25** — ADR-009's setup loop runs
+> sync with `--format=json` and escalates loudly on failure instead of a manual ask-first gate. The
+> underlying upstream divergence is still tracked under "Upstream hand-offs".
 
 ---
 
@@ -70,6 +73,26 @@ _Last updated: 2026-06-24 (backlog triage with the user; setup-step rework `87d7
   down how sub-agents receive context (tool-spawned = prompt only; directory-launched = read AGENTS.md).
 - **Status:** parked; no change shipped beyond removing the startup question.
 
+### #62 — Managed `mj sync push` exclude-list (DEFERRED 2026-06-25, ADR-009)
+
+- **What:** a human-validated, agent-suggested list of `metadata/` dirs/entities to exclude from
+  `mj sync push` (`--exclude=…`), with dry-run capture → agent-proposes-candidate → human-approves.
+- **Why deferred:** ADR-009 adopts the team convention that **sync is clean by guarantee** (codegen
+  changes are committed into migrations). The setup loop assumes success and reacts to failure with a
+  one-shot codegen repair + loud escalation — no exclude apparatus needed. Building a managed
+  exclude-list is unstable architecture that legitimizes a broken convention.
+- **Revive only if:** the sync-always-clean convention proves unenforceable in practice (recurring
+  non-registration sync failures that the one-shot codegen repair can't fix and that aren't real
+  upstream bugs). Until then, keep documented and in mind; do not build.
+
+### Deletions-response planning (DEFERRED 2026-06-25, ADR-009)
+
+- **What:** a deletion-audit/threshold/approval system for `mj sync push` (it auto-approves deletes
+  in `--format=json`/non-interactive mode).
+- **Why deferred:** deletions are normal declarative reconciliation; a constraint-violating delete
+  fails the (transactional) push and rolls back → lands on escalation. Accepted risk per the user.
+- **Revive only if:** an unintended _successful_ destructive delete actually bites in practice.
+
 ---
 
 ## Release & onboarding (the overarching goal — get colleagues using it)
@@ -88,7 +111,7 @@ _Last updated: 2026-06-24 (backlog triage with the user; setup-step rework `87d7
 
 ## Upstream hand-offs (MJ-core, NOT mjdev — track, don't fix here)
 
-These surfaced during the metadata/codegen investigation (see ADR-007 + `~/MJDev/MJDEV-ISSUES.md`):
+These surfaced during the metadata/codegen investigation (see ADR-009 (supersedes ADR-007) + `~/MJDev/MJDEV-ISSUES.md`):
 
 - **Integration metadata ↔ migration PK divergence:** the same records (e.g. iMIS
   `GLAccount`) have different primary keys in the baseline migration (`949501CF…`) vs the
@@ -96,14 +119,16 @@ These surfaced during the metadata/codegen investigation (see ADR-007 + `~/MJDev
   (`UQ_IntegrationObject_Name` violation). Upstream data-consistency bug.
 - **Connector retirement not captured in a migration:** the `.old-*-seed.deletes.json`
   retirement is metadata-only, so a fresh DB shows pending deletes forever — and those delete
-  calls are what break `mj sync push` today (the basis for TEMPORAL-EXCEPTIONS.md TE-1).
+  calls are what break `mj sync push` today (the former TE-1; now handled by ADR-009's loud
+  escalation, not a manual ask-first gate).
 - **Codegen-clobber convention — NOT ours to police (team-confirmed 2026-06-24).** The team's
   accepted expectation is: developers **commit their generated code** and `mj sync push` works.
-  We don't manage this tightly. The durable catch (if any) is an **MJ-core CI** check (codegen
-  against a fresh migrated+seeded DB, fail on generated-file drift). mjdev does not compensate
-  (ADR-007). _(Dropped: the earlier "dry-run may mutate" concern — the user is confident the
-  589-row delete was a separate manual delete around that time, not the dry-run; and we don't
-  run dry-run anyway, so it's moot/MJ-core's.)_
+  Under ADR-009 mjdev now **surfaces** drift (the setup loop's git-diff tripwire warns when codegen
+  changes generated files — non-blocking) but still does **not auto-fix** it. The durable catch
+  remains an **MJ-core CI** check (codegen against a fresh migrated+seeded DB, fail on generated-file
+  drift). _(Dropped: the earlier "dry-run may mutate" concern — the user is confident the 589-row
+  delete was a separate manual delete around that time, not the dry-run; and we don't run dry-run
+  anyway, so it's moot/MJ-core's.)_
 
 ---
 
@@ -117,14 +142,11 @@ These surfaced during the metadata/codegen investigation (see ADR-007 + `~/MJDev
   already merged to local prod; only the backlog-doc commit `6ee9d15` was pending. The user does
   the merge (local `git merge`); I never push.
 - **No PRs / not going into Forge upstream** — this work only lands in Forge upstream if the Forge
-  developer specifically wants it (standing instruction). Before any such PR: remove
-  `TEMP_DEFAULT_BASE_REF` (`fix-notifier-injection-bug`) from the create dialog.
+  developer specifically wants it (standing instruction). (The create dialog's default base ref is
+  now permanently `next` — `InstancesPanelComponent.DEFAULT_BASE_REF` — not a temp hack to strip.)
 - **Throwaways:** `synctest` deleted 2026-06-24; the Madhav PR throwaways
   (`madhav-validate`/`madhav-install`) are already gone. `mjdev-dev-test` is the kept reusable dev
   instance. The user may spin up a fresh throwaway later to revalidate Madhav's branch once more.
-- **Nice-to-have (secondary to TE-1, low priority):** a GUI text box to mark metadata
-  directories to exclude from `mj sync push`, auto-pre-selecting the integration-deletion ones.
-  The temporal exception (ask-the-user) is the preferred lighter solution for now.
 
 ---
 

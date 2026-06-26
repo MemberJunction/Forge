@@ -28,7 +28,7 @@ Two roots: a **visible, shareable** workspace and a **hidden** secrets/state roo
 - **Edit the app at `instances/<slug>/mj/packages/dev-apps/<app>`** — that's the real
   git worktree and npm workspace member (its own branch). This is the source the running
   instance resolves and builds. (Why nested-not-symlinked: see ADR-001 in
-  `plans/mj-dev-manager-decisions.md` — single-copy `@memberjunction/*` dedup.)
+  `docs/mj-dev-manager-decisions.md` — single-copy `@memberjunction/*` dedup.)
 - The `instances/<slug>/<app>` entry is a **navigation symlink** into that member — handy
   for `cd`/Finder, but it is _not_ a separate checkout and does **not** surface the app's
   git in VS Code. Don't treat it as a distinct copy.

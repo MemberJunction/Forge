@@ -359,13 +359,23 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
             <div class="banner">
               <mat-icon>rocket_launch</mat-icon>
               <span
-                >Instance provisioned. Run the full setup (deps → migrate → codegen → build)
+                >Instance provisioned. Run the full setup (deps → build → migrate → sync → codegen)
                 now?</span
               >
               <button mat-flat-button color="primary" (click)="runFull(inst.slug)">
                 Run full setup
               </button>
               <button mat-button (click)="showSetupPrompt.set(false)">Dismiss</button>
+            </div>
+          }
+
+          <!-- Non-blocking setup-loop warning: first-sync-failure repair notice or
+               the generated-code drift tripwire (ADR-009). Informational; dismissible. -->
+          @if (state.setupNotice(); as notice) {
+            <div class="banner notice">
+              <mat-icon>warning_amber</mat-icon>
+              <span>{{ notice.message }}</span>
+              <button mat-button (click)="state.dismissSetupNotice()">Dismiss</button>
             </div>
           }
 
@@ -532,6 +542,12 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                   </li>
                 }
               </ul>
+              <p class="hint" style="margin-top: 8px">
+                After these, <strong>Run full setup</strong> continues automatically with the
+                convention loop: <code>mj sync push</code> → CodeGen (AI off) → drift check → build.
+                A sync failure triggers a one-shot CodeGen repair; if it still fails, setup stops
+                and escalates (it never hangs or spends tokens).
+              </p>
             </div>
 
             <!-- Advanced: schema / metadata tools (on-demand, NOT part of setup) -->
@@ -541,8 +557,19 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 Not needed to provision. Run these only when <em>you</em> change this instance's
                 schema or metadata.
               </p>
+              <label
+                class="inline ai-toggle"
+                matTooltip="When on, CodeGen runs AI 'Advanced Generation' enrichment, which CONSUMES TOKENS. The automated setup loop always runs codegen AI-off; this only affects the manual CodeGen buttons here and on dev-linked apps."
+              >
+                <input
+                  type="checkbox"
+                  [checked]="aiEnrichment()"
+                  (change)="aiEnrichment.set($any($event.target).checked)"
+                />
+                <span>AI enrichment <small>(uses tokens)</small></span>
+              </label>
               <button mat-stroked-button (click)="runCodegen(inst.slug)" [disabled]="state.busy()">
-                <mat-icon>autorenew</mat-icon> Run CodeGen
+                <mat-icon>autorenew</mat-icon> Run CodeGen{{ aiEnrichment() ? ' + AI' : '' }}
               </button>
               <p class="hint" style="margin-top: 8px">
                 ⚠ Regenerates code from the DB. Run
@@ -678,8 +705,8 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                       built first.
                     </p>
                     <p>
-                      Run <strong>full setup</strong> (deps → migrate → codegen → build) — this
-                      section unlocks once the build completes.
+                      Run <strong>full setup</strong> (deps → build → migrate → sync → codegen) —
+                      this section unlocks once the build completes.
                     </p>
                     @if (!state.busy()) {
                       <button mat-flat-button color="primary" (click)="runFull(inst.slug)">
@@ -892,11 +919,13 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                           </button>
                           <button
                             mat-button
-                            matTooltip="Regenerate this app's entity classes from the instance DB, then rebuild. Run AFTER Migrate when you've changed the app's schema. Reads the live DB and overwrites the app's generated files."
-                            (click)="openApps.codegen(inst.slug, a.appName)"
+                            matTooltip="Regenerate this app's entity classes from the instance DB, then rebuild. Run AFTER Migrate when you've changed the app's schema. Reads the live DB and overwrites the app's generated files. Honors the AI-enrichment toggle (Advanced card) — on = consumes tokens."
+                            (click)="openApps.codegen(inst.slug, a.appName, aiEnrichment())"
                             [disabled]="openApps.busy()"
                           >
-                            <mat-icon>auto_fix_high</mat-icon> Codegen
+                            <mat-icon>auto_fix_high</mat-icon> Codegen{{
+                              aiEnrichment() ? ' + AI' : ''
+                            }}
                           </button>
                           <button
                             mat-button
@@ -1077,6 +1106,34 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
                 Add dependencies &amp; link
               </button>
               <button mat-button type="button" (click)="cancelDepPrompt()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Loud setup escalation (ADR-009): a sync/codegen failure the loop could not
+           self-heal. NON-dismissing by design — no backdrop-click close; the human
+           must read it and click Acknowledge. Full detail is also in the instance's
+           logs/setup-escalations.md. -->
+      @if (state.escalation(); as esc) {
+        <div class="modal-backdrop escalation-backdrop">
+          <div class="modal escalation" role="alertdialog" (click)="$event.stopPropagation()">
+            <h3><mat-icon>error</mat-icon> Setup stopped — needs a human</h3>
+            <p class="esc-message">{{ esc.message }}</p>
+            <p class="hint">
+              The setup convention loop hit a sync/codegen failure it can't repair on its own
+              (likely a real upstream/convention problem on this branch). Full detail is saved to
+              the instance's <code>logs/setup-escalations.md</code>. Setup did not complete.
+            </p>
+            <div class="row">
+              <button
+                mat-flat-button
+                color="warn"
+                type="button"
+                (click)="state.acknowledgeEscalation()"
+              >
+                Acknowledge
+              </button>
             </div>
           </div>
         </div>
@@ -1296,6 +1353,45 @@ const DEV_EMAIL_DOMAIN = 'mjdev.local';
       .banner span {
         flex: 1;
         font-size: 13px;
+      }
+      /* Non-blocking setup-loop warning banner (first-failure / drift tripwire). */
+      .banner.notice {
+        background: rgba(224, 160, 48, 0.12);
+        border-color: #6e5611;
+      }
+      .banner.notice mat-icon {
+        color: var(--warn, #e0a030);
+        flex: 0 0 auto;
+      }
+      /* AI-enrichment toggle in the Advanced card. */
+      .ai-toggle {
+        margin: 4px 0 8px;
+      }
+      .ai-toggle small {
+        color: var(--warn, #e0a030);
+      }
+      /* Loud, non-dismissing setup-escalation modal. */
+      .escalation-backdrop {
+        background: rgba(60, 0, 0, 0.6);
+      }
+      .modal.escalation {
+        border: 2px solid #f85149;
+        max-width: 520px;
+      }
+      .modal.escalation h3 {
+        color: #f85149;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .modal.escalation h3 mat-icon {
+        font-size: 22px;
+        height: 22px;
+        width: 22px;
+      }
+      .modal.escalation .esc-message {
+        font-size: 13px;
+        margin: 8px 0;
       }
       .grid {
         display: grid;
@@ -1761,19 +1857,15 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   readonly openApps = inject(OpenAppsStateService);
 
   /**
-   * TODO(REMOVE BEFORE ANY PR): temporary default base ref so newly-created
-   * instances are cut from `MT-create-mjdev-app` — our MJ dev branch, which is
-   * fast-forwarded onto the PR'd notifier-fix branch
-   * (`fix/explorer-notification-service-ordering`, carrying the MJExplorer
-   * `MJNotificationService` injection fix needed for magic-link login) and is
-   * where MJ-side wiring fixes are committed before being chain-PR'd. This is a
-   * convenience for local testing only and MUST be dropped before the tool is
-   * PR'd — it hardcodes a dev branch. Once the notifier + wiring PRs merge,
-   * instances should base off `next`. GUI-only; the CLI keeps no default base
-   * (see mjdev create). NOTE: takes effect via the app-managed clone, which must
-   * carry this branch (a worktree checks out the branch's commit).
+   * Default base ref for newly-created instances (GUI only — the CLI takes no
+   * default; see `mjdev create`). Pinned to MJ's **`next`** branch: the sync
+   * convention (ADR-009) is established there, its known exceptions are accounted
+   * for, and the two fixes this tool depended on — open-app wiring and the
+   * MJExplorer notifier/magic-link ordering — are now merged into `next`. New
+   * instances therefore cut their worktree from `next` by default. Takes effect via
+   * the app-managed clone, which tracks `next` (a worktree checks out its commit).
    */
-  static readonly TEMP_DEFAULT_BASE_REF = 'MT-create-mjdev-app';
+  static readonly DEFAULT_BASE_REF = 'next';
 
   /** The activity-log scroll container (for stick-to-bottom). */
   private readonly logLines = viewChild<ElementRef<HTMLElement>>('logLines');
@@ -1781,13 +1873,20 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
   readonly creating = signal(false);
   readonly showSetupPrompt = signal(false);
   readonly managingPersonas = signal(false);
+  /**
+   * AI "Advanced Generation" enrichment toggle (default OFF). When on, the
+   * on-demand CodeGen actions run with Advanced Generation enabled — which
+   * CONSUMES TOKENS. The setup loop always runs codegen AI-off regardless; this
+   * only affects the explicit, manual CodeGen buttons (ADR-009).
+   */
+  readonly aiEnrichment = signal(false);
   /** Email-override confirmation modal (typed "I understand" gate). */
   readonly showEmailOverrideModal = signal(false);
   overrideConfirmText = '';
   form: CreateForm = {
     name: '',
     branch: '',
-    baseRef: InstancesPanelComponent.TEMP_DEFAULT_BASE_REF,
+    baseRef: InstancesPanelComponent.DEFAULT_BASE_REF,
     appMode: 'dev',
   };
   personaForm: PersonaForm = {
@@ -1919,7 +2018,7 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
       this.form = {
         name: '',
         branch: '',
-        baseRef: InstancesPanelComponent.TEMP_DEFAULT_BASE_REF,
+        baseRef: InstancesPanelComponent.DEFAULT_BASE_REF,
         appMode: 'dev',
       };
       this.showSetupPrompt.set(true);
@@ -1945,15 +2044,20 @@ export class InstancesPanelComponent implements OnInit, OnDestroy {
 
   /** On-demand CodeGen — confirm-gated because it can clobber committed generated files. */
   runCodegen(slug: string): void {
+    const ai = this.aiEnrichment();
     const ok = confirm(
       'Run CodeGen on "' +
         slug +
         '"?\n\nThis regenerates code from the current database. If the DB is missing ' +
         'metadata that committed generated files depend on, codegen will OVERWRITE those ' +
         'files (clobber) and can break the build.\n\nRecommended: run `mj sync push --dry-run` ' +
-        'in the worktree first; only proceed if it reports no pending changes.\n\nProceed?'
+        'in the worktree first; only proceed if it reports no pending changes.' +
+        (ai
+          ? '\n\n⚠ AI ENRICHMENT IS ON — this run uses AI Advanced Generation and CONSUMES TOKENS.'
+          : '') +
+        '\n\nProceed?'
     );
-    if (ok) void this.state.runSetup(slug, 'codegen');
+    if (ok) void this.state.runSetup(slug, 'codegen', ai);
   }
 
   confirmDelete(slug: string): void {

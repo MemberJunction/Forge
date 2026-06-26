@@ -26,6 +26,8 @@ import {
 } from './WorkspaceArtifacts.js';
 import { ConfigWriter } from './ConfigWriter.js';
 import { SetupRunner, FULL_SETUP_ORDER, setupFlagForStep } from './SetupRunner.js';
+import { runSyncConventionLoop, type SyncLoopSteps } from './setupLoop.js';
+import { readCodegenOutputDirs, detectGeneratedDrift } from './codegenTripwire.js';
 import { ProcessManager, type LaunchTarget } from './ProcessManager.js';
 import { buildSetupScript, buildDropDatabaseScript } from './dbBootstrap.js';
 import { resolveNodeForWorktree, envWithNode } from './nodeEnv.js';
@@ -50,6 +52,12 @@ export interface CreateResult {
  * and streams progress through an {@link EventSink}.
  */
 export class InstanceOrchestrator {
+  /**
+   * Op carried by the loud setup-loop escalation event (ADR-009). Surface layers
+   * key off this exact op: the GUI raises a non-dismissing modal, the CLI prints red.
+   */
+  static readonly SETUP_ESCALATION_OP = 'setup:escalation';
+
   readonly paths: ResolvedPaths;
   private readonly store: InstanceStore;
   private readonly personas: PersonaStore;
@@ -706,23 +714,75 @@ export class InstanceOrchestrator {
     slug: string,
     appName: string,
     sink: EventSink = noopSink
-  ): Promise<{ ok: boolean; steps: Record<string, boolean> }> {
-    const steps: Record<string, boolean> = {};
+  ): Promise<{ ok: boolean; steps: Record<string, boolean>; escalated?: boolean }> {
+    const record = await this.requireRecord(slug);
+    const env = this.instanceEnv(record, slug, sink);
+    const memberPath = this.openApps.memberPathFor(record.worktreePath, appName);
+    // 1) migrate first — the loop's sync/codegen need the app schema present.
     const m = await this.migrateApp(slug, appName, sink);
-    steps.migrate = m.ok;
-    if (!m.ok) return { ok: false, steps };
-    // Sync the app's own reference data (best-effort; app-scoped, additive).
-    const s = await this.syncApp(slug, appName, {}, sink).catch(() => ({ ok: false }));
-    steps.sync = s.ok;
-    // NOTE: codegen is deliberately NOT run here — mirrors instance `setup all` (ADR-007).
-    // A dev-linked app ships its committed generated code (Entities/Server/Actions
-    // `src/generated`), so `build` compiles against that. Re-running codegen at setup is
-    // redundant and can CLOBBER the committed generated files if the DB lacks app metadata.
-    // Run codegen ON-DEMAND (`codegenApp` / `mjdev app codegen`) only after you change the
-    // app's schema/metadata, then commit the regenerated code.
-    const b = await this.buildApp(slug, appName, sink);
-    steps.build = b.ok;
-    return { ok: b.ok, steps };
+    if (!m.ok) return { ok: false, steps: { migrate: false } };
+    // 2) the ADR-009 convention loop: sync → [warn + one-shot codegen repair → resync]
+    //    → codegen (AI off) → git-diff tripwire → build.
+    const escalate = this.makeEscalator(record, slug, 'app-setup', sink);
+    const steps: SyncLoopSteps = {
+      sync: () => this.openApps.syncApp(slug, record.worktreePath, appName, env, sink, {}),
+      codegen: ({ ai }) =>
+        this.openApps.codegenApp(slug, record.worktreePath, appName, env, sink, { ai }),
+      diff: async () => {
+        const dirs = await readCodegenOutputDirs(
+          memberPath,
+          path.join(memberPath, 'mj.config.cjs')
+        );
+        return detectGeneratedDrift(memberPath, dirs);
+      },
+      build: () => this.buildApp(slug, appName, sink).then(r => ({ ok: r.ok })),
+    };
+    const out = await runSyncConventionLoop(slug, 'app-setup', steps, sink, escalate);
+    return {
+      ok: out.ok,
+      escalated: out.escalated,
+      // Honest status: when the loop escalated, downstream steps did not complete
+      // (on a fatal sync failure codegen never even runs).
+      steps: { migrate: true, sync: !out.escalated, codegen: !out.escalated, build: out.ok },
+    };
+  }
+
+  /**
+   * Build the loud-escalation callback for the setup loop (ADR-009): emit an error
+   * event (the GUI shows a non-dismissing modal; the CLI prints red) AND append the
+   * full detail to the instance's persistent `logs/setup-escalations.md`, so a human
+   * can copy it and an agent can reference it later. Logging never breaks the run.
+   */
+  private makeEscalator(
+    record: InstanceRecord,
+    slug: string,
+    op: string,
+    sink: EventSink
+  ): (summary: string, detail: string) => Promise<void> {
+    return async (summary, detail) => {
+      const logFile = path.join(path.dirname(record.worktreePath), 'logs', 'setup-escalations.md');
+      // Emit under a DEDICATED op so the surface layers can distinguish a loud,
+      // human-required escalation from any ordinary setup error: the CLI prints it
+      // red and the GUI raises a non-dismissing modal (ADR-009). `op` (the loop's
+      // own op, e.g. `setup:all` / `app-setup`) is preserved in the message + log
+      // for context.
+      emit(
+        sink,
+        slug,
+        InstanceOrchestrator.SETUP_ESCALATION_OP,
+        'error',
+        `[${op}] ${summary}. This needs a human — full detail saved to ${logFile}. Likely a real ` +
+          `upstream/convention problem the loop can't self-heal; raise it for next.`
+      );
+      try {
+        await fs.mkdir(path.dirname(logFile), { recursive: true });
+        const stamp = new Date().toISOString();
+        const entry = `\n## ${stamp} — ${op}: ${summary}\n\nInstance: \`${slug}\`\n\n\`\`\`\n${detail}\n\`\`\`\n`;
+        await fs.appendFile(logFile, entry);
+      } catch {
+        /* logging must never break orchestration */
+      }
+    };
   }
 
   /** Recently-used app refs across instances (for the add-app dropdown), newest first. */
@@ -811,11 +871,12 @@ export class InstanceOrchestrator {
   async codegenApp(
     slug: string,
     appName: string,
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    opts: { ai?: boolean } = {}
   ): Promise<{ ok: boolean; error?: string }> {
     const record = await this.requireRecord(slug);
     const env = this.instanceEnv(record, slug, sink);
-    return this.openApps.codegenApp(slug, record.worktreePath, appName, env, sink);
+    return this.openApps.codegenApp(slug, record.worktreePath, appName, env, sink, opts);
   }
 
   /** Push (or pull/status) a dev-linked app's metadata seed (e.g. currencies) via `mj sync`. */
@@ -844,13 +905,14 @@ export class InstanceOrchestrator {
   async runSetup(
     slug: string,
     step: SetupStep | 'all',
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    opts: { ai?: boolean } = {}
   ): Promise<InstanceRecord> {
     const record = await this.requireRecord(slug);
     const env = this.instanceEnv(record, slug, sink);
     if (step === 'all') {
       const alreadyDone = FULL_SETUP_ORDER.filter(s => record.setup[setupFlagForStep(s)]);
-      await this.setup.runFullSetup(
+      const results = await this.setup.runFullSetup(
         record.worktreePath,
         slug,
         sink,
@@ -861,6 +923,63 @@ export class InstanceOrchestrator {
         alreadyDone,
         env
       );
+      // After deps → build → migrate, run the ADR-009 convention loop:
+      // sync → [warn + one-shot codegen repair → resync] → codegen (AI off) →
+      // git-diff tripwire → build (cached). Only when the base steps all passed.
+      if (results.every(r => r.success)) {
+        const wt = record.worktreePath;
+        const escalate = this.makeEscalator(record, slug, 'setup:all', sink);
+        const loopSteps: SyncLoopSteps = {
+          sync: () => this.setup.runCoreSync(wt, slug, sink, env),
+          codegen: () =>
+            this.setup
+              .runStep('codegen', wt, slug, sink, env)
+              .then(r => ({ ok: r.success, error: r.error })),
+          diff: async () => {
+            const dirs = await readCodegenOutputDirs(wt, path.join(wt, 'mj.config.cjs'));
+            return detectGeneratedDrift(wt, dirs);
+          },
+          build: () =>
+            this.setup
+              .runStep('build', wt, slug, sink, env)
+              .then(r => ({ ok: r.success, error: r.error })),
+        };
+        const out = await runSyncConventionLoop(slug, 'setup:all', loopSteps, sink, escalate);
+        if (out.ok) {
+          record.setup.codegen = true;
+          record.setup.built = true;
+          await this.store.upsert(record);
+        }
+      }
+    } else if (step === 'codegen') {
+      // On-demand instance codegen. The root `.mjrc.cjs` overlay keeps AI
+      // "Advanced Generation" OFF by default (token-free). An explicit `--ai`
+      // enrichment run flips the overlay ON for this run only, then restores it,
+      // so AI never silently leaks into a later setup-loop codegen (ADR-009).
+      const overlay = path.join(record.worktreePath, ConfigWriter.ROOT_OVERLAY_FILE);
+      if (opts.ai) {
+        emit(
+          sink,
+          slug,
+          'setup:codegen',
+          'warn',
+          'Running CodeGen with AI Advanced Generation ON — this consumes tokens.'
+        );
+        await fs.writeFile(overlay, ConfigWriter.renderCodegenOverlay(true));
+      }
+      try {
+        const result = await this.setup.runStep(step, record.worktreePath, slug, sink, env);
+        if (result.success) {
+          record.setup[setupFlagForStep(step)] = true;
+          await this.store.upsert(record);
+        } else {
+          throw new Error(result.error ?? `Setup step "${step}" failed`);
+        }
+      } finally {
+        // Always restore the AI-off overlay so the convention stays token-free.
+        if (opts.ai)
+          await fs.writeFile(overlay, ConfigWriter.renderCodegenOverlay(false)).catch(() => {});
+      }
     } else {
       const result = await this.setup.runStep(step, record.worktreePath, slug, sink, env);
       if (result.success) {

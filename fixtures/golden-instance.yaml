@@ -1,6 +1,6 @@
 # Golden instance — reusable regression/validation baseline for MJ Dev Manager.
 #
-# WHY THIS EXISTS (read plans/mj-dev-manager.md → "Validation strategy"):
+# WHY THIS EXISTS (read docs/mj-dev-manager.md → "Validation strategy"):
 #   The dominant cost of a live validation run is `mjdev create` + `mjdev setup all`
 #   (npm install + full MJ worktree build). A long-lived "golden" instance pays that
 #   cost ONCE; subsequent runs are just link + boot + assert. This config is the

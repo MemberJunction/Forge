@@ -18,7 +18,7 @@
  * adds to the workspace file (only the `folders` array is managed).
  *
  * Design rationale (why workspace member, why workspace file not symlinks for
- * git) is recorded in `plans/mj-dev-manager-decisions.md`.
+ * git) is recorded in `docs/mj-dev-manager-decisions.md`.
  */
 
 import * as fs from 'node:fs';

@@ -1,6 +1,13 @@
+import * as path from 'node:path';
 import type { SetupStep } from '@mj-forge/shared';
 import { run } from './exec.js';
 import { emit, type EventSink, noopSink } from './util.js';
+import {
+  parsePushResult,
+  isUnsupportedFormatFlag,
+  OLD_MJ_SYNC_ERROR,
+  type ParsedPushResult,
+} from './syncResult.js';
 
 /** The npm script each setup step shells out to, run in the worktree. */
 const STEP_COMMANDS: Record<SetupStep, { command?: string; args: string[]; label: string }> = {
@@ -100,6 +107,65 @@ export class SetupRunner {
     }
     emit(sink, slug, op, 'success', `${spec.label} complete`);
     return { step, success: true };
+  }
+
+  /**
+   * Run core MJ metadata sync (`mj sync push --dir=metadata --format=json`) in the
+   * worktree root. `--format=json` is load-bearing (ADR-009): it makes the push
+   * NON-INTERACTIVE (never hangs on the validation prompt) and emits a parseable
+   * `PushResult` we branch on. Returns the parsed result + an `ok` derived from it
+   * (errorCount===0) falling back to the exit code. Used by the setup convention loop.
+   */
+  async runCoreSync(
+    worktreePath: string,
+    slug: string,
+    sink: EventSink = noopSink,
+    env: NodeJS.ProcessEnv = process.env
+  ): Promise<{ ok: boolean; error?: string; result?: ParsedPushResult; fatal?: boolean }> {
+    const op = 'setup:sync';
+    const mjBin = path.join(worktreePath, 'packages', 'MJCLI', 'bin', 'run.js');
+    const envFile = path.join(worktreePath, '.env');
+    emit(sink, slug, op, 'progress', 'Core metadata sync (mj sync push)…');
+    const result = await run(
+      'node',
+      ['-r', 'dotenv/config', mjBin, 'sync', 'push', '--dir=metadata', '--format=json'],
+      {
+        cwd: worktreePath,
+        env: { ...env, DOTENV_CONFIG_PATH: envFile },
+        onOutput: s => {
+          const line = s.trimEnd();
+          if (line && !line.startsWith('{') && !line.startsWith('"'))
+            emit(sink, slug, op, 'info', line);
+        },
+      }
+    );
+    // The `--format=json` MJCLIResult prints to STDOUT; progress events (incl. a
+    // `command:sync:push` start marker) stream to STDERR. Parse stdout first so the
+    // real result wins, falling back to the combined stream only if stdout had none.
+    const combined = result.stdout + '\n' + result.stderr;
+    const parsed = parsePushResult(result.stdout) ?? parsePushResult(combined) ?? undefined;
+    const ok = parsed ? parsed.success : result.code === 0;
+    if (!ok) {
+      // Old-mj guard: a missing `--format` flag is a version gap, not a record error.
+      const oldMj = !parsed && isUnsupportedFormatFlag(combined);
+      const reason = oldMj
+        ? OLD_MJ_SYNC_ERROR
+        : parsed
+          ? `${parsed.errorCount} record error(s)${parsed.errors[0] ? `: ${parsed.errors[0]}` : ''}`
+          : `exited ${result.code}: ${(result.stderr || result.stdout).trim().split('\n').slice(-4).join('\n')}`;
+      emit(sink, slug, op, 'warn', `Core metadata sync failed — ${reason}`);
+      return {
+        ok: false,
+        error: `Core metadata sync failed — ${reason}`,
+        result: parsed,
+        fatal: oldMj,
+      };
+    }
+    const summary = parsed
+      ? ` (created ${parsed.created}, updated ${parsed.updated}, deleted ${parsed.deleted}, unchanged ${parsed.unchanged})`
+      : '';
+    emit(sink, slug, op, 'success', `Core metadata sync complete${summary}`);
+    return { ok: true, result: parsed };
   }
 
   /**

@@ -131,3 +131,33 @@ describe('ConfigWriter.renderConfigOverlay', () => {
     expect(cfg).toContain("provisioningGuard: 'warn'");
   });
 });
+
+describe('ConfigWriter.renderCodegenOverlay (AI-off, ADR-009)', () => {
+  it('disables AI Advanced Generation by default (token-free codegen)', () => {
+    const o = ConfigWriter.renderCodegenOverlay();
+    expect(o).toContain("const base = require('./mj.config.cjs');");
+    expect(o).toContain('...base,');
+    expect(o).toContain('advancedGeneration:');
+    expect(o).toContain('enableAdvancedGeneration: false');
+    expect(o).not.toContain('enableAdvancedGeneration: true');
+  });
+
+  it('enables AI when explicitly opted in (the --ai path)', () => {
+    const o = ConfigWriter.renderCodegenOverlay(true);
+    expect(o).toContain('enableAdvancedGeneration: true');
+    expect(o).not.toContain('enableAdvancedGeneration: false');
+  });
+
+  it('spreads the base config so only advancedGeneration is overridden', () => {
+    const o = ConfigWriter.renderCodegenOverlay(false);
+    // require('./mj.config.cjs') resolves relative to wherever the overlay lives
+    // (worktree root for instance codegen, member dir for app codegen).
+    expect(o).toContain("require('./mj.config.cjs')");
+    expect(o).toContain('...(base.advancedGeneration || {})');
+  });
+
+  it('targets a root-level overlay filename distinct from the magic-link overlay', () => {
+    expect(ConfigWriter.ROOT_OVERLAY_FILE).toBe('.mjrc.cjs');
+    expect(ConfigWriter.MJ_OVERLAY_FILE).toBe('packages/MJAPI/.mjrc.cjs');
+  });
+});

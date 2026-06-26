@@ -25,6 +25,17 @@ export class InstancesStateService {
   private readonly _processes = signal<ManagedProcess[]>([]);
   private readonly _scripts = signal<string[]>([]);
   private readonly _log = signal<InstanceEvent[]>([]);
+  /**
+   * The most recent loud setup-loop escalation (ADR-009), or null once the user
+   * acknowledges it. Drives a NON-dismissing modal: it must stay until explicitly
+   * cleared so a human always sees it (the failure can't self-heal).
+   */
+  private readonly _escalation = signal<InstanceEvent | null>(null);
+  /**
+   * The most recent NON-blocking setup-loop warning (first-failure repair notice or
+   * the generated-code drift tripwire). Dismissible — informational only.
+   */
+  private readonly _setupNotice = signal<InstanceEvent | null>(null);
 
   readonly instances = this._instances.asReadonly();
   readonly selectedSlug = this._selectedSlug.asReadonly();
@@ -32,6 +43,17 @@ export class InstancesStateService {
   readonly processes = this._processes.asReadonly();
   readonly scripts = this._scripts.asReadonly();
   readonly log = this._log.asReadonly();
+  readonly escalation = this._escalation.asReadonly();
+  readonly setupNotice = this._setupNotice.asReadonly();
+
+  /**
+   * Op the engine stamps on the loud escalation event (keep in sync with
+   * `InstanceOrchestrator.SETUP_ESCALATION_OP`). The renderer can't import the
+   * orchestrator, so the literal is mirrored here.
+   */
+  private static readonly ESCALATION_OP = 'setup:escalation';
+  /** Loop ops under which the non-blocking first-failure / drift warnings arrive. */
+  private static readonly LOOP_OPS = new Set(['setup:all', 'app-setup']);
 
   readonly selected = computed(
     () => this._instances().find(i => i.slug === this._selectedSlug()) ?? null
@@ -64,6 +86,14 @@ export class InstancesStateService {
     if (this.unsubscribe || !this.ipc.isAvailable) return;
     this.unsubscribe = this.ipc.instances.onEvent(event => {
       this._log.update(l => [...l.slice(-300), event]);
+      // ADR-009 setup-loop surfacing: a loud escalation raises a non-dismissing
+      // modal; a non-blocking loop warning (first-failure repair / drift tripwire)
+      // raises a dismissible banner.
+      if (event.op === InstancesStateService.ESCALATION_OP && event.level === 'error') {
+        this._escalation.set(event);
+      } else if (event.level === 'warn' && InstancesStateService.LOOP_OPS.has(event.op)) {
+        this._setupNotice.set(event);
+      }
       // Refresh records when an operation reaches a terminal state.
       if (event.level === 'success' || event.level === 'error') {
         if (/^(create|start|stop|delete|setup)/.test(event.op)) void this.refresh();
@@ -88,6 +118,16 @@ export class InstancesStateService {
     this._log.set([]);
   }
 
+  /** Acknowledge (clear) the loud setup escalation modal. */
+  acknowledgeEscalation(): void {
+    this._escalation.set(null);
+  }
+
+  /** Dismiss the non-blocking setup-loop warning banner. */
+  dismissSetupNotice(): void {
+    this._setupNotice.set(null);
+  }
+
   async refresh(): Promise<void> {
     if (!this.ipc.isAvailable) return;
     try {
@@ -99,6 +139,10 @@ export class InstancesStateService {
 
   select(slug: string | null): void {
     this._selectedSlug.set(slug);
+    // A non-blocking setup notice is transient + per-instance; drop it on switch so
+    // it never lingers across instances. (The escalation modal must persist until the
+    // user acknowledges it, so it is intentionally NOT cleared here.)
+    this._setupNotice.set(null);
     if (slug) void this.refreshProcesses();
   }
 
@@ -144,8 +188,8 @@ export class InstancesStateService {
     await this.refresh();
   }
 
-  async runSetup(slug: string, step: SetupStep | 'all'): Promise<void> {
-    await this.guard(() => this.ipc.instances.runSetup(slug, step));
+  async runSetup(slug: string, step: SetupStep | 'all', ai = false): Promise<void> {
+    await this.guard(() => this.ipc.instances.runSetup(slug, step, ai ? { ai: true } : undefined));
     await this.refresh();
   }
 

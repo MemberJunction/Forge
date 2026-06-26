@@ -530,7 +530,11 @@ export interface ForgeAPI {
     mergeFromBase: (slug: string) => Promise<{ updated: boolean; message: string }>;
     delete: (slug: string) => Promise<{ success: boolean }>;
     openInVSCode: (slug: string) => Promise<{ success: boolean; path: string }>;
-    runSetup: (slug: string, step: SetupStep | 'all') => Promise<InstanceRecord>;
+    runSetup: (
+      slug: string,
+      step: SetupStep | 'all',
+      opts?: { ai?: boolean }
+    ) => Promise<InstanceRecord>;
     startProcess: (
       slug: string,
       target: 'api' | 'explorer' | { script: string }
@@ -635,7 +639,11 @@ export interface ForgeAPI {
       }>;
     }>;
     migrate: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
-    codegen: (slug: string, appName: string) => Promise<{ ok: boolean; error?: string }>;
+    codegen: (
+      slug: string,
+      appName: string,
+      opts?: { ai?: boolean }
+    ) => Promise<{ ok: boolean; error?: string }>;
     sync: (
       slug: string,
       appName: string,
@@ -751,7 +759,8 @@ const forgeAPI: ForgeAPI = {
     mergeFromBase: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.MERGE_BASE, slug),
     delete: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.DELETE, slug),
     openInVSCode: slug => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.OPEN_VSCODE, slug),
-    runSetup: (slug, step) => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.SETUP_RUN, slug, step),
+    runSetup: (slug, step, opts) =>
+      ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.SETUP_RUN, slug, step, opts),
     startProcess: (slug, target) =>
       ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_START, slug, target),
     stopProcess: processId => ipcRenderer.invoke(IPC_CHANNELS.INSTANCES.PROC_STOP, processId),
@@ -802,7 +811,8 @@ const forgeAPI: ForgeAPI = {
     build: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.BUILD, slug, appName),
     buildAll: slug => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.BUILD_ALL, slug),
     migrate: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.MIGRATE, slug, appName),
-    codegen: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.CODEGEN, slug, appName),
+    codegen: (slug, appName, opts) =>
+      ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.CODEGEN, slug, appName, opts),
     sync: (slug, appName, opts) =>
       ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.SYNC, slug, appName, opts),
     setup: (slug, appName) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_APPS.SETUP, slug, appName),

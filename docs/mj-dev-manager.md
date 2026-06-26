@@ -120,7 +120,7 @@ No change set is returned to the user until it's self-validated through the tool
 
 ## Standing cleanup obligations
 
-- Remove `TEMP_DEFAULT_BASE_REF` (`fix-notifier-injection-bug`) from the create dialog before any Forge PR.
+- The create dialog's default base ref (`InstancesPanelComponent.DEFAULT_BASE_REF`) is **`next`** and is here to stay — the sync convention + its exceptions are established on `next`, and the open-app + notifier fixes are merged there (no longer a temp hack to remove).
 - The §14 tripwire in MJ `metadata/CLAUDE.md` is pre-existing/provisional (NOT from this work) — pending the user's review.
 - Disposable test instance `openapp-dev` may still exist (`mjdev delete openapp-dev`).
 

@@ -290,6 +290,13 @@ MJ-core CI drift check — that remains the right home for catching true misalig
 
 ## ADR-007 — `setup all` = `deps → build → migrate`; codegen and `mj sync push` are on-demand only (supersedes ADR-005 and ADR-006)
 
+> **⚠ SUPERSEDED by ADR-009 (2026-06-25).** 007 pulled sync+codegen out of setup because they were
+> redundant on clean instances, codegen could clobber, and `mj sync push` couldn't complete (and
+> `--ci` was destructive). ADR-009 re-adds them as a **convention-verification loop** that resolves
+> each of those: codegen runs as a verified no-op (git-diff tripwire), sync runs first (no stale-DB
+> clobber) with `--format=json` (never hangs, parseable outcome) + one-shot repair + **loud
+> escalation** on failure, and AI codegen is OFF (token-free). Kept for history.
+
 **Decision.** Provisioning (`setup all` / `runFullSetup`) runs exactly **`deps → build → migrate`**.
 It runs **neither codegen nor `mj sync push`**. Both are surfaced as explicit, opt-in operations:
 
@@ -374,4 +381,44 @@ it launched" with "an agent's scratch log."
 
 **Rules out.** Logs in the workspace root; moving the tool's `proc-logs` into the visible workspace
 (they're hidden runtime state); a second log-read mechanism (use `mjdev logs <id>` for process
-logs). Documented for agents in the managed `AGENTS.md` block + ORCHESTRATION.md "map".
+logs).
+
+---
+
+## ADR-009 — `setup all` = `deps → build → migrate → sync → codegen → build`, JSON-driven with one-shot codegen repair + loud escalation; AI codegen OFF by default (supersedes ADR-007, re-establishes ADR-006 done safely)
+
+> 📊 **In-depth flow + diagram + signal reference:** `docs/mj-dev-setup-loop.md` (dev-only). The
+> agent-facing short version + same diagram: `packages/orchestrator/docs/agent/DEV-LOOPS.md` §C.
+
+**Decision.** Both instance setup (`setup all` / `runFullSetup`) and open-app setup (`setupApp` / `mjdev app setup`) run the **convention-verification loop**:
+
+```
+deps → build → migrate → sync push (--format=json)
+   ├─ errorCount == 0 → codegen (AI OFF, expected no-op) → git-diff tripwire → build (cached)
+   └─ errorCount  > 0 → WARN (CLI+GUI: "sync failed → migrations out of sync with codegen;
+                        convention broken on this branch") → codegen (AI OFF, one-shot repair)
+                        → sync push (--format=json)
+                              ├─ ok  → [rejoin: codegen → tripwire → build]
+                              └─ fail → STOP → loud escalation (red CLI + non-dismissing GUI
+                                        modal + persistent log in instance logs/)
+```
+
+(Instance flow keeps `build` before `migrate` — the `mj` CLI is TS compiled to `dist/`, so it must exist before migrate/sync/codegen — and runs `build` **again** at the end, cheap via Turbo cache, to compile any code codegen regenerated. App setup skips the early build: the instance MJ is already built; the trailing build is the app's own `buildApp`.)
+
+**This is the team convention, enforced upstream, not by us.** By convention `mj sync push` is expected to **succeed**: developers commit their codegen-affecting changes into the migration (entity registration + the `*_Metadata_Sync` SQL) before committing. So on a convention-compliant branch, `sync` succeeds and `codegen` is a pure no-op (the git-diff confirms it). The loop's job is to **verify** that and **surface** it loudly when the convention wobbles — not to silently paper over it.
+
+**How this resolves ADR-007's three findings (why it's now safe to re-add what 007 removed):**
+
+1. _007: "codegen at provisioning is redundant — committed code already matches committed migrations."_ — Correct, and now **intentional**: codegen runs as a **verification no-op**, and the **git-diff tripwire** over codegen's config-derived output dirs (`configInfo.output[].directory` + `SQLOutput.folderPath`) confirms it changed nothing. A non-empty diff is a **non-blocking warning** ("generated code changed — diff-derived, may include your edits; migration likely out of convention, raise for `next`"), not a silent regen. Redundant work is cheap (Turbo cache → near-instant second build) and buys early detection.
+2. _007: "re-running codegen is harmful — it clobbers committed files when the DB lacks metadata they depend on."_ — Mitigated structurally: **sync runs BEFORE codegen**, so the DB is current first (the exact stale-DB clobber 007 feared can't happen on the happy path), and the **tripwire surfaces** any residual drift instead of letting it break the build silently. The clobber risk that justified 007 is now an observable, explained warning.
+3. _007: "`mj sync push` can't complete on current bases (PK divergence → `UQ_IntegrationObject_Name`) and `--ci` is a destructive full reconcile."_ — Handled by **outcome-driven control flow** rather than avoidance: we always run `--format=json` (non-interactive — `nonInteractive = ci || !isText`, plugins/index.ts:116 — so it **never hangs** on the validation prompt and emits a parseable `PushResult`), branch on `errorCount`, attempt **one** codegen repair, and on a second failure **escalate loudly** (red CLI + non-dismissing modal + persistent log) instead of hanging or guessing. On today's `next` the PK divergence makes core sync fail → repair won't fix a divergence → escalation fires with the real reason. **This replaces TE-1's manual "ask the user first" gate** with an automatic, non-silent failure that carries the explanation. (The transaction rolls back on failure, so the 9,262-row connector delete never commits.)
+
+**Deletions are intended; `--format=json` auto-approves them (honest note).** Like `--ci`, `--format=json` is non-interactive and so auto-approves the deletion-confirmation prompt. This is accepted: MetadataSync is declarative, deletions are a normal part of reconciliation, and a **constraint-violating** delete still fails the push and rolls back → lands on escalation. A future deletion-audit/response system is **backlogged** (revive only if the convention proves unenforceable), tracked in `mj-dev-manager-backlog.md`.
+
+**AI ("Advanced Generation") is OFF for all setup codegen.** Codegen's advanced-generation step (`advanced_generation.ts`: 7 LLM prompts — smart-field ID, form layout, entity names/descriptions, check-constraint parsing, virtual-field decoration, transitive joins) is **on by default and not gated on an API key**, so a fresh instance (every entity "new") would burn tokens on every create. Since instance creation is frequent (swarms), all setup/repair/verify codegen runs with `advancedGeneration.enableAdvancedGeneration: false` (instance: via the `ConfigWriter` `.mjrc.cjs` overlay; app: via a member-level overlay). **Instance creation is token-free, deterministically.** The enrichment is exposed as a **separate, clearly-labeled opt-in** (`mjdev codegen --ai` / `mjdev app codegen --ai`, + a GUI toggle, default OFF) that flips the switch on (optionally `--force-advanced-gen`) and restores config.
+
+**Why not just keep ADR-007 (on-demand only)?** Because we live on `next`, where the convention regularly wobbles, and "trust the committed code" silently ships broken instances when it doesn't hold. Running the loop at setup turns a latent break into a loud, early, explained signal — which is the whole point of the tool for a swarm.
+
+**Reliability of the no-op signal.** `mj codegen --format=json` does **not** report no-op-vs-changed (`entityCount` is total entities, not changed; the on-disk `~/.mj/codegen-state/run-*.json` counters are partial — `filesWritten` is dead). Migration-file presence is also unreliable (RelatedEntityJoinFields base-view regen, custom-view refreshes, forced regen, and description-comment headers leave a non-empty `CodeGen_Run_*.sql` with no real change). **git-diff of the config-derived output dirs is the only reliable determinant** — hence the tripwire.
+
+**Rules out.** Interactive (hang-prone) sync in setup; `--ci`'s silent commit-with-no-outcome-readout; trusting codegen JSON or migration-file presence as a no-op signal; AI/token spend during provisioning; a silent codegen clobber. Does **not** rule out the on-demand AI enrichment (kept, opt-in) or a future deletion-audit step (backlogged). The deeper MJ-core metadata/migration consistency problems remain upstream hand-offs. Documented for agents in the managed `AGENTS.md` block + ORCHESTRATION.md "map".

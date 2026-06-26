@@ -61,14 +61,14 @@ mjdev run <slug> api                    # (restart api to pick up server dist; n
 
 # schema change:
 mjdev app migrate <slug> <app>          # apply new migration files
-mjdev app codegen <slug> <app>          # regenerate entities/resolvers
+mjdev app codegen <slug> <app>          # regenerate entities/resolvers (AI off; add --ai to enrich)
 mjdev app build <slug> <app>
 
 # reference-data seed:
-mjdev app sync <slug> <app>             # push metadata (e.g. currencies)
+mjdev app sync <slug> <app>             # push metadata (e.g. currencies) — uses --format=json
 
-# one-shot "bring to ready":
-mjdev app setup <slug> <app>            # migrate -> sync -> build (NO codegen — on-demand only)
+# one-shot "bring to ready" — runs the full convention loop (see §C):
+mjdev app setup <slug> <app>            # migrate -> sync -> [repair codegen] -> codegen -> diff -> build
 
 # verify:
 mjdev e2e <slug> --check apps           # app renders + GraphQL live
@@ -85,45 +85,79 @@ mjdev app list <slug>                    # per-app status: migrated/codegen/buil
   `mjdev app reset-schema` (destructive) is the fix; `repair-schema` only realigns
   history rows and does NOT re-run SQL.
 
-## C. Instance-level (core MJ) codegen & metadata — on-demand, NOT part of setup
+## C. The setup loop — how migrate / sync / codegen / build fit together (ADR-009)
 
-`mjdev setup <slug> all` = **`deps → build → migrate`**. It does NOT run core codegen or
-`mj sync push`, and you usually never need them: a fresh instance's committed generated code
-already matches its committed migrations, and `migrate` seeds reference data via the
-`*_Metadata_Sync` migrations. **Trust the committed code.**
+`mjdev setup <slug> all` (instance core MJ) and `mjdev app setup <slug> <app>` (open app) both run
+the **same convention-verification loop**. It is non-interactive, token-free, and never hangs:
 
-Only when **you** change this instance's core schema/metadata:
-
-```sh
-# 1. (if you edited metadata/ files) push your edits into YOUR db — MANUAL, judgment required:
-#    dry-run FIRST; scope with --include; it is a full reconcile that can DELETE rows.
-cd instances/<slug>/mj && mj sync push --dir=metadata --dry-run   # inspect
-                          mj sync push --include=<your-dir>        # apply, scoped
-
-# 2. regenerate derived code (ON-DEMAND step):
-mjdev setup <slug> codegen     # ⚠ overwrites committed generated files
-
-# 3. commit BOTH the regenerated code AND its *_Metadata_Sync migration together.
+```mermaid
+flowchart TD
+    A[Worktree / pull repo] --> B[npm install]
+    B --> BD[build  — needed so the mj CLI exists]
+    BD --> C[mj migrate]
+    C --> D["mj sync push --dir=metadata --format=json"]
+    D --> E{errorCount == 0?}
+    E -->|Yes| F["mj codegen (AI OFF, expected no-op)"]
+    E -->|No| WARN1["WARN (CLI + GUI): mj sync failed —<br/>migrations out of sync with codegen;<br/>convention broken on this branch.<br/>Attempting one-shot codegen repair…"]
+    WARN1 --> G["mj codegen (AI OFF, one-shot repair)"]
+    G --> D2["mj sync push --dir=metadata --format=json"]
+    D2 --> E2{errorCount == 0?}
+    E2 -->|Yes| F
+    E2 -->|No| X["STOP → loud escalation:<br/>red CLI error + non-dismissing GUI modal<br/>+ persistent log (instance logs/ folder)"]
+    F --> H["git-diff config-derived output dirs"]
+    H --> I{diff present?}
+    I -->|Yes| W["WARN (non-blocking): generated code changed —<br/>diff-derived, may include your edits;<br/>migration out of convention, raise for next"]
+    I -->|No| J
+    W --> J["build (Turbo — cached, cheap)"]
+    J --> K[Setup complete]
 ```
 
-- ⚠ **Codegen clobber rule:** codegen regenerates from the DB. If the DB is missing metadata that
-  committed generated files depend on (someone committed `metadata/` without its migration), codegen
-  **overwrites/clobbers** them and breaks the build. **Run `mj sync push --dir=metadata --dry-run`
-  first** — pending creates/updates mean the DB diverges from committed metadata; reconcile or stop.
-- `mj sync push` is the **single-author** tool for your own edits, **not** how teammates' metadata
-  reaches you — that's migrations. See ADR-007 + CLI-REFERENCE.md.
-- ⏳ **TEMPORAL EXCEPTION (TE-1):** on the current `next` base a full `mj sync push` **breaks** on
-  the connector-retirement deletes. If your task will run `mj sync push`, **ask the user first**
-  (at the start of your response) whether to exclude the integration entries. See
-  @.mjdev-docs/TEMPORAL-EXCEPTIONS.md.
+**What each branch means for you:**
+
+- **Happy path** (sync ok, codegen no-op, clean diff): the branch is convention-compliant — committed
+  generated code matches committed migrations. Nothing to do.
+- **First-failure warning** (sync failed once, repair attempted): migrations are out of sync with
+  codegen on this branch — the convention is broken. Even if the repair then succeeds, **raise it for
+  `next`** (someone committed metadata without its matching migration).
+- **Tripwire warning** (codegen changed generated files): the same signal from the other side.
+  Non-blocking; it notes it's diff-derived and may include your own edits. Commit the regen + its
+  migration, or raise upstream.
+- **Escalation** (sync still fails after the one-shot codegen repair): **STOP.** A real problem the
+  loop can't fix (e.g. the DB-execution PK divergence on `next`). Surfaced three ways so you can't
+  miss it: **red CLI error**, a **non-dismissing GUI modal**, and a **persistent log at
+  `~/MJDev/instances/<slug>/logs/setup-escalations.md`** — copy it into your report / raise upstream.
+
+**Trust the committed code, but verify it.** On a convention-compliant branch the whole loop is
+effectively a no-op (sync succeeds with 0 changes, codegen regenerates nothing, diff is clean). The
+loop exists to make a _broken_ branch fail **loudly and early** instead of silently shipping a bad
+instance — which matters because we work on `next`, where the convention regularly wobbles.
+
+**Key facts:**
+
+- **Build runs twice for an instance** (`deps → build → migrate → … → build`): the early build makes
+  the `mj` CLI runnable (it's TS compiled to `dist/`); the trailing build compiles anything codegen
+  regenerated. The second build is a Turbo cache hit (near-instant) when nothing changed — so always
+  building last is essentially free insurance. (App setup skips the early build — the instance MJ is
+  already built — and the trailing build is the app's own `buildApp`.)
+- **AI codegen is OFF inside the loop** (token-free, because we create instances constantly). To run
+  the LLM "Advanced Generation" enrichment deliberately: `mjdev codegen <slug> --ai` (core) /
+  `mjdev app codegen <slug> <app> --ai` (app) — a token-spending, opt-in action (also a GUI toggle).
+- **No manual `mj sync push` judgment needed for setup anymore.** The loop runs it for you with
+  `--format=json` (non-interactive, never hangs, parseable outcome) and reacts to `errorCount`. You
+  can still run a scoped `mj sync push` by hand for your own metadata authoring, but it is no longer
+  a required setup step, and there is no manual dry-run/exclude gate to remember.
+- **`mj sync push` is the single-author tool for your own edits**, **not** how teammates' metadata
+  reaches you — that's migrations (`*_Metadata_Sync`). See ADR-009 + CLI-REFERENCE.md.
 
 ## GUI control inventory (what the exploratory test walks)
 
 The Instances + Open-Apps panels expose (drive each; fail on any console/pageerror):
 
 - **Create dialog** (name, baseRef/branch, optional port overrides).
-- **Setup steps** (deps / build / migrate / run-all) with status indicators, **plus** an
-  "Advanced — schema/metadata tools" card with a confirm-gated **Run CodeGen** button (on-demand).
+- **Setup steps** (deps / build / migrate / sync / codegen / run-all) with status indicators and the
+  loop's non-silent states (first-failure warning, diff tripwire warning, non-dismissing escalation
+  modal), **plus** an "Advanced — schema/metadata tools" card with the opt-in **AI codegen
+  enrichment** control (token-spending; default off).
 - **Process launcher** (Start MJAPI / Explorer / run-script) + running-process list (stop/logs).
 - **Branch panel** (Branch + Based-on rows + Pull + Merge-from-base buttons).
 - **Persona** roster + active-identity picker + per-instance persona + "Open Explorer as…".

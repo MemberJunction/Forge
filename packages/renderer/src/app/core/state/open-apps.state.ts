@@ -306,12 +306,14 @@ export class OpenAppsStateService {
    * (open-app codegen). Run after Migrate when the app's schema changed. Slower
    * than Rebuild — it queries the DB, rewrites generated files, then builds.
    */
-  async codegen(slug: string, appName: string): Promise<void> {
-    const result = await this.guard(() => this.ipc.openApps.codegen(slug, appName));
+  async codegen(slug: string, appName: string, ai = false): Promise<void> {
+    const result = await this.guard(() =>
+      this.ipc.openApps.codegen(slug, appName, ai ? { ai: true } : undefined)
+    );
     if (!result) return;
     if (result.ok)
       this.notification.success(
-        `CodeGen complete for "${appName}" — restart the API to pick up changes`
+        `CodeGen complete for "${appName}"${ai ? ' (AI enrichment)' : ''} — restart the API to pick up changes`
       );
     else
       this.notification.error(

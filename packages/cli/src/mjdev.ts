@@ -266,12 +266,18 @@ program
   .argument('<slug>')
   .argument('<step>', 'deps | migrate | build | codegen | all')
   .option('--json', 'machine-readable output')
-  .action(async (slug: string, step: string, opts: { json?: boolean }) => {
+  .option(
+    '--ai',
+    'codegen only: run AI "Advanced Generation" enrichment (consumes tokens; off by default)'
+  )
+  .action(async (slug: string, step: string, opts: { json?: boolean; ai?: boolean }) => {
     const json = !!opts.json;
     const valid = ['deps', 'migrate', 'codegen', 'build', 'all'];
     if (!valid.includes(step)) fail(json, new Error(`step must be one of: ${valid.join(', ')}`));
     try {
-      const record = await engine().runSetup(slug, step as SetupStep | 'all', makeSink(json));
+      const record = await engine().runSetup(slug, step as SetupStep | 'all', makeSink(json), {
+        ai: !!opts.ai,
+      });
       emitResult(json, { success: true, record }, () =>
         console.log(chalk.green(`✓ setup ${step} complete for ${slug}`))
       );
@@ -930,10 +936,11 @@ app
   .argument('<slug>')
   .argument('<app>')
   .option('--json', 'machine-readable output')
-  .action(async (slug: string, appName: string, opts: { json?: boolean }) => {
+  .option('--ai', 'run AI "Advanced Generation" enrichment (consumes tokens; off by default)')
+  .action(async (slug: string, appName: string, opts: { json?: boolean; ai?: boolean }) => {
     const json = !!opts.json;
     try {
-      const r = await engine().codegenApp(slug, appName, makeSink(json));
+      const r = await engine().codegenApp(slug, appName, makeSink(json), { ai: !!opts.ai });
       emitResult(json, { success: r.ok, ...r }, () =>
         console.log(
           r.ok

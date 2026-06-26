@@ -90,3 +90,14 @@ export {
 } from './util.js';
 export { run, runOrThrow } from './exec.js';
 export type { RunResult, RunOptions } from './exec.js';
+export {
+  parsePushResult,
+  isPushNoop,
+  isUnsupportedFormatFlag,
+  OLD_MJ_SYNC_ERROR,
+} from './syncResult.js';
+export type { ParsedPushResult } from './syncResult.js';
+export { runSyncConventionLoop } from './setupLoop.js';
+export type { SyncLoopSteps, SyncLoopOutcome } from './setupLoop.js';
+export { readCodegenOutputDirs, detectGeneratedDrift } from './codegenTripwire.js';
+export type { DriftResult } from './codegenTripwire.js';

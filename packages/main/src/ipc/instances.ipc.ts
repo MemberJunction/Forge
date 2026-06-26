@@ -86,8 +86,10 @@ export function registerInstanceHandlers(): void {
     return { success: true, path: target };
   });
 
-  safeHandle(IPC_CHANNELS.INSTANCES.SETUP_RUN, async (_e, slug: string, step: SetupStep | 'all') =>
-    engine.runSetup(slug, step, sink)
+  safeHandle(
+    IPC_CHANNELS.INSTANCES.SETUP_RUN,
+    async (_e, slug: string, step: SetupStep | 'all', opts?: { ai?: boolean }) =>
+      engine.runSetup(slug, step, sink, opts)
   );
 
   safeHandle(IPC_CHANNELS.INSTANCES.PROC_START, async (_e, slug: string, target: LaunchTarget) =>
@@ -201,8 +203,10 @@ export function registerInstanceHandlers(): void {
     engine.buildAllApps(slug, sink)
   );
 
-  safeHandle(IPC_CHANNELS.OPEN_APPS.CODEGEN, async (_e, slug: string, appName: string) =>
-    engine.codegenApp(slug, appName, sink)
+  safeHandle(
+    IPC_CHANNELS.OPEN_APPS.CODEGEN,
+    async (_e, slug: string, appName: string, opts?: { ai?: boolean }) =>
+      engine.codegenApp(slug, appName, sink, opts)
   );
 
   safeHandle(

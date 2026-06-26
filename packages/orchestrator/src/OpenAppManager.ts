@@ -2,6 +2,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { run, runOrThrow } from './exec.js';
 import { emit, type EventSink, noopSink } from './util.js';
+import {
+  parsePushResult,
+  isUnsupportedFormatFlag,
+  OLD_MJ_SYNC_ERROR,
+  type ParsedPushResult,
+} from './syncResult.js';
+import { ConfigWriter } from './ConfigWriter.js';
 import type { ResolvedPaths } from './paths.js';
 import { AppRepoManager } from './AppRepoManager.js';
 import { WorktreeManager } from './WorktreeManager.js';
@@ -1162,7 +1169,8 @@ export class OpenAppManager {
     mjWorktreePath: string,
     appName: string,
     env: NodeJS.ProcessEnv = process.env,
-    sink: EventSink = noopSink
+    sink: EventSink = noopSink,
+    opts: { ai?: boolean } = {}
   ): Promise<{ ok: boolean; error?: string }> {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     try {
@@ -1175,18 +1183,28 @@ export class OpenAppManager {
     }
     const mjBin = path.join(mjWorktreePath, 'packages', 'MJCLI', 'bin', 'run.js');
     const envFile = path.join(mjWorktreePath, '.env');
+    // Token control (ADR-009): codegen's AI "Advanced Generation" is ON by default
+    // and not gated on an API key, so app codegen would burn tokens on every linked
+    // app. Write a member-level `.mjrc.cjs` overlay (cosmiconfig loads it first from
+    // the member cwd) that disables it — unless the caller opts in via `ai: true`,
+    // in which case we enable it and force a full re-run. Apps without their own
+    // mj.config.cjs fall back to the worktree-root overlay (AI off by default).
+    const aiEnabled = opts.ai === true;
+    await this.writeAppCodegenOverlay(memberPath, aiEnabled, slug, sink);
     emit(
       sink,
       slug,
       'app-codegen',
       'progress',
-      `Running CodeGen for ${appName} (regenerate entities from DB + rebuild)…`
+      `Running CodeGen for ${appName} (regenerate entities from DB + rebuild)${aiEnabled ? ' — AI enrichment ON' : ''}…`
     );
     // The MJ AI engine logs noisy CRITICAL credential errors when no AI keys are
     // configured (advanced-description generation). It's NON-FATAL — codegen falls
     // back and completes — so drop that spam from the strip to keep useful lines.
     const noise = /CredentialValidation|candidatesChecked|modelsChecked/;
-    const result = await run('node', ['-r', 'dotenv/config', mjBin, 'codegen'], {
+    const codegenArgs = ['-r', 'dotenv/config', mjBin, 'codegen'];
+    if (aiEnabled) codegenArgs.push('--force-advanced-gen');
+    const result = await run('node', codegenArgs, {
       cwd: memberPath,
       env: { ...env, DOTENV_CONFIG_PATH: envFile },
       onOutput: s => {
@@ -1204,6 +1222,40 @@ export class OpenAppManager {
   }
 
   /**
+   * Write the member-level `.mjrc.cjs` that toggles codegen's AI step for an app.
+   * App codegen runs with cwd = the member dir, so cosmiconfig loads the member's
+   * config first; `.mjrc.cjs` outranks `mj.config.cjs` there, and ours spreads the
+   * app's own `mj.config.cjs` while overriding `advancedGeneration`. Only written
+   * when the app ships its own `mj.config.cjs` (so the overlay's `require` resolves);
+   * apps without one fall back to the worktree-root overlay (AI off by default).
+   */
+  private async writeAppCodegenOverlay(
+    memberPath: string,
+    aiEnabled: boolean,
+    slug: string,
+    sink: EventSink
+  ): Promise<void> {
+    const appConfig = path.join(memberPath, 'mj.config.cjs');
+    try {
+      await fs.access(appConfig);
+    } catch {
+      // No app-local config → root overlay governs (AI off). If the caller asked
+      // for AI on, note that it won't take effect without an app-local config.
+      if (aiEnabled)
+        emit(
+          sink,
+          slug,
+          'app-codegen',
+          'warn',
+          `${path.basename(memberPath)} has no mj.config.cjs — AI enrichment relies on the worktree-root setting; skipping member overlay.`
+        );
+      return;
+    }
+    const overlay = path.join(memberPath, ConfigWriter.ROOT_OVERLAY_FILE);
+    await fs.writeFile(overlay, ConfigWriter.renderCodegenOverlay(aiEnabled));
+  }
+
+  /**
    * Push a dev-linked app's metadata seed (reference data like currencies) into the
    * instance DB via the worktree's `mj sync push`. Open apps ship seed/config data as
    * MJ metadata under a `metadata/` dir; `mj sync push` is the only mechanism for it
@@ -1218,7 +1270,13 @@ export class OpenAppManager {
     env: NodeJS.ProcessEnv = process.env,
     sink: EventSink = noopSink,
     opts: { dir?: string; include?: string; mode?: 'push' | 'pull' | 'status' } = {}
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    result?: ParsedPushResult;
+    noContent?: boolean;
+    fatal?: boolean;
+  }> {
     const memberPath = this.memberPathFor(mjWorktreePath, appName);
     try {
       await fs.access(memberPath);
@@ -1234,11 +1292,15 @@ export class OpenAppManager {
       await fs.access(path.join(memberPath, dir));
     } catch {
       emit(sink, slug, 'app-sync', 'info', `No "${dir}" dir in ${appName} — nothing to sync.`);
-      return { ok: true };
+      return { ok: true, noContent: true };
     }
     const mjBin = path.join(mjWorktreePath, 'packages', 'MJCLI', 'bin', 'run.js');
     const envFile = path.join(mjWorktreePath, '.env');
-    const args = ['-r', 'dotenv/config', mjBin, 'sync', mode, '--dir', dir];
+    // `--format=json` is load-bearing (ADR-009): it makes sync NON-INTERACTIVE
+    // (never hangs on the validation prompt) AND emits a parseable PushResult we
+    // branch on. We still stream the human lines to the strip, but skip the final
+    // JSON blob (parsed separately) so the log stays readable.
+    const args = ['-r', 'dotenv/config', mjBin, 'sync', mode, `--dir=${dir}`, '--format=json'];
     if (opts.include) args.push(`--include=${opts.include}`);
     emit(
       sink,
@@ -1252,17 +1314,45 @@ export class OpenAppManager {
       env: { ...env, DOTENV_CONFIG_PATH: envFile },
       onOutput: s => {
         const line = s.trimEnd();
-        if (line) emit(sink, slug, 'app-sync', 'info', line);
+        if (line && !line.startsWith('{') && !line.startsWith('"'))
+          emit(sink, slug, 'app-sync', 'info', line);
       },
     });
-    if (result.code !== 0) {
-      const tail = (result.stderr || result.stdout).trim().split('\n').slice(-4).join('\n');
-      return { ok: false, error: `Metadata sync exited ${result.code}: ${tail}` };
+    // The `--format=json` result prints to STDOUT; progress events (incl. a
+    // `command:sync:push` start marker) stream to STDERR. Parse stdout first so the
+    // real result wins, falling back to the combined stream only if stdout had none.
+    const combined = result.stdout + '\n' + result.stderr;
+    const parsed = parsePushResult(result.stdout) ?? parsePushResult(combined) ?? undefined;
+    // Outcome = the CLI's parsed verdict when available, else the exit code.
+    const ok = parsed ? parsed.success : result.code === 0;
+    if (!ok) {
+      // Old-mj guard: a missing `--format` flag is a version gap, not a record
+      // error — say so plainly so the escalation points at the real fix.
+      if (!parsed && isUnsupportedFormatFlag(combined)) {
+        return {
+          ok: false,
+          error: `Metadata sync (${mode}) failed — ${OLD_MJ_SYNC_ERROR}`,
+          fatal: true,
+        };
+      }
+      const reason = parsed
+        ? `${parsed.errorCount} record error(s)${parsed.errors[0] ? `: ${parsed.errors[0]}` : ''}`
+        : `exited ${result.code}: ${(result.stderr || result.stdout).trim().split('\n').slice(-4).join('\n')}`;
+      return { ok: false, error: `Metadata sync (${mode}) failed — ${reason}`, result: parsed };
     }
-    emit(sink, slug, 'app-sync', 'success', `Metadata sync (${mode}) complete for ${appName}`);
+    const summary = parsed
+      ? ` (created ${parsed.created}, updated ${parsed.updated}, deleted ${parsed.deleted}, unchanged ${parsed.unchanged})`
+      : '';
+    emit(
+      sink,
+      slug,
+      'app-sync',
+      'success',
+      `Metadata sync (${mode}) complete for ${appName}${summary}`
+    );
     if (mode === 'push')
       await this.state.markSetup(slug, appName, { synced: true }).catch(() => {});
-    return { ok: true };
+    return { ok: true, result: parsed };
   }
 
   /**

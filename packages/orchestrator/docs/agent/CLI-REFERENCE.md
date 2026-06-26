@@ -53,32 +53,27 @@ provisioning needs neither. `migrate` is what brings the DB up to date (includin
 do the rest. This was verified: a `deps → build → migrate` instance has the generated resolvers/
 entity code present (committed, not gitignored) and a clean `git status`.
 
-**Don't run codegen unless you have to — it's ON-DEMAND.** The rule for **both** the instance
-(`setup … codegen`) and open apps (`app codegen`; `app setup` no longer runs it): you _have to_
-run codegen only when **YOU** changed the schema/metadata (of the instance or the app) and need
-the committed generated code to match — then run it and commit the regenerated code **and** its
-seeding migration. Otherwise **trust the committed generated code** (instances commit it under
-`*/src/generated`; so do dev-linked apps).
+**Setup runs the convention loop (ADR-009) — you rarely call codegen by hand.** Both
+`mjdev setup <slug> all` and `mjdev app setup <slug> <app>` run
+`… → migrate → sync (--format=json) → [one-shot codegen repair on sync failure] → codegen → build`,
+non-interactively. Codegen inside the loop runs with **AI Advanced Generation OFF** (token-free) and
+is an expected no-op; a git-diff of codegen's output dirs surfaces any drift as a **non-blocking
+warning**. See DEV-LOOPS.md §C for the full diagram and the warning/escalation states.
 
-⚠ **Why on-demand — the clobber risk.** Codegen reads the DB and overwrites the committed
-generated files. If the DB is missing metadata those files depend on, codegen **clobbers** them
-and breaks the build. **So when you DO have to codegen, bring the DB in sync FIRST:**
+**Codegen on its own** (`mjdev setup <slug> codegen` / `mjdev app codegen <slug> <app>`): for when
+**YOU** changed the schema/metadata and need the generated code to match. AI is OFF by default; add
+**`--ai`** to run the LLM enrichment ("Advanced Generation" — token-spending, opt-in). Commit the
+regenerated code **and** its seeding migration together. The loop already sequences sync-before-codegen
+so the stale-DB clobber risk is handled; a git-diff still warns if codegen changed anything.
 
-1. Run **`mj sync push`** in the worktree so the DB's metadata is current (core codegen → core
-   `mj sync push --dir=metadata`; an app's codegen → that app's own `mj sync push`, e.g. via
-   `mjdev app sync`).
-2. **If part of the push errors, that's expected on the current `next` base — and it's safe:** the
-   push is transactional, so MJ rolls that part back cleanly. **Exclude the failing section** (e.g.
-   `mj sync push --dir=metadata --exclude=integrations`) and re-run. (TE-1: the connector-retirement
-   deletes are the known failing section — see TEMPORAL-EXCEPTIONS.md.)
-3. Once the push lands, run codegen, then commit the regenerated code **and** its seeding migration.
-
-**Metadata authoring (`mj sync push`) is a deliberate MANUAL operation, never automated.** It is a
-full reconcile (it can DELETE database rows not represented in the files — e.g. a connector
-retirement) and it requires human judgment on scope. Run it yourself in the worktree, dry-run
-first, scope with `--include`. It is **not** the mechanism for getting teammates' metadata onto a
-fresh instance — migrations are. See ADR-007 (supersedes ADR-006) and the codegen-clobber triage
-in `MJDEV-ISSUES.md`.
+**Sync** (`mjdev app sync`, or core sync inside the loop) always runs `mj sync push --format=json` —
+non-interactive, never hangs, returns a parseable outcome (branch on `errorCount`). By team
+convention sync is expected to **succeed** (codegen-affecting changes are committed into migrations).
+When it fails, the loop attempts one codegen repair; if that doesn't fix it, it **escalates loudly**
+(red CLI + non-dismissing GUI modal + persistent log at
+`~/MJDev/instances/<slug>/logs/setup-escalations.md`). `mj sync push` is a full reconcile (it can
+DELETE rows not in the files) and is the **single-author** tool for your own metadata edits — **not**
+how teammates' metadata reaches you (migrations are). See ADR-009 (supersedes ADR-007).
 
 ## Personas & identity
 
