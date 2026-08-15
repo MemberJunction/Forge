@@ -1,5 +1,6 @@
 {
   "name": "@mj-forge/renderer",
+  "license": "BUSL-1.1",
   "version": "1.0.0",
   "description": "Angular renderer for MJ Forge",
   "scripts": {

@@ -248,7 +248,7 @@ This user needs Always On, profiler, maintenance plans, policy management — fe
 
 ## Business Model (Future Consideration)
 
-### v1: Free / Open Source
+### v1: Free / Source Available
 
 - Build community and gather feedback
 - Establish credibility in the Mac developer community

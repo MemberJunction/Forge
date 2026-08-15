@@ -1,5 +1,6 @@
 {
   "name": "@mj-forge/preload",
+  "license": "BUSL-1.1",
   "version": "1.0.0",
   "description": "Electron preload scripts for MJ Forge",
   "main": "dist/index.js",

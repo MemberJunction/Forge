@@ -1,5 +1,6 @@
 {
   "name": "@mj-forge/main",
+  "license": "BUSL-1.1",
   "version": "1.0.0",
   "description": "Electron main process for MJ Forge",
   "main": "dist/index.js",
