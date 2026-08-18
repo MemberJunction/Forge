@@ -35,5 +35,5 @@
     "node": ">=18.0.0"
   },
   "author": "MJ Forge",
-  "license": "MIT"
+  "license": "BUSL-1.1"
 }

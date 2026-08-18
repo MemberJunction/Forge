@@ -28,7 +28,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/license-BUSL--1.1-blue?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/engines-MSSQL%20%7C%20PostgreSQL%20%7C%20MySQL-orange?style=flat-square" alt="Engines">
   <img src="https://img.shields.io/github/v/release/MemberJunction/Forge?style=flat-square&color=purple" alt="Release">
   <img src="https://img.shields.io/github/actions/workflow/status/MemberJunction/Forge/build-release.yml?style=flat-square&label=build" alt="Build">
@@ -255,7 +255,7 @@ _One connection dialog, three engines. Pick SQL Server, PostgreSQL, or MySQL —
 | Docker container detection            |    ✅    |        ❌         |    ❌     |   ❌    |    ❌    |
 | ERD Visualization                     |    ✅    |        ❌         |    ✅     |   ✅    |    ✅    |
 | Keychain / Credential Store           |    ✅    |      partial      |    ✅     | partial |    ✅    |
-| Open Source                           |    ✅    |        ✅         |    ❌     |   ✅    |    ❌    |
+| Source Available                      |    ✅    |        ✅         |    ❌     |   ✅    |    ❌    |
 
 ---
 
@@ -455,7 +455,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instr
 
 ## Acknowledgments
 
-MJ Forge is built by the team behind [MemberJunction](https://github.com/MemberJunction/MJ), the open-source metadata-driven application platform.
+MJ Forge is built by the team behind [MemberJunction](https://github.com/MemberJunction/MJ), the metadata-driven application platform.
 
 <p align="center">
   <a href="https://github.com/MemberJunction/MJ">
@@ -467,7 +467,7 @@ MJ Forge is built by the team behind [MemberJunction](https://github.com/MemberJ
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Business Source License 1.1 — see [LICENSE](./LICENSE) for details.
 
 ---
 

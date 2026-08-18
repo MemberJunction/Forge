@@ -1,5 +1,6 @@
 {
   "name": "@mj-forge/shared",
+  "license": "BUSL-1.1",
   "version": "1.0.0",
   "description": "Shared types and constants for MJ Forge",
   "main": "dist/index.js",
