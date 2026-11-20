@@ -2,13 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
-    paths:
-      - 'package-lock.json'
-      - 'packages/**'
-      - 'vitest.config.ts'
+    branches: [main, next, 'lts/**']
   push:
-    branches: [main]
+    branches: [main, next, 'lts/**']
 
 jobs:
   test:
